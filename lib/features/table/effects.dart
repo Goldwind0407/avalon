@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import '../../core/ambient_motion.dart';
 
 /// Runs [builder] once with t going 0 → 1 over [duration], after [delay].
 /// Rebuilding the parent does not restart it.
@@ -60,14 +61,23 @@ class Appear extends StatelessWidget {
         child: child,
         builder: (context, t, child) {
           final e = Curves.easeOutCubic.transform(t);
-          return Opacity(
-            opacity: e,
-            child: Transform.translate(
-              offset: offset * (1 - e),
-              child: Transform.rotate(
-                angle: turnFrom * (1 - e),
-                child: Transform.scale(
-                    scale: scaleFrom + (1 - scaleFrom) * e, child: child),
+          return IgnorePointer(
+            ignoring: t < 1,
+            child: ExcludeFocus(
+              excluding: t < 1,
+              child: ExcludeSemantics(
+                excluding: t < 1,
+                child: Opacity(
+                  opacity: e,
+                  child: Transform.translate(
+                    offset: offset * (1 - e),
+                    child: Transform.rotate(
+                      angle: turnFrom * (1 - e),
+                      child: Transform.scale(
+                          scale: scaleFrom + (1 - scaleFrom) * e, child: child),
+                    ),
+                  ),
+                ),
               ),
             ),
           );
@@ -230,8 +240,18 @@ class Floaty extends StatefulWidget {
 
 class _FloatyState extends State<Floaty> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 5200))
-    ..repeat();
+      vsync: this, duration: const Duration(milliseconds: 5200));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AmbientMotionScope.of(context)) {
+      if (!_c.isAnimating) _c.repeat();
+    } else {
+      _c.stop();
+    }
+  }
+
   @override
   void dispose() {
     _c.dispose();
@@ -241,7 +261,7 @@ class _FloatyState extends State<Floaty> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: _c,
-        child: widget.child,
+        child: RepaintBoundary(child: widget.child),
         builder: (context, child) {
           final a = _c.value * 2 * pi;
           final m = Matrix4.identity()
@@ -440,14 +460,26 @@ class _ParticlesState extends State<Particles>
   final _time = ValueNotifier<double>(0);
   late final Ticker _ticker;
   late final List<_Particle> _ps;
+  double _elapsedBeforePause = 0;
 
   @override
   void initState() {
     super.initState();
     final r = Random(widget.seed);
     _ps = List.generate(widget.count, (_) => _Particle(r));
-    _ticker = createTicker((d) => _time.value = d.inMicroseconds / 1e6)
-      ..start();
+    _ticker = createTicker(
+        (d) => _time.value = _elapsedBeforePause + d.inMicroseconds / 1e6);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AmbientMotionScope.of(context)) {
+      if (!_ticker.isActive) _ticker.start();
+    } else if (_ticker.isActive) {
+      _ticker.stop();
+      _elapsedBeforePause = _time.value;
+    }
   }
 
   @override

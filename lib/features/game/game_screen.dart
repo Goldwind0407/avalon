@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/assets.dart';
+import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';
 import '../lobby/room_model.dart';
 import '../table/card_reveal.dart';
@@ -63,6 +64,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _hiding = false;
   bool _crownFlying = false;
   final _voteLanding = <int>{}, _shieldLanding = <int>{};
+  final _revealedVotes = <int>{};
   int _pileLanding = 0;
   int _announceId = 0;
   (String, String, int)? _announcement;
@@ -93,6 +95,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     ];
     _interlude = _crownFlying = _assassinShown = false;
     _voteLanding.clear();
+    _revealedVotes.clear();
     _shieldLanding.clear();
     _pileLanding = 0;
     _announcement = null;
@@ -164,6 +167,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final oldPhase = game.phase, oldLeader = game.leader;
     setState(() {
       action();
+      if (game.phase != GamePhase.voteResult) _revealedVotes.clear();
       revealed = false;
       selected.clear();
       choice = null;
@@ -344,8 +348,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _ => game.actor,
       };
 
-  /// When every vote card in front of the seats has been turned over.
-  int get _votesShownMs => 760 + 120 * game.players.length + 500;
+  // The last card mounts after its flight lands, so a fixed delay cannot
+  // reliably tell us when every seat has finished flipping.
+  bool get _votesReady => _revealedVotes.length == game.players.length;
+
+  void _voteRevealed(int seat) {
+    if (!mounted ||
+        game.phase != GamePhase.voteResult ||
+        _revealedVotes.contains(seat)) {
+      return;
+    }
+    setState(() => _revealedVotes.add(seat));
+  }
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -355,7 +369,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         },
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: WoodTable(
+          body: AmbientMotion(child: WoodTable(
             child: SafeArea(
               child: LayoutBuilder(builder: (context, c) {
                 final s =
@@ -369,10 +383,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 return Shaker(
                   key: _shaker,
                   child: Stack(children: [
-                    Positioned.fill(child: _table(s)),
-                    Positioned.fill(child: _props(s)),
-                    const Positioned.fill(
-                        child: Particles(kind: ParticleKind.dust, count: 26)),
+                    Positioned.fill(
+                        child: AmbientMotionScope(
+                      enabled: AmbientMotionScope.of(context) &&
+                          !secret &&
+                          !questShow &&
+                          !endShow,
+                      child: RepaintBoundary(child: _table(s)),
+                    )),
+                    Positioned.fill(child: RepaintBoundary(child: _props(s))),
+                    Positioned.fill(
+                        child: AmbientMotionScope(
+                      enabled: AmbientMotionScope.of(context) &&
+                          !secret &&
+                          !questShow &&
+                          !endShow,
+                      child:
+                          const Particles(kind: ParticleKind.dust, count: 26),
+                    )),
                     if (note != null)
                       Positioned.fill(
                         child: IgnorePointer(
@@ -408,7 +436,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 );
               }),
             ),
-          ),
+          )),
         ),
       );
 
@@ -514,6 +542,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       vote: vote,
       // one after another around the table, once the last card has landed
       voteDelay: _ms(760 + 120 * i),
+      onVoteRevealed: () => _voteRevealed(i),
       bump: _bumps[i],
       plateKey: _plateKeys[i],
       crownKey: _crownKeys[i],
@@ -572,10 +601,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ]),
                 ),
               ),
-              if (game.phase == GamePhase.voteResult)
+              if (game.phase == GamePhase.voteResult && _votesReady)
                 StampIn(
                   key: ValueKey('v${game.history.length}.${game.rejections}'),
-                  delay: _ms(_votesShownMs),
                   angle: -.1,
                   onLand: () {
                     HapticFeedback.heavyImpact();
@@ -695,16 +723,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   : null,
             ));
       case GamePhase.voteResult:
+        if (!_votesReady) return SizedBox(height: 36 * s);
         final yes = game.votes.where((v) => v).length;
+        final finalRejection = !game.teamApproved && game.rejections == 4;
         // the count is only shown once every card has been turned over
         return Appear(
           key: ValueKey('vr${game.history.length}.${game.rejections}'),
-          delay: _ms(_votesShownMs + 250),
+          delay: _ms(500),
           child: bar(
               '贊成 $yes · 反對 ${game.players.length - yes}　—　'
-              '${game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
-              TableButton(game.teamApproved ? '開始秘密執行任務' : '繼續',
-                  scale: s, onPressed: () => act(game.continueVote))),
+              '${finalRejection ? '連續五次組隊遭否決，邪惡陣營獲勝' : game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
+              TableButton(
+                  finalRejection
+                      ? '邪惡獲勝・查看結算'
+                      : game.teamApproved
+                          ? '開始秘密執行任務'
+                          : '繼續',
+                  scale: s,
+                  onPressed: () => act(game.continueVote))),
         );
       default:
         return SizedBox(height: 36 * s);

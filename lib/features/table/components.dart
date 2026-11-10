@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/assets.dart';
+import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';
 import 'effects.dart';
 
@@ -111,6 +112,7 @@ class FlipCard extends StatefulWidget {
     this.delay = Duration.zero,
     this.flipOnMount = false,
     this.duration = const Duration(milliseconds: 700),
+    this.onRevealed,
   });
   final Widget front;
   final Widget back;
@@ -118,6 +120,9 @@ class FlipCard extends StatefulWidget {
   final bool flipOnMount;
   final Duration delay;
   final Duration duration;
+
+  /// Fires when the face-up animation has fully finished.
+  final VoidCallback? onRevealed;
   @override
   State<FlipCard> createState() => _FlipCardState();
 }
@@ -134,7 +139,14 @@ class _FlipCardState extends State<FlipCard>
   @override
   void initState() {
     super.initState();
+    _c.addStatusListener(_onStatus);
     if (widget.flipOnMount && widget.faceUp) _turn(true);
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && widget.faceUp) {
+      widget.onRevealed?.call();
+    }
   }
 
   void _turn(bool up) {
@@ -220,8 +232,18 @@ class PulseRing extends StatefulWidget {
 class _PulseRingState extends State<PulseRing>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1600))
-    ..repeat(reverse: true);
+      vsync: this, duration: const Duration(milliseconds: 1600));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AmbientMotionScope.of(context)) {
+      if (!_c.isAnimating) _c.repeat(reverse: true);
+    } else {
+      _c.stop();
+    }
+  }
+
   @override
   void dispose() {
     _c.dispose();
@@ -230,7 +252,8 @@ class _PulseRingState extends State<PulseRing>
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-        child: AnimatedBuilder(
+        child: RepaintBoundary(
+            child: AnimatedBuilder(
           animation: _c,
           builder: (context, _) {
             final v = Curves.easeInOut.transform(_c.value);
@@ -251,7 +274,7 @@ class _PulseRingState extends State<PulseRing>
               ),
             );
           },
-        ),
+        )),
       );
 }
 
@@ -391,6 +414,7 @@ class SeatPlate extends StatelessWidget {
     this.highlight = false,
     this.vote = SeatVote.none,
     this.voteDelay = Duration.zero,
+    this.onVoteRevealed,
     this.bump = 0,
     this.plateKey,
     this.crownKey,
@@ -407,6 +431,7 @@ class SeatPlate extends StatelessWidget {
   final bool highlight;
   final SeatVote vote;
   final Duration voteDelay;
+  final VoidCallback? onVoteRevealed;
   final int bump;
   final Key? plateKey, crownKey, shieldKey, voteKey;
   final VoidCallback? onTap;
@@ -488,6 +513,7 @@ class SeatPlate extends StatelessWidget {
               faceUp: vote == SeatVote.approve || vote == SeatVote.reject,
               flipOnMount: true,
               delay: voteDelay,
+              onRevealed: onVoteRevealed,
               back: CardBack(width: 26 * s, elevation: 3),
               front: GameCard(
                   vote == SeatVote.reject

@@ -61,9 +61,15 @@ void main() {
     await settle();
     expect(find.text('請將手機交給'), findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    // Entrance animations are muted while the app is inactive. Let the
+    // resumed handoff finish before attempting to press its button.
+    await settle();
     for (var i = 0; i < 5; i++) {
       await tester.tap(find.text('我是本人，開啟秘密畫面'));
-      await settle();
+      // The identity button appears after the card and all information lines;
+      // fading controls now remain disabled until their entrance completes.
+      await settle(2200);
+      expect(find.text('記住了，隱藏並交給下一位').hitTestable(), findsOneWidget);
       await tester.tap(find.text('記住了，隱藏並交給下一位'));
       await settle();
     }

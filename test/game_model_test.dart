@@ -93,6 +93,30 @@ void main() {
     expect(game.leader, (leader + 4) % 6);
   });
 
+  test('approval on the fifth proposal resets rejections for the next quest',
+      () {
+    final game = setup();
+    for (var attempt = 0; attempt < 4; attempt++) {
+      game.proposeTeam([0, 1]);
+      for (var voter = 0; voter < 5; voter++) {
+        game.vote(false);
+      }
+      game.continueVote();
+    }
+    expect(game.rejections, 4);
+    approve(game, [0, 1]);
+    expect(game.phase, GamePhase.quest);
+    expect(game.rejections, 0);
+    while (game.phase == GamePhase.quest) {
+      game.playQuest(true);
+    }
+    game.continueQuest();
+    expect(game.phase, GamePhase.team);
+    expect(game.questNumber, 2);
+    expect(game.rejections, 0);
+    expect(game.winner, isNull);
+  });
+
   test('good players cannot sabotage; three failed quests end the game', () {
     final game = setup();
     for (var round = 0; round < 3; round++) {
