@@ -151,6 +151,8 @@ class OnlineGameSession extends GameSession {
   @override
   List<String> get players => [for (final p in room?.players ?? []) p.name];
   @override
+  List<String> get playerIds => [for (final p in room?.players ?? []) p.uid];
+  @override
   GamePhase get phase =>
       GamePhase.values.byName(_game['phase'] as String? ?? 'identity');
   @override

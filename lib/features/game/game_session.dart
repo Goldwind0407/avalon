@@ -24,6 +24,7 @@ abstract class GameSession extends ChangeNotifier {
   // ───────────── public table ─────────────
 
   List<String> get players;
+  List<String> get playerIds => List.generate(players.length, (i) => 'seat$i');
   GamePhase get phase;
   int get leader;
   int get rejections;

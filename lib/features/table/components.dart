@@ -429,6 +429,7 @@ class SeatPlate extends StatelessWidget {
     this.shieldKey,
     this.voteKey,
     this.onTap,
+    this.activity,
   });
   final int number;
   final String name;
@@ -443,6 +444,7 @@ class SeatPlate extends StatelessWidget {
   final int bump;
   final Key? plateKey, crownKey, shieldKey, voteKey;
   final VoidCallback? onTap;
+  final Widget? activity;
 
   @override
   Widget build(BuildContext context) {
@@ -491,6 +493,7 @@ class SeatPlate extends StatelessWidget {
                         color: const Color(0xFFF2E6CC),
                         fontWeight: FontWeight.w600)),
               ),
+              if (activity != null) activity!,
             ]),
           ),
         ),

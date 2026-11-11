@@ -7,17 +7,26 @@ import '../game/game_screen.dart';
 import '../game/game_session.dart';
 import '../lobby/room_model.dart';
 import 'online_session.dart';
+import 'online_service.dart';
+import 'voice/voice_controller.dart';
+import 'voice/livekit_voice_transport.dart';
+import 'voice/voice_controls.dart';
 
 /// A room before (and between) games: who is in, which roles are used.
 /// When the host deals, every phone moves to the table automatically.
 class OnlineRoomScreen extends StatefulWidget {
   const OnlineRoomScreen(
-      {super.key, required this.code, required this.uid, this.session});
+      {super.key,
+      required this.code,
+      required this.uid,
+      this.session,
+      this.voice});
   final String code;
   final String uid;
 
   /// For tests; normally the screen connects to Firebase itself.
   final OnlineGameSession? session;
+  final VoiceController? voice;
 
   @override
   State<OnlineRoomScreen> createState() => _OnlineRoomScreenState();
@@ -26,6 +35,25 @@ class OnlineRoomScreen extends StatefulWidget {
 class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   late final OnlineGameSession session =
       widget.session ?? OnlineGameSession.connect(widget.code, widget.uid);
+  late final VoiceController voice = widget.voice ??
+      VoiceController(
+        credentials: () async {
+          try {
+            final access = await OnlineService.instance
+                .call('voiceToken', {'code': widget.code});
+            final url = access['url'];
+            final token = access['token'];
+            if (url is! String || token is! String) {
+              throw const VoiceException('語音服務暫時無法使用');
+            }
+            return VoiceCredentials(url, token);
+          } on GameMoveException catch (e) {
+            throw VoiceException(
+                e.message == 'NOT FOUND' ? '語音服務尚未啟用，仍可繼續遊戲' : e.message);
+          }
+        },
+        createTransport: LiveKitVoiceTransport.new,
+      );
   bool _tableOpen = false;
 
   /// The deal the player walked away from; they are not pulled back into it.
@@ -41,12 +69,18 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   @override
   void dispose() {
     session.removeListener(_onRoomChanged);
+    if (widget.voice == null) voice.dispose();
     if (widget.session == null) session.dispose();
     super.dispose();
   }
 
   void _onRoomChanged() {
     final room = session.room;
+    if (session.closed ||
+        session.error != null ||
+        (room != null && room.seatOf(widget.uid) < 0)) {
+      voice.leave();
+    }
     if (room != null && room.inGame && !_tableOpen && room.gen != _leftGen) {
       _openTable();
     }
@@ -54,8 +88,10 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
 
   Future<void> _openTable() async {
     _tableOpen = true;
-    await Navigator.push(context,
-        MaterialPageRoute(builder: (_) => GameScreen.online(session: session)));
+    await Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => GameScreen.online(session: session, voice: voice)));
     if (!mounted) return;
     setState(() {
       _tableOpen = false;
@@ -79,6 +115,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   }
 
   Future<void> _leave() async {
+    await voice.leave();
     final room = session.room;
     // in the lobby the seat is given up; during a game it is kept so the
     // player can come back with the same code
@@ -161,8 +198,9 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                   ..showSnackBar(const SnackBar(content: Text('已複製房號')));
               }),
           const Spacer(),
-          Text(host ? '你是房主' : '等待房主開始',
-              style: const TextStyle(color: AvalonTheme.muted, fontSize: 12)),
+          VoiceControls(
+              voice: voice,
+              names: {for (final p in room.players) p.uid: p.name}),
         ]),
         const SizedBox(height: 8),
         Expanded(
@@ -274,6 +312,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         border: me ? Border.all(color: AvalonTheme.gold) : null,
       ),
       child: Row(children: [
+        VoiceSpeakingMark(voice: voice, uid: p.uid),
         Text('${seat + 1}',
             style: const TextStyle(
                 color: AvalonTheme.gold, fontWeight: FontWeight.bold)),

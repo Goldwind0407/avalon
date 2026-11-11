@@ -5,6 +5,8 @@
 - **一機遊玩**：大家在現場討論，依提示把手機交給指定玩家，秘密查看身分、投票及執行任務。
 - **多機遊玩**：每人用自己的手機加入同一個房間。身分、投票和任務牌只出現在自己的手機上，由伺服器（Firebase Cloud Functions）裁決，任何手機都讀不到別人的秘密。
 
+多機模式提供房間即時語音（LiveKit，需完成下方服務設定）；一機模式不啟動語音或要求麥克風權限。
+
 兩種玩法共用同一個橫向遊戲桌面與動畫。
 
 ## 啟動
@@ -69,11 +71,62 @@ flutter run --dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2      # Android 模擬�
 flutter run --dart-define=FIREBASE_EMULATOR_HOST=192.168.x.x   # 實體手機（同一個 Wi-Fi 下電腦的 IP）
 ```
 
+## 多機即時語音（LiveKit）
+
+### 服務設定
+
+App 與 Firebase 函式已整合 LiveKit SDK；需要自行建立 LiveKit Cloud 專案並設定後，才有真正的語音通話。尚未設定時，不影響原本的多機遊戲。
+
+1. 建立 LiveKit Cloud 專案，在專案設定取得 WebSocket URL、API Key 與 API Secret。
+2. 參考 `functions/.env.example`，建立 `functions/.env.avalon-shadow-council`，只放服務網址：
+
+   ```dotenv
+   LIVEKIT_URL=wss://YOUR-PROJECT.livekit.cloud
+   ```
+
+3. 在本機終端機設定後端 Secret。依 CLI 提示輸入，勿把金鑰寫進 Flutter、Firestore 或 Git：
+
+   ```sh
+   firebase functions:secrets:set LIVEKIT_API_KEY --project avalon-shadow-council
+   firebase functions:secrets:set LIVEKIT_API_SECRET --project avalon-shadow-council
+   ```
+
+4. 部署新增的語音憑證函式：
+
+   ```sh
+   cd functions
+   npm install
+   npm test
+   cd ..
+   firebase deploy --only functions:voiceToken --project avalon-shadow-council
+   ```
+
+5. 執行 `flutter pub get`，重新編譯並安裝 App（新增原生語音 SDK 與權限，不能只做 hot reload）。iOS 需在 Mac 上重新建置。
+
+### 使用方式與權限
+
+- 在多機大廳按「加入語音」，先以麥克風關閉的狀態聆聽；按麥克風才請求錄音權限並開始說話。加入與錄音都是玩家主動操作。
+- 其他玩家須各自加入語音，才能互相聽見。大廳及座位旁顯示「說話中」。
+- 大廳、對局及結算共用同一條語音連線；看秘密身分或結果動畫時仍可靜音。返回大廳不斷線，按「離開語音」或離開整個房間才結束通話。
+- SDK 會嘗試自動重連；重連失敗時顯示「重試語音」，重新向 Firebase 取得憑證。
+- Firebase 先驗證匿名登入及有效房間成員資格，再簽發 5 分鐘的房間限定 JWT。憑證只能發布麥克風音訊、接收其他人聲音，不能發布鏡頭、螢幕或資料訊息，也沒有管理／錄製權限。
+- 語音房使用獨立 UUID，不直接使用六碼房號，避免房號日後重複而混入舊語音房。憑證只有公開暱稱與玩家 UID，不含任何角色情報。
+- iOS 已加入麥克風用途說明及背景音訊宣告。Android 已加入錄音、網路與音訊權限；此版以 App 在前景遊玩為主，尚未加入 Android 背景麥克風前景服務。
+- 本專案不啟用錄音或轉錄。音訊經過所設定的 LiveKit 服務傳輸。
+
+### 驗證範圍
+
+`flutter test` 包含控制器的權限失敗、重連狀態、離房清理、延遲連線取消，以及大廳／對局共用連線的畫面測試。`npm test` 包含實際 JWT 簽章、房間與成員限制、失效房間、音訊權限及有效期限測試。
+
+這些自動測試使用假的音訊傳輸；在沒有 LiveKit 專案的環境下，不能驗證真正的收音、雙向聲音、耳機切換與平台背景行為。設定完成後，需用至少兩支實體手機加入同一房間測試這些項目，並確認離房後系統麥克風指示熄滅。
+
+參考 [LiveKit Flutter 官方文件](https://docs.livekit.io/transport/sdk-platforms/flutter/) 與 [Firebase Secret 設定](https://firebase.google.com/docs/functions/config-env)。
+
 ## 隱私與限制
 
 - 一機模式每次秘密操作都有交接遮罩；App 進入背景時重新隱藏秘密畫面。適合彼此信任的現場玩家，無防窺或截圖阻擋。
 - 多機模式的秘密由伺服器保管；房主也看不到別人的身分。遊戲開始後無法加入新玩家，離開對局不會讓出座位。
-- 尚未實作湖中女神等擴充規則、聊天、語音或戰績。平台檔案使用開發用應用程式識別碼（`com.example.*`），上架前需更換並重新執行 `flutterfire configure`。
+- 尚未實作湖中女神等擴充規則、文字聊天或戰績。語音需設定 LiveKit 服務後使用。平台檔案使用開發用應用程式識別碼（`com.example.*`），上架前需更換並重新執行 `flutterfire configure`。
 
 ## 驗證
 
@@ -92,6 +145,7 @@ npm run test:cloud      # 同樣的測試，直接打已部署的正式環境（
 - `lib/core/`：主題、素材路徑與共用元件。
 - `lib/features/home/`：首頁與一機遊玩設定。
 - `lib/features/online/`：多機遊玩的連線服務、房間大廳與連線版遊戲來源。
+- `lib/features/online/voice/`：語音控制器、LiveKit 音訊傳輸、麥克風及說話狀態元件。
 - `lib/features/game/game_model.dart`：一機遊玩的遊戲狀態與規則。
 - `lib/features/game/game_session.dart`：遊戲桌面讀取的介面（`GameSession`），一機與多機各有實作。
 - `lib/features/game/game_screen.dart`：遊戲桌面、秘密操作與揭曉畫面。

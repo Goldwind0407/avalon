@@ -13,6 +13,8 @@ import '../table/quest_board.dart';
 import '../table/table_surface.dart';
 import 'game_model.dart';
 import 'game_session.dart';
+import '../online/voice/voice_controller.dart';
+import '../online/voice/voice_controls.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -25,14 +27,18 @@ Duration _ms(int v) => Duration(milliseconds: v);
 ///  * online — every player has their own phone and the server referees.
 class GameScreen extends StatefulWidget {
   /// Pass & play: this phone is passed around the table.
-  const GameScreen({super.key, required Room this.room}) : session = null;
+  const GameScreen({super.key, required Room this.room})
+      : session = null,
+        voice = null;
 
   /// One seat in an online game.
-  const GameScreen.online({super.key, required GameSession this.session})
+  const GameScreen.online(
+      {super.key, required GameSession this.session, this.voice})
       : room = null;
 
   final Room? room;
   final GameSession? session;
+  final VoiceController? voice;
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -540,6 +546,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           child: secret ? _privateLayer(s, c) : null),
                     ),
                     Positioned.fill(child: FlightLayer(key: _flights)),
+                    // Keep mute/leave reachable even over a private card or
+                    // public reveal scrim; these controls contain no secrets.
+                    if (game.isOnline && widget.voice != null)
+                      Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Material(
+                            color: AvalonTheme.surface.withValues(alpha: .94),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 6),
+                                child:
+                                    VoiceControls(voice: widget.voice!, names: {
+                                  for (var i = 0; i < game.players.length; i++)
+                                    game.playerIds[i]: game.players[i],
+                                })),
+                          )),
                   ]),
                 );
               }),
@@ -638,6 +662,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final canPick = _iPickTeam &&
         (selected.contains(i) || selected.length < game.requiredTeam);
     return SeatPlate(
+      activity: widget.voice == null
+          ? null
+          : VoiceSpeakingMark(voice: widget.voice!, uid: game.playerIds[i]),
       key: ValueKey('seat$i'),
       number: i + 1,
       name: game.players[i],
