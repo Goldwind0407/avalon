@@ -95,6 +95,10 @@ abstract class GameSession extends ChangeNotifier {
   Future<void> continueQuest();
   Future<void> assassinate(int target);
   Future<void> restart();
+
+  /// Online only: give up this player's seat (ends a game in progress).
+  bool get canLeaveRoom => false;
+  Future<void> leaveRoom() async {}
 }
 
 /// Card art for every seat, giving each loyal servant and minion its own

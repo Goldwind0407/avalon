@@ -8,7 +8,7 @@
 //   rooms/{code}/private/{uid}  one player's role and what they can see
 //   rooms/{code}/secret/state   all roles, unrevealed votes and quest cards
 
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import {
   FieldValue,
@@ -20,17 +20,12 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
-import { defineSecret, defineString } from 'firebase-functions/params';
-import { issueVoiceAccess, VoiceAccessError } from './voice';
 
 initializeApp();
 // Callable functions must be reachable by the app; who is calling is
 // checked inside every function with the Firebase sign-in token (uidOf).
 setGlobalOptions({ region: 'asia-east1', maxInstances: 20, invoker: 'public' });
 const db = getFirestore();
-const livekitUrl = defineString('LIVEKIT_URL', { default: '' });
-const livekitApiKey = defineSecret('LIVEKIT_API_KEY');
-const livekitApiSecret = defineSecret('LIVEKIT_API_SECRET');
 
 /** Rooms are kept for a day; set a TTL policy on `expireAt` to clean up. */
 const ROOM_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -42,7 +37,6 @@ interface Player {
 }
 
 interface Room {
-  voiceRoomId?: string;
   code: string;
   hostUid: string;
   status: 'lobby' | 'playing';
@@ -54,6 +48,10 @@ interface Room {
   /** Increases on every change, so devices can tell updates apart. */
   step: number;
   game: Omit<GameState, (typeof rules.SECRET_KEYS)[number]> | null;
+  /** Something everyone should be told (e.g. a player left mid-game). */
+  notice?: string | null;
+  /** The step at which [notice] was written, so devices show it once. */
+  noticeStep?: number;
 }
 
 const roomRef = (code: string) => db.collection('rooms').doc(code);
@@ -120,36 +118,6 @@ function touch(room: Room) {
   };
 }
 
-// Voice credentials are issued only to authenticated members of a live room.
-// Existing rooms receive a unique namespace too, so reusing a six-digit code
-// never puts unrelated players into the same voice call.
-export const voiceToken = onCall(
-  { secrets: [livekitApiKey, livekitApiSecret] },
-  async (req) => {
-    const uid = uidOf(req);
-    const code = cleanCode(req.data?.code);
-    const voiceRoom = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(roomRef(code));
-      if (!snap.exists) throw new HttpsError('not-found', '找不到這個房間');
-      const room = snap.data() as Room;
-      seatOf(room, uid);
-      const expiresAt = (snap.get('expireAt') as Timestamp | undefined)?.toMillis() ?? 0;
-      if (expiresAt <= Date.now()) throw new HttpsError('failed-precondition', '房間已失效');
-      const voiceRoomId = room.voiceRoomId ?? `avalon-${randomUUID()}`;
-      if (!room.voiceRoomId) tx.update(roomRef(code), { voiceRoomId });
-      return { voiceRoomId, players: room.players, expiresAt };
-    });
-    try {
-      return await issueVoiceAccess({
-        url: livekitUrl.value(), apiKey: livekitApiKey.value(), apiSecret: livekitApiSecret.value(),
-      }, voiceRoom, uid);
-    } catch (e) {
-      if (e instanceof VoiceAccessError) throw new HttpsError(e.code, e.message);
-      throw new HttpsError('unavailable', '暫時無法連接語音，請稍後重試');
-    }
-  },
-);
-
 // ───────────────────────── lobby ─────────────────────────
 
 export const createRoom = onCall(async (req) => {
@@ -161,7 +129,6 @@ export const createRoom = onCall(async (req) => {
       const ref = roomRef(code);
       if ((await tx.get(ref)).exists) continue;
       const room: Room = {
-        voiceRoomId: `avalon-${randomUUID()}`,
         code,
         hostUid: uid,
         status: 'lobby',
@@ -206,18 +173,27 @@ export const leaveRoom = onCall(async (req) => {
   return db.runTransaction(async (tx) => {
     const room = await loadRoom(tx, code);
     const seat = room.playerUids.indexOf(uid);
-    if (seat < 0) return { left: true };
-    // Seats are fixed once cards are dealt; leaving mid-game would break it.
-    if (room.status !== 'lobby') return { left: false };
+    if (seat < 0) return { left: true, ended: false };
+    const name = room.players[seat].name;
+    // Seats are fixed while cards are dealt, so a player leaving ends the
+    // game for everyone and the room goes back to the lobby.
+    const ended = room.status !== 'lobby' && room.game?.phase !== 'finished';
+    if (room.status !== 'lobby') {
+      room.status = 'lobby';
+      room.game = null;
+      tx.delete(secretRef(code));
+    }
     room.players.splice(seat, 1);
     room.playerUids.splice(seat, 1);
     if (room.players.length === 0) {
       tx.delete(roomRef(code));
-      return { left: true };
+      return { left: true, ended };
     }
     if (room.hostUid === uid) room.hostUid = room.playerUids[0];
+    room.notice = ended ? `${name} 離開了房間，對局已中止` : `${name} 離開了房間`;
+    room.noticeStep = room.step + 1; // the step touch() is about to write
     tx.set(roomRef(code), touch(room));
-    return { left: true };
+    return { left: true, ended };
   });
 });
 

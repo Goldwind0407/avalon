@@ -390,25 +390,49 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> leave() async {
     if (game.phase != GamePhase.finished) {
       setState(() => revealed = false);
-      final confirmed = await showDialog<bool>(
+      final online = game.canLeaveRoom;
+      final choice = await showDialog<String>(
           context: context,
           builder: (context) => AlertDialog(
-                title: Text(game.isOnline ? '離開這場對局？' : '結束這場對局？'),
-                content: Text(game.isOnline
-                    ? '對局會繼續進行。之後用同一個房號就能回到你的座位。'
+                title: Text(online ? '離開這場對局？' : '結束這場對局？'),
+                content: Text(online
+                    ? '暫時離開：對局繼續進行，之後用同一個房號回到你的座位。\n'
+                        '離開房間：讓出座位，這局會中止，所有人回到房間大廳。'
                     : '目前進度不會保存，返回後可以重新發牌。'),
                 actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(context, false),
+                      onPressed: () => Navigator.pop(context),
                       child: const Text('繼續遊戲')),
+                  if (online)
+                    TextButton(
+                        key: const ValueKey('leaveRoomMidGame'),
+                        onPressed: () => Navigator.pop(context, 'room'),
+                        style: TextButton.styleFrom(
+                            foregroundColor: Colors.redAccent),
+                        child: const Text('離開房間')),
                   TextButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: Text(game.isOnline ? '離開' : '返回設定')),
+                      onPressed: () => Navigator.pop(context, 'step'),
+                      child: Text(online ? '暫時離開' : '返回設定')),
                 ],
               ));
-      if (confirmed != true) return;
+      if (choice == null) return;
+      if (choice == 'room') return _leaveRoom();
     }
     if (mounted) Navigator.pop(context);
+  }
+
+  /// Online: give up the seat and go back to the home screen.
+  Future<void> _leaveRoom() async {
+    try {
+      await game.leaveRoom();
+    } on GameMoveException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+    if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   String player(int i) => '${i + 1} 號 · ${game.players[i]}';
@@ -1529,6 +1553,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ],
                   TableButton(game.isOnline ? '回到房間' : '返回設定',
                       scale: s, primary: false, onPressed: leave),
+                  if (game.canLeaveRoom) ...[
+                    SizedBox(width: 14 * s),
+                    TableButton('離開房間',
+                        scale: s, primary: false, onPressed: _leaveRoom),
+                  ],
                 ]),
               ),
             ]),

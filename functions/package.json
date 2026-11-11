@@ -8,14 +8,13 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test lib/test/rules.test.js lib/test/voice.test.js",
+    "test": "npm run build && node --test lib/test/rules.test.js",
     "test:emulator": "npm run build && firebase emulators:exec --only auth,firestore,functions --project avalon-shadow-council \"node --test lib/test/online.test.js\"",
     "test:cloud": "npm run build && node -e \"process.env.AVALON_TARGET='cloud'; require('node:child_process').execFileSync(process.execPath, ['--test', 'lib/test/online.test.js'], {stdio: 'inherit', env: process.env})\""
   },
   "dependencies": {
     "firebase-admin": "^13.0.0",
-    "firebase-functions": "^6.1.0",
-    "livekit-server-sdk": "^2.19.3"
+    "firebase-functions": "^6.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

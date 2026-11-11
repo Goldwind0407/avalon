@@ -122,7 +122,7 @@ void main() {
     expect(find.byTooltip('說話中'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await advance(tester, 500);
-    await tester.tap(find.text('離開'));
+    await tester.tap(find.text('暫時離開'));
     await advance(tester, 600);
     expect(find.byType(GameScreen), findsNothing);
     expect(voice.connected, isTrue);

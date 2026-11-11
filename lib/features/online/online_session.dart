@@ -30,6 +30,8 @@ class OnlineRoom {
             Role.values.byName(r as String)
         },
         gen = (m['gen'] as num?)?.toInt() ?? 0,
+        notice = m['notice'] as String?,
+        noticeStep = (m['noticeStep'] as num?)?.toInt(),
         game = (m['game'] as Map?)?.cast<String, dynamic>();
 
   final String code;
@@ -38,6 +40,11 @@ class OnlineRoom {
   final List<OnlinePlayer> players;
   final Set<Role> optionalRoles;
   final int gen;
+
+  /// Something to tell everyone, e.g. "阿瘋 離開了房間，對局已中止",
+  /// written at [noticeStep] so each phone shows it once.
+  final String? notice;
+  final int? noticeStep;
   final Map<String, dynamic>? game;
 
   bool get inGame => status == 'playing' && game != null;
@@ -72,6 +79,8 @@ class OnlineGameSession extends GameSession {
   }) : _call = call {
     _subs = [
       room.listen((data) {
+        // once this player has left, their seat is gone: ignore the rest
+        if (leaving) return;
         if (data == null) {
           closed = true;
         } else {
@@ -80,6 +89,7 @@ class OnlineGameSession extends GameSession {
         notifyListeners();
       }, onError: _failed),
       mine.listen((data) {
+        if (leaving) return;
         _mine = data;
         notifyListeners();
       }, onError: _failed),
@@ -114,6 +124,7 @@ class OnlineGameSession extends GameSession {
   Object? error;
 
   void _failed(Object e) {
+    if (leaving) return;
     error = e;
     notifyListeners();
   }
@@ -144,7 +155,25 @@ class OnlineGameSession extends GameSession {
       });
   Future<void> start() => _call('startGame', {'code': code});
   Future<void> backToLobby() => _call('backToLobby', {'code': code});
-  Future<void> leave() => _call('leaveRoom', {'code': code});
+
+  /// This player has asked to leave the room.
+  bool leaving = false;
+
+  /// Gives up this player's seat. During a game this ends it for everyone.
+  Future<void> leave() async {
+    leaving = true;
+    try {
+      await _call('leaveRoom', {'code': code});
+    } catch (_) {
+      leaving = false;
+      rethrow;
+    }
+  }
+
+  @override
+  bool get canLeaveRoom => true;
+  @override
+  Future<void> leaveRoom() => leave();
 
   // ───────────── table ─────────────
 

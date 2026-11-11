@@ -56,6 +56,12 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       );
   bool _tableOpen = false;
 
+  /// This screen's route, to come back to when a game is ended for everyone.
+  ModalRoute<Object?>? _route;
+
+  /// The last room notice shown (null until the room is first loaded).
+  int? _noticeSeen;
+
   /// The deal the player walked away from; they are not pulled back into it.
   int _leftGen = -1;
   bool _busy = false;
@@ -64,6 +70,12 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   void initState() {
     super.initState();
     session.addListener(_onRoomChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route ??= ModalRoute.of(context);
   }
 
   @override
@@ -81,9 +93,33 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         (room != null && room.seatOf(widget.uid) < 0)) {
       voice.leave();
     }
-    if (room != null && room.inGame && !_tableOpen && room.gen != _leftGen) {
+    if (room == null || session.leaving) return;
+    // someone left mid-game: the game is over, everyone comes back here
+    if (!room.inGame && _tableOpen) {
+      Navigator.of(context).popUntil((r) => r == _route);
+    }
+    _showNotice(room);
+    if (room.inGame && !_tableOpen && room.gen != _leftGen) {
       _openTable();
     }
+  }
+
+  void _showNotice(OnlineRoom room) {
+    final step = room.noticeStep ?? -1;
+    // notices from before this phone opened the room are not news
+    if (_noticeSeen == null || room.notice == null) {
+      _noticeSeen = step;
+      return;
+    }
+    if (step <= _noticeSeen!) return;
+    _noticeSeen = step;
+    final text = room.notice!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(text)));
+    });
   }
 
   Future<void> _openTable() async {
@@ -114,15 +150,53 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     }
   }
 
+  /// Back arrow: in the lobby this gives up the seat; during a game the
+  /// seat is kept so the player can come back with the same code.
   Future<void> _leave() async {
-    await voice.leave();
     final room = session.room;
-    // in the lobby the seat is given up; during a game it is kept so the
-    // player can come back with the same code
-    if (room != null && room.status == 'lobby') {
-      await _run(session.leave);
-    }
+    if (room != null && room.status == 'lobby') return _leaveRoom();
+    await voice.leave();
     if (mounted) Navigator.pop(context);
+  }
+
+  /// Gives up the seat for good and returns to the home screen.
+  Future<void> _leaveRoom() async {
+    final room = session.room;
+    final midGame =
+        room != null && room.inGame && session.phase != GamePhase.finished;
+    if (midGame) {
+      final sure = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+                title: const Text('離開房間？'),
+                content: const Text('對局正在進行。你離開後這局會中止，所有人回到房間大廳。'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('取消')),
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: TextButton.styleFrom(
+                          foregroundColor: Colors.redAccent),
+                      child: const Text('離開房間')),
+                ],
+              ));
+      if (sure != true) return;
+    }
+    setState(() => _busy = true);
+    try {
+      await voice.leave();
+      await session.leave();
+    } on GameMoveException catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(content: Text(e.message)));
+      }
+      return;
+    }
+    if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   @override
@@ -212,6 +286,21 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         ),
         const SizedBox(height: 10),
         Row(children: [
+          SizedBox(
+            height: 42,
+            child: OutlinedButton.icon(
+              key: const ValueKey('leaveRoom'),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: Size.zero,
+                  foregroundColor: Colors.redAccent,
+                  side: BorderSide(
+                      color: Colors.redAccent.withValues(alpha: .6))),
+              onPressed: _busy ? null : _leaveRoom,
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('離開房間'),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               room.inGame

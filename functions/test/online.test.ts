@@ -90,9 +90,8 @@ describe('online game end to end', () => {
 
   after(async () => {
     if (code) {
-      // empty the room so it is deleted (host deals → lobby → everyone leaves)
-      await phones[0].call('backToLobby', { code }).catch(() => {});
-      for (const p of [...phones].reverse()) {
+      // everyone leaves, which deletes the room
+      for (const p of [...phones, outsider]) {
         await p.call('leaveRoom', { code }).catch(() => {});
       }
     }
@@ -201,5 +200,30 @@ describe('online game end to end', () => {
     assert.equal(r.gen, 2);
     assert.equal(r.game.phase, 'identity');
     await refused(outsider.call('joinRoom', { code, name: '路人' }), /已經開始/);
+  });
+
+  test('a player leaving mid-game ends it for everyone', async () => {
+    const before = await room(phones[0], code);
+    const leaver = before.players[4].name;
+    const result = await phones[4].call('leaveRoom', { code });
+    assert.deepEqual(result, { left: true, ended: true });
+    const r = await room(phones[0], code);
+    assert.equal(r.status, 'lobby');
+    assert.equal(r.game, null);
+    assert.equal(r.players.length, 4);
+    assert.equal(r.notice, `${leaver} 離開了房間，對局已中止`);
+    assert.equal(r.noticeStep, r.step);
+    // the seat is gone: the room can no longer be read from that phone
+    await denied(getDoc(doc(phones[4].db, 'rooms', code)));
+    // and the others can carry on: someone new can join the lobby
+    const { seat } = await outsider.call('joinRoom', { code, name: '路人' });
+    assert.equal(seat, 4);
+  });
+
+  test('the host leaving hands the room to the next player', async () => {
+    await phones[0].call('leaveRoom', { code });
+    const r = await room(phones[1], code);
+    assert.equal(r.hostUid, phones[1].uid);
+    assert.match(r.notice, /離開了房間$/);
   });
 });
