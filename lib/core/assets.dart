@@ -27,6 +27,7 @@ class Assets {
   static const voteReject = '$_cards/vote_reject.webp';
   static const cardBackRole = '$_cards/card_back_role.webp';
   static const cardBackQuest = '$_cards/card_back_quest.webp';
+  static const cardBackVote = '$_cards/card_back_vote.webp';
 
   static const teamToken = '$_tokens/team_token.webp';
   static const leaderToken = '$_tokens/leader_token.webp';

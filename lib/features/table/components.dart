@@ -57,14 +57,18 @@ class GameCard extends StatelessWidget {
 
 /// Which deck a face-down card belongs to.
 enum CardDeck {
-  /// Character cards (and the face-down vote cards in front of each seat).
+  /// Character cards.
   role,
+
+  /// Approve / reject vote cards.
+  vote,
 
   /// Quest success / fail cards.
   quest,
 }
 
-/// Back of a card. Role cards show the sword, quest cards the crown banner.
+/// Back of a card: the sword for roles, plain parchment for votes, the
+/// crown banner for quests.
 class CardBack extends StatelessWidget {
   const CardBack(
       {super.key,
@@ -76,7 +80,11 @@ class CardBack extends StatelessWidget {
   final CardDeck deck;
   @override
   Widget build(BuildContext context) => GameCard(
-      deck == CardDeck.quest ? Assets.cardBackQuest : Assets.cardBackRole,
+      switch (deck) {
+        CardDeck.role => Assets.cardBackRole,
+        CardDeck.vote => Assets.cardBackVote,
+        CardDeck.quest => Assets.cardBackQuest,
+      },
       width: width,
       elevation: elevation);
 }
@@ -514,7 +522,7 @@ class SeatPlate extends StatelessWidget {
               flipOnMount: true,
               delay: voteDelay,
               onRevealed: onVoteRevealed,
-              back: CardBack(width: 26 * s, elevation: 3),
+              back: CardBack(width: 26 * s, elevation: 3, deck: CardDeck.vote),
               front: GameCard(
                   vote == SeatVote.reject
                       ? Assets.voteReject

@@ -930,7 +930,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           fontSize: size * s, color: color, fontWeight: weight, height: height);
 
   Widget _handoff(int actor, String action, double s) {
-    final deck = game.phase == GamePhase.quest ? CardDeck.quest : CardDeck.role;
+    final deck = switch (game.phase) {
+      GamePhase.quest => CardDeck.quest,
+      GamePhase.vote => CardDeck.vote,
+      _ => CardDeck.role,
+    };
     Widget line(int i, Widget child) => Appear(
         delay: _ms(100 + 70 * i), offset: Offset(18 * s, 0), child: child);
     return Row(
@@ -1185,10 +1189,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         (false, Assets.voteReject, '反對', true),
       ],
       '蓋牌投出',
-      CardDeck.role,
+      CardDeck.vote,
       // the card is laid face down in front of the voter's seat
       () => _commit((picked) => game.vote(seat, picked),
-          deck: CardDeck.role,
+          deck: CardDeck.vote,
           target: _voteKeys[seat],
           onLaunch: () => _voteLanding.add(seat),
           onLand: () {
