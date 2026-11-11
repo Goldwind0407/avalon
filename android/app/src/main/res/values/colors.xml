@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#252d45</color>
+    <!-- launch screen: same parchment as the opening animation -->
+    <color name="launch_parchment">#EEE3CD</color>
+</resources>

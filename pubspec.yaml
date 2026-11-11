@@ -16,6 +16,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 flutter:
   uses-material-design: true
   assets:
@@ -24,3 +25,19 @@ flutter:
     - assets/images/tokens/
     - assets/images/logos/
     - assets/images/boards/
+    - assets/images/brand/
+
+# App icon (source: 素材/APP icon.jpg, prepared into assets/icon/).
+# Regenerate with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: assets/icon/app_icon_full.png
+  android: true
+  adaptive_icon_background: "#252d45"
+  adaptive_icon_foreground: assets/icon/app_icon_foreground.png
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: assets/icon/app_icon_full.png
+    background_color: "#252d45"
+    theme_color: "#252d45"

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme.dart';
 import 'features/home/home_screen.dart';
+import 'features/intro/intro_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,12 +14,17 @@ Future<void> main() async {
 }
 
 class AvalonApp extends StatelessWidget {
-  const AvalonApp({super.key});
+  const AvalonApp({super.key, this.intro = true});
+
+  /// Play the opening animation before the home screen.
+  final bool intro;
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'Avalon · 阿瓦隆',
         debugShowCheckedModeBanner: false,
         theme: AvalonTheme.dark,
-        home: const HomeScreen(),
+        home: intro
+            ? IntroScreen(next: (_) => const HomeScreen())
+            : const HomeScreen(),
       );
 }

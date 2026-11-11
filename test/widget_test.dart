@@ -11,7 +11,7 @@ void main() {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const AvalonApp());
+    await tester.pumpWidget(const AvalonApp(intro: false));
     expect(find.text('AVALON'), findsOneWidget);
     await tester.tap(find.text('一機遊玩'));
     await tester.pumpAndSettle();
@@ -43,7 +43,7 @@ void main() {
       const Size(932, 430)
     ]) {
       tester.view.physicalSize = size;
-      await tester.pumpWidget(const AvalonApp());
+      await tester.pumpWidget(const AvalonApp(intro: false));
       await tester.pumpAndSettle();
       expect(find.text('AVALON'), findsOneWidget);
       expect(find.text('一機遊玩').hitTestable(), findsOneWidget);

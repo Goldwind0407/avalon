@@ -36,6 +36,11 @@ class Assets {
   static const scoreGood = '$_tokens/score_good.webp';
   static const scoreEvil = '$_tokens/score_evil.webp';
 
+  /// Opening animation: the Goldwind signature, with its star separate so
+  /// it can pop in on its own.
+  static const signature = 'assets/images/brand/signature.webp';
+  static const signatureStar = 'assets/images/brand/signature_star.webp';
+
   static const logoGood = 'assets/images/logos/logo_good.webp';
   static const logoEvil = 'assets/images/logos/logo_evil.webp';
 
