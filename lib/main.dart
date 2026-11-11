@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme.dart';
 import 'features/home/home_screen.dart';
-import 'features/lobby/room_model.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,19 +12,13 @@ Future<void> main() async {
   runApp(const AvalonApp());
 }
 
-class AvalonApp extends StatefulWidget {
+class AvalonApp extends StatelessWidget {
   const AvalonApp({super.key});
   @override
-  State<AvalonApp> createState() => _AvalonAppState();
-}
-
-class _AvalonAppState extends State<AvalonApp> {
-  final LocalRoomRepository _repository = LocalRoomRepository();
-  @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Avalon · 暗影議會',
+        title: 'Avalon · 阿瓦隆',
         debugShowCheckedModeBanner: false,
         theme: AvalonTheme.dark,
-        home: HomeScreen(repository: _repository),
+        home: const HomeScreen(),
       );
 }

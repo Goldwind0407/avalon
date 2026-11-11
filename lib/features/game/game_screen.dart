@@ -324,7 +324,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       child: const Text('繼續遊戲')),
                   TextButton(
                       onPressed: () => Navigator.pop(context, true),
-                      child: const Text('返回大廳')),
+                      child: const Text('返回設定')),
                 ],
               ));
       if (confirmed != true) return;
@@ -648,7 +648,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
     };
     return Row(children: [
-      _roundIcon(Icons.arrow_back, s, leave, '返回大廳'),
+      _roundIcon(Icons.arrow_back, s, leave, '返回設定'),
       Expanded(
         child: AnimatedSwitcher(
           duration: _ms(380),
@@ -1081,18 +1081,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _assassinate(double s) {
     final targets = [
       for (var i = 0; i < game.players.length; i++)
-        if (!game.roles[i].isEvil) i
+        if (i != privateActor) i
     ];
     return Stack(alignment: Alignment.center, children: [
       const Positioned.fill(
           child: Particles(kind: ParticleKind.ember, count: 18, seed: 21)),
-      Column(mainAxisSize: MainAxisSize.min, children: [
+      SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
         Appear(
           offset: Offset(0, -10 * s),
           child: Column(children: [
             Text('${player(privateActor)}　選擇刺殺目標',
                 style: _t(20, s, color: _evil, weight: FontWeight.bold)),
-            Text('與邪惡同伴討論後，選出你認為的梅林。', style: _t(12.5, s)),
+            Text('可口頭討論身分，但不能展示角色卡。請選出你認為的梅林。', style: _t(12.5, s)),
           ]),
         ),
         SizedBox(height: 16 * s),
@@ -1156,7 +1157,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     }
                   : null),
         ),
-      ]),
+      ])),
     ]);
   }
 
@@ -1349,7 +1350,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   TableButton('相同配置，再玩一局',
                       scale: s, onPressed: () => act(_newGame)),
                   SizedBox(width: 14 * s),
-                  TableButton('返回大廳',
+                  TableButton('返回設定',
                       scale: s, primary: false, onPressed: leave),
                 ]),
               ),

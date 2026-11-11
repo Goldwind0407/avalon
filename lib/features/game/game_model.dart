@@ -15,12 +15,12 @@ enum GamePhase {
 enum Role {
   merlin('梅林', false),
   percival('派西維爾', false),
-  loyal('忠臣', false),
+  loyal('亞瑟的忠臣', false),
   assassin('刺客', true),
   morgana('莫甘娜', true),
   mordred('莫德雷德', true),
   oberon('奧伯倫', true),
-  minion('爪牙', true);
+  minion('莫德雷德的爪牙', true);
 
   const Role(this.label, this.isEvil);
   final String label;
@@ -195,8 +195,12 @@ class AvalonGame {
 
   void assassinate(int target) {
     _require(GamePhase.assassination);
-    if (target < 0 || target >= players.length || roles[target].isEvil) {
-      throw ArgumentError('請選擇正義玩家');
+    // Reject only invalid seats and the Assassin's own seat. Checking a
+    // target's alignment here would let the UI verify hidden identities.
+    if (target < 0 ||
+        target >= players.length ||
+        roles[target] == Role.assassin) {
+      throw ArgumentError('請選擇其他玩家');
     }
     final hit = roles[target] == Role.merlin;
     _finish(hit ? '邪惡' : '正義',

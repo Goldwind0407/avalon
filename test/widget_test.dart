@@ -7,22 +7,57 @@ import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/table/components.dart';
 
 void main() {
-  testWidgets('首頁能建立房間並進入大廳', (tester) async {
+  testWidgets('一機遊玩直接設定玩家並開始遊戲', (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(const AvalonApp());
     expect(find.text('AVALON'), findsOneWidget);
-    await tester.tap(find.text('建立私人房間'));
+    await tester.tap(find.text('一機遊玩'));
     await tester.pumpAndSettle();
-    expect(find.text('私人議會'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('新增同機玩家'), 300);
-    expect(find.text('新增同機玩家'), findsOneWidget);
-    await tester.tap(find.text('新增同機玩家'));
+    expect(find.text('建立私人房間'), findsNothing);
+    expect(find.text('返回本機房間'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('playerName0')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '亞瑟');
-    await tester.tap(find.text('加入'));
+    await tester.tap(find.text('儲存'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('亞瑟'), -250);
     expect(find.text('亞瑟'), findsOneWidget);
+    await tester.tap(find.text('開始遊戲'));
+    for (var elapsed = 0; elapsed < 3500; elapsed += 50) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('請將手機交給'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('橫向首頁只顯示標題和兩個模式按鈕，不需要捲動', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding =
+        const FakeViewPadding(left: 59, right: 59, bottom: 21);
+    addTearDown(tester.view.reset);
+    for (final size in [
+      const Size(667, 320),
+      const Size(844, 390),
+      const Size(932, 430)
+    ]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(const AvalonApp());
+      await tester.pumpAndSettle();
+      expect(find.text('AVALON'), findsOneWidget);
+      expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
+      expect(find.text('多機遊玩').hitTestable(), findsOneWidget);
+      expect(find.byType(Scrollable), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+      expect(tester.takeException(), isNull);
+    }
+    await tester.tap(find.text('多機遊玩'));
+    await tester.pumpAndSettle();
+    expect(find.text('多機連線尚未開放，請先使用一機遊玩。'), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
   });
 
   testWidgets('從大廳開始，秘密交接與背景隱藏，完成發牌後組隊', (tester) async {

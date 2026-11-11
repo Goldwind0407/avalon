@@ -183,4 +183,42 @@ void main() {
     expect(() => game.proposeTeam([0, 99]), throwsArgumentError);
     expect(game.phase, GamePhase.team);
   });
+
+  test('assassination accepts every other seat without revealing alignment',
+      () {
+    for (var target = 0; target < 10; target++) {
+      final game = setup(count: 10, extras: {'派西維爾', '莫甘娜', '莫德雷德', '奧伯倫'});
+      succeed(game);
+      succeed(game);
+      succeed(game);
+      if (game.roles[target] == Role.assassin) {
+        expect(() => game.assassinate(target), throwsArgumentError);
+        expect(game.phase, GamePhase.assassination);
+        expect(game.winner, isNull);
+      } else {
+        game.assassinate(target);
+        expect(game.phase, GamePhase.finished);
+        expect(game.winner, game.roles[target] == Role.merlin ? '邪惡' : '正義');
+        expect(() => game.assassinate(target), throwsStateError);
+      }
+    }
+  });
+
+  test('invalid assassination targets do not consume the choice', () {
+    final game = setup();
+    expect(() => game.assassinate(0), throwsStateError);
+    succeed(game);
+    succeed(game);
+    succeed(game);
+    for (final target in [
+      -1,
+      game.players.length,
+      game.roles.indexOf(Role.assassin)
+    ]) {
+      expect(() => game.assassinate(target), throwsArgumentError);
+      expect(game.phase, GamePhase.assassination);
+    }
+    game.assassinate(game.roles.indexOf(Role.merlin));
+    expect(game.winner, '邪惡');
+  });
 }
