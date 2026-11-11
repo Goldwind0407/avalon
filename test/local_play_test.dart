@@ -42,8 +42,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
         MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
-    await tester.tap(find.byKey(const ValueKey('role莫甘娜')));
+    // the 5-player preset already has Morgana
     await tester.tap(find.byKey(const ValueKey('role莫德雷德')));
+    await tester.tap(find.byKey(const ValueKey('role奧伯倫')));
     await tester.pumpAndSettle();
     expect(find.text('邪惡角色超過本局邪惡陣營名額'), findsOneWidget);
     ElevatedButton start() => tester

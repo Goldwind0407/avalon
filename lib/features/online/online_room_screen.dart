@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme.dart';
@@ -7,6 +8,7 @@ import '../game/game_screen.dart';
 import '../game/game_session.dart';
 import '../game/discussion_widgets.dart';
 import '../game/expansion_widgets.dart';
+import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
 import 'online_session.dart';
 import 'online_service.dart';
@@ -63,6 +65,10 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                 : null),
       );
   bool _tableOpen = false;
+
+  /// Players in the lobby when the room was last seen (presets follow it).
+  int? _lastCount;
+  Future<void> _presets = Future.value();
   late final AppLifecycleListener _lifecycle;
 
   /// This screen's route, to come back to when a game is ended for everyone.
@@ -113,9 +119,29 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       Navigator.of(context).popUntil((r) => r == _route);
     }
     _showNotice(room);
+    _followPreset(room);
     if (room.inGame && !_tableOpen && room.gen != _leftGen) {
       _openTable();
     }
+  }
+
+  /// The host's phone applies the recommended roles whenever someone joins
+  /// or leaves the lobby; the host can still change them afterwards.
+  void _followPreset(OnlineRoom room) {
+    final count = room.players.length, last = _lastCount;
+    _lastCount = count;
+    if (last == null || last == count || room.inGame || !session.isHost) return;
+    final preset =
+        rolePreset(count, lancelot: room.expansions.lancelot > 0);
+    if (preset == null) return;
+    _presets = _presets.then((_) async {
+      if (!mounted || session.room?.players.length != count) return;
+      try {
+        if (!setEquals(session.room!.optionalRoles, preset)) {
+          await session.setRoles(preset);
+        }
+      } catch (_) {/* The host can still set the roles by hand. */}
+    });
   }
 
   void _updateVoiceFloor() {

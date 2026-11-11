@@ -6,6 +6,7 @@ import '../game/discussion_model.dart';
 import '../game/discussion_widgets.dart';
 import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
+import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
 
 class LocalPlayScreen extends StatefulWidget {
@@ -20,7 +21,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   DiscussionSettings discussion = const DiscussionSettings();
   ExpansionSettings expansions = const ExpansionSettings();
   final names = List.generate(10, (i) => '玩家${i + 1}');
-  final roles = <String>{'梅林', '刺客'};
+  final roles = <String>{'梅林', '刺客', '派西維爾', '莫甘娜'};
   static const roleOptions = [
     ('梅林', '正義・固定'),
     ('刺客', '邪惡・固定'),
@@ -29,6 +30,17 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     ('莫德雷德', '邪惡'),
     ('奧伯倫', '邪惡'),
   ];
+
+  /// A new player count brings its recommended roles; everything can still
+  /// be changed by hand afterwards.
+  void _setPlayers(int count) {
+    playerCount = count;
+    final preset = rolePreset(count, lancelot: expansions.lancelot > 0);
+    if (preset == null) return;
+    roles
+      ..clear()
+      ..addAll(['梅林', '刺客', for (final r in preset) r.label]);
+  }
 
   Room get setup {
     // Reuse the rules engine's configuration without creating a shared room.
@@ -115,7 +127,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(9))),
                             onPressed: () =>
-                                setState(() => playerCount = count),
+                                setState(() => _setPlayers(count)),
                             child: Text('$count')),
                       ));
                 }),
