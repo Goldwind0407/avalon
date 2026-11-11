@@ -12,16 +12,27 @@ import '../table/effects.dart';
 import '../table/quest_board.dart';
 import '../table/table_surface.dart';
 import 'game_model.dart';
+import 'game_session.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
-/// Landscape table-top game screen (pass & play on one device).
+/// Landscape table-top game screen.
 ///
-/// The rules live in [AvalonGame]; this class only stages them: pieces are
-/// dealt, handed out, played face down and turned over like on a real table.
+/// The rules live elsewhere ([GameSession]); this class only stages them:
+/// pieces are dealt, handed out, played face down and turned over like on a
+/// real table. The same table serves both ways of playing:
+///  * pass & play — one phone is handed to each player for secret steps;
+///  * online — every player has their own phone and the server referees.
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key, required this.room});
-  final Room room;
+  /// Pass & play: this phone is passed around the table.
+  const GameScreen({super.key, required Room this.room}) : session = null;
+
+  /// One seat in an online game.
+  const GameScreen.online({super.key, required GameSession this.session})
+      : room = null;
+
+  final Room? room;
+  final GameSession? session;
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -32,8 +43,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const _ink = Color(0xFFEDE3CC);
   static const _numerals = ['一', '二', '三', '四', '五'];
 
-  late AvalonGame game;
-  late List<int> variants;
+  late final GameSession game;
+  late _Snap _last;
+
+  /// Online: the turn this phone has already played and is waiting on the
+  /// server for (see [_turnKey]).
+  String? _waitingKey;
   bool revealed = false;
   final selected = <int>{};
   bool? choice;
@@ -74,40 +89,62 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    final n = widget.room.players.length;
+    game = widget.session ?? LocalGameSession(widget.room!);
+    final n = game.players.length;
     List<GlobalKey> keys() => List.generate(n, (_) => GlobalKey());
     _plateKeys = keys();
     _crownKeys = keys();
     _shieldKeys = keys();
     _voteKeys = keys();
     _bumps = List.filled(n, 0);
-    _newGame();
+    _last = _Snap.of(game);
+    game.addListener(_onSessionChanged);
+    _startTable();
     WidgetsBinding.instance.addObserver(this);
   }
 
-  void _newGame() {
-    game = AvalonGame(widget.room);
-    // pick a different artwork for every loyal servant / minion
-    final seen = <Role, int>{};
-    variants = [
-      for (final r in game.roles)
-        seen.update(r, (v) => v + 1, ifAbsent: () => 0)
-    ];
+  void _resetStaging() {
     _interlude = _crownFlying = _assassinShown = false;
+    _committing = _hiding = false;
     _voteLanding.clear();
     _revealedVotes.clear();
     _shieldLanding.clear();
     _pileLanding = 0;
     _announcement = null;
     _assassinTarget = null;
-    _deal();
+    _waitingKey = null;
+    revealed = false;
+    selected.clear();
+    choice = null;
   }
+
+  /// Sets the table for the game as it is now: a fresh deal, or (online,
+  /// after rejoining) a game that is already under way.
+  void _startTable() {
+    _resetStaging();
+    if (game.phase == GamePhase.identity && game.confirmedSeats.isEmpty) {
+      _deal();
+    }
+    if (game.phase == GamePhase.questResult) {
+      questOrder = _orderOf(game.history.last);
+    }
+    if (game.phase == GamePhase.finished) _assassinTarget = game.assassinTarget;
+  }
+
+  List<bool> _orderOf(QuestResult q) =>
+      game.revealOrder ??
+      ([
+        ...List.filled(q.team.length - q.fails, true),
+        ...List.filled(q.fails, false)
+      ]..shuffle(_rng));
 
   @override
   void dispose() {
     for (final t in _timers) {
       t.cancel();
     }
+    game.removeListener(_onSessionChanged);
+    if (widget.session == null) game.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -131,7 +168,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Deals one face-down role card from the deck to every seat.
   void _deal() {
     _dealing = true;
-    final n = widget.room.players.length;
+    final n = game.players.length;
     // wait until the seats have slid into place
     _after(_ms(900), () {
       final deck = rectOf(_deckKey);
@@ -161,44 +198,76 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
   }
 
-  void act(VoidCallback action, {bool interlude = false}) {
+  /// Identifies the step of the game a secret move belongs to.
+  String get _turnKey =>
+      '${game.generation}|${game.phase}|${game.history.length}|${game.rejections}';
+
+  /// Makes a move. The table reacts once the session reports the new state
+  /// (straight away on this phone; after the server answers online).
+  Future<void> act(FutureOr<void> Function() move,
+      {bool interlude = false}) async {
     HapticFeedback.mediumImpact();
-    final before = game;
-    final oldPhase = game.phase, oldLeader = game.leader;
     setState(() {
-      action();
-      if (game.phase != GamePhase.voteResult) _revealedVotes.clear();
       revealed = false;
       selected.clear();
       choice = null;
       _committing = _hiding = false;
       _shieldLanding.clear();
       if (interlude) _interlude = true;
-      if (!identical(before, game)) return;
-      if (game.phase == GamePhase.questResult &&
-          oldPhase != GamePhase.questResult) {
-        final q = game.history.last;
-        questOrder = [
-          ...List.filled(q.team.length - q.fails, true),
-          ...List.filled(q.fails, false)
-        ]..shuffle(_rng);
+      _waitingKey = _turnKey;
+    });
+    if (interlude) {
+      _after(_ms(1000), () => setState(() => _interlude = false));
+    }
+    try {
+      await move();
+      // also catches changes made without going through the session
+      _onSessionChanged();
+    } on GameMoveException catch (e) {
+      if (!mounted) return;
+      // let the player try again
+      setState(() {
+        _waitingKey = null;
+        _voteLanding.clear();
+        _pileLanding = 0;
+      });
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// Plays what changed on the table since the last update.
+  void _onSessionChanged() {
+    if (!mounted) return;
+    final old = _last, now = _Snap.of(game);
+    _last = now;
+    setState(() {
+      if (now.generation != old.generation) {
+        _startTable();
+        return;
       }
-      if (game.phase == GamePhase.team && oldPhase != GamePhase.team) {
-        if (game.leader != oldLeader) _passCrown(oldLeader, game.leader);
-        if (oldPhase != GamePhase.voteResult) {
+      if (now.phase != GamePhase.voteResult) _revealedVotes.clear();
+      if (now.phase == GamePhase.questResult &&
+          old.phase != GamePhase.questResult) {
+        questOrder = _orderOf(game.history.last);
+      }
+      if (now.phase == GamePhase.finished && old.phase != GamePhase.finished) {
+        _assassinTarget = game.assassinTarget;
+      }
+      if (now.phase == GamePhase.team && old.phase != GamePhase.team) {
+        if (now.leader != old.leader) _passCrown(old.leader, now.leader);
+        if (old.phase != GamePhase.voteResult) {
           _announceId++;
           _announcement = (
             '第${_numerals[game.questNumber - 1]}次遠征',
             '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
                 '${game.failsRequired == 2 ? '　·　需兩張失敗' : ''}',
-            oldPhase == GamePhase.questResult ? 1500 : 350,
+            old.phase == GamePhase.questResult ? 1500 : 350,
           );
         }
       }
     });
-    if (interlude) {
-      _after(_ms(1000), () => setState(() => _interlude = false));
-    }
   }
 
   /// The crown is carried from the old leader to the new one.
@@ -272,19 +341,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   /// Turns the chosen card face down, then plays it onto the table.
-  void _commit(VoidCallback action,
+  void _commit(FutureOr<void> Function(bool picked) action,
       {required CardDeck deck,
       required GlobalKey target,
       required VoidCallback onLaunch,
       required VoidCallback onLand}) {
     if (_committing || choice == null) return;
     HapticFeedback.selectionClick();
-    final cardKey = _choiceKeys[choice!]!;
+    // remember the pick now: act() clears `choice` before the move is sent
+    final picked = choice!;
+    final cardKey = _choiceKeys[picked]!;
     setState(() => _committing = true);
     _after(_ms(430), () {
       final from = rectOf(cardKey);
       onLaunch();
-      act(action, interlude: true);
+      act(() => action(picked), interlude: true);
       void land() {
         if (!mounted) return;
         HapticFeedback.lightImpact();
@@ -316,15 +387,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-                title: const Text('結束這場對局？'),
-                content: const Text('目前進度不會保存，返回後可以重新發牌。'),
+                title: Text(game.isOnline ? '離開這場對局？' : '結束這場對局？'),
+                content: Text(game.isOnline
+                    ? '對局會繼續進行。之後用同一個房號就能回到你的座位。'
+                    : '目前進度不會保存，返回後可以重新發牌。'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(context, false),
                       child: const Text('繼續遊戲')),
                   TextButton(
                       onPressed: () => Navigator.pop(context, true),
-                      child: const Text('返回設定')),
+                      child: Text(game.isOnline ? '離開' : '返回設定')),
                 ],
               ));
       if (confirmed != true) return;
@@ -333,7 +406,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String player(int i) => '${i + 1} 號 · ${game.players[i]}';
-  String roleArt(int i) => Assets.role(game.roles[i], variants[i]);
+  String roleArt(int i) => game.roleArt(i) ?? Assets.cardBackRole;
 
   bool get isPrivate => const [
         GamePhase.identity,
@@ -342,11 +415,46 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         GamePhase.assassination
       ].contains(game.phase);
 
-  int get privateActor => switch (game.phase) {
-        GamePhase.quest => game.questActor,
-        GamePhase.assassination => game.roles.indexOf(Role.assassin),
-        _ => game.actor,
-      };
+  /// Whose secret step is shown: the phone's owner online, otherwise the
+  /// player the phone has to be handed to.
+  int get privateActor => game.mySeat ?? game.handoffSeat!;
+
+  /// Online: this phone's player still has a secret move to make.
+  bool get _myMovePending {
+    final me = game.mySeat;
+    if (me == null || _waitingKey == _turnKey) return false;
+    // the player's own card may arrive a moment after the table
+    if (game.roleOf(me) == null) return false;
+    return switch (game.phase) {
+      GamePhase.identity => !game.confirmedSeats.contains(me),
+      GamePhase.vote => !game.votedSeats.contains(me),
+      GamePhase.quest =>
+        game.team.contains(me) && !game.playedSeats.contains(me),
+      GamePhase.assassination => game.roleOf(me) == Role.assassin,
+      _ => false,
+    };
+  }
+
+  bool get _secretVisible =>
+      !_dealing && !_interlude && (game.isOnline ? _myMovePending : isPrivate);
+
+  /// Seats lit up on the table: the team being picked, the player the phone
+  /// goes to, or (online) everyone the table is still waiting for.
+  bool _highlightSeat(int i) {
+    if (game.phase == GamePhase.team) return selected.contains(i);
+    if (!game.isOnline) return isPrivate && i == privateActor;
+    return switch (game.phase) {
+      GamePhase.identity => !game.confirmedSeats.contains(i),
+      GamePhase.vote => !game.votedSeats.contains(i),
+      GamePhase.quest => game.team.contains(i) && !game.playedSeats.contains(i),
+      _ => false,
+    };
+  }
+
+  /// Picking the team happens on the leader's phone (or the shared one).
+  bool get _iPickTeam =>
+      game.phase == GamePhase.team &&
+      (!game.isOnline || game.mySeat == game.leader);
 
   // The last card mounts after its flight lands, so a fixed delay cannot
   // reliably tell us when every seat has finished flipping.
@@ -375,7 +483,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 final s =
                     min(c.maxHeight / 390, c.maxWidth / 800).clamp(.72, 2.2);
                 _s = s;
-                final secret = isPrivate && !_interlude && !_dealing;
+                final secret = _secretVisible;
                 final questShow =
                     game.phase == GamePhase.questResult && !_interlude;
                 final endShow = game.phase == GamePhase.finished && !_interlude;
@@ -521,12 +629,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final vote = _voteLanding.contains(i)
         ? SeatVote.none
         : switch (phase) {
-            GamePhase.vote => i < game.actor ? SeatVote.hidden : SeatVote.none,
+            GamePhase.vote =>
+              game.votedSeats.contains(i) ? SeatVote.hidden : SeatVote.none,
             GamePhase.voteResult =>
               game.votes[i] ? SeatVote.approve : SeatVote.reject,
             _ => SeatVote.none,
           };
-    final canPick = phase == GamePhase.team &&
+    final canPick = _iPickTeam &&
         (selected.contains(i) || selected.length < game.requiredTeam);
     return SeatPlate(
       key: ValueKey('seat$i'),
@@ -537,8 +646,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       isLeader:
           i == game.leader && phase != GamePhase.finished && !_crownFlying,
       onTeam: onTeam,
-      highlight: (phase == GamePhase.team && selected.contains(i)) ||
-          (isPrivate && i == privateActor),
+      highlight: _highlightSeat(i),
       vote: vote,
       // one after another around the table, once the last card has landed
       voteDelay: _ms(760 + 120 * i),
@@ -556,7 +664,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// quest cards played so far, and the verdict stamped on a vote.
   Widget _props(double s) {
     final played = switch (game.phase) {
-      GamePhase.quest => game.actor,
+      GamePhase.quest => game.playedSeats.length,
       GamePhase.questResult => _interlude ? game.team.length : 0,
       _ => 0,
     };
@@ -637,7 +745,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _banner(double s) {
     final (title, sub) = switch (game.phase) {
-      GamePhase.identity => ('身分確認', '依序將手機交給每位玩家查看身分'),
+      GamePhase.identity => (
+          '身分確認',
+          game.isOnline ? '每位玩家在自己的手機上查看身分' : '依序將手機交給每位玩家查看身分'
+        ),
       GamePhase.assassination => ('刺殺梅林', '正義已完成三次任務，刺客的最後機會'),
       GamePhase.finished => ('遊戲結束', ''),
       GamePhase.questResult => ('第 ${game.history.length} 次遠征', '結果揭曉'),
@@ -648,7 +759,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
     };
     return Row(children: [
-      _roundIcon(Icons.arrow_back, s, leave, '返回設定'),
+      _roundIcon(Icons.arrow_back, s, leave, game.isOnline ? '離開對局' : '返回設定'),
       Expanded(
         child: AnimatedSwitcher(
           duration: _ms(380),
@@ -711,6 +822,27 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
           button,
         ]);
+    const none = SizedBox.shrink();
+    final me = game.mySeat;
+    // Online, the table tells everyone what it is waiting for.
+    if (me != null) {
+      final n = game.players.length;
+      switch (game.phase) {
+        case GamePhase.identity:
+          return bar('等待所有人確認身分（${game.confirmedSeats.length}/$n）', none);
+        case GamePhase.team when me != game.leader:
+          return bar(
+              '等待隊長 ${player(game.leader)} 挑選 ${game.requiredTeam} 名隊員', none);
+        case GamePhase.vote:
+          return bar('等待投票（${game.votedSeats.length}/$n）', none);
+        case GamePhase.quest:
+          return bar(
+              '任務進行中：已出牌 ${game.playedSeats.length}/${game.team.length}', none);
+        case GamePhase.assassination when game.roleOf(me) != Role.assassin:
+          return bar('刺客正在選擇刺殺目標…', none);
+        default:
+      }
+    }
     switch (game.phase) {
       case GamePhase.team:
         return bar(
@@ -719,7 +851,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               '提案並開始投票（${selected.length}/${game.requiredTeam}）',
               scale: s,
               onPressed: selected.length == game.requiredTeam
-                  ? () => act(() => game.proposeTeam(selected.toList()))
+                  ? () {
+                      // take the list now: act() clears the selection
+                      final picked = selected.toList();
+                      act(() => game.proposeTeam(picked));
+                    }
                   : null,
             ));
       case GamePhase.voteResult:
@@ -734,13 +870,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               '贊成 $yes · 反對 ${game.players.length - yes}　—　'
               '${finalRejection ? '連續五次組隊遭否決，邪惡陣營獲勝' : game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
               TableButton(
-                  finalRejection
-                      ? '邪惡獲勝・查看結算'
-                      : game.teamApproved
-                          ? '開始秘密執行任務'
-                          : '繼續',
+                  !game.canAdvance
+                      ? '等待隊長繼續'
+                      : finalRejection
+                          ? '邪惡獲勝・查看結算'
+                          : game.teamApproved
+                              ? '開始秘密執行任務'
+                              : '繼續',
                   scale: s,
-                  onPressed: () => act(game.continueVote))),
+                  onPressed:
+                      game.canAdvance ? () => act(game.continueVote) : null)),
         );
       default:
         return SizedBox(height: 36 * s);
@@ -757,7 +896,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       GamePhase.quest => '執行任務',
       _ => '選擇刺殺目標',
     };
-    final content = !revealed
+    // online there is nobody to hand the phone to
+    final content = !revealed && !game.isOnline
         ? _handoff(actor, action, s)
         : switch (game.phase) {
             GamePhase.identity => _identity(actor, s, c),
@@ -856,7 +996,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _identity(int actor, double s, BoxConstraints c) {
-    final role = game.roles[actor];
+    final role = game.roleOf(actor)!;
     final cardW = min((c.maxHeight - 40 * s) * cardAspect, c.maxWidth * .32);
     final color = role.isEvil ? _evil : _good;
     const flipAt = 350, flipMs = 900, shown = flipAt + flipMs;
@@ -948,13 +1088,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 SizedBox(height: 18 * s),
                 line(
                     4,
-                    TableButton('記住了，隱藏並交給下一位', scale: s, onPressed: () {
+                    TableButton(game.isOnline ? '記住了' : '記住了，隱藏並交給下一位',
+                        scale: s, onPressed: () {
                       if (_hiding) return;
                       // the card is turned face down before the phone
                       // changes hands
                       HapticFeedback.selectionClick();
                       setState(() => _hiding = true);
-                      _after(_ms(400), () => act(game.confirmIdentity));
+                      _after(_ms(400),
+                          () => act(() => game.confirmIdentity(actor)));
                     })),
               ],
             ),
@@ -1032,7 +1174,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _secretVote(double s, BoxConstraints c) {
-    final seat = game.actor;
+    final seat = privateActor;
     return _choiceRow(
       s,
       c,
@@ -1045,7 +1187,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       '蓋牌投出',
       CardDeck.role,
       // the card is laid face down in front of the voter's seat
-      () => _commit(() => game.vote(choice!),
+      () => _commit((picked) => game.vote(seat, picked),
           deck: CardDeck.role,
           target: _voteKeys[seat],
           onLaunch: () => _voteLanding.add(seat),
@@ -1057,7 +1199,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _secretQuest(int actor, double s, BoxConstraints c) {
-    final evil = game.roles[actor].isEvil;
+    final evil = game.roleOf(actor)!.isEvil;
     return _choiceRow(
       s,
       c,
@@ -1070,7 +1212,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       '蓋牌打出',
       CardDeck.quest,
       // the card joins the face-down pile on the board
-      () => _commit(() => game.playQuest(choice!),
+      () => _commit((picked) => game.playQuest(actor, picked),
           deck: CardDeck.quest,
           target: _pileKey,
           onLaunch: () => _pileLanding++,
@@ -1201,14 +1343,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         verdictColor: q.succeeded ? _good : _evil,
         particles: q.succeeded ? ParticleKind.spark : ParticleKind.ember,
         detail: '收到 ${q.team.length - q.fails} 張成功、${q.fails} 張失敗',
-        button: '繼續議會',
+        button: game.canAdvance ? '繼續議會' : '等待隊長繼續',
         onReveal: _onReveal,
         onVerdict: () {
           HapticFeedback.heavyImpact();
           if (!q.succeeded) _shaker.currentState?.shake(7);
         },
         // back to a clear table: the score marker is dropped on the board
-        onContinue: () => act(game.continueQuest, interlude: true),
+        onContinue: game.canAdvance
+            ? () => act(game.continueQuest, interlude: true)
+            : null,
       ),
     );
   }
@@ -1227,7 +1371,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   /// The assassin's target turns their card over: Merlin, or not?
   Widget _assassinReveal(int target, double s, BoxConstraints c) {
-    final hit = game.roles[target] == Role.merlin;
+    final hit = game.roleOf(target) == Role.merlin;
     final cardW = min((c.maxHeight - 210 * s) * cardAspect / 1.2, 170 * s);
     return Padding(
       key: const ValueKey('strike'),
@@ -1347,10 +1491,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               Appear(
                 delay: _ms(firstFlip + step * n + 500),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  TableButton('相同配置，再玩一局',
-                      scale: s, onPressed: () => act(_newGame)),
-                  SizedBox(width: 14 * s),
-                  TableButton('返回設定',
+                  if (game.canRestart) ...[
+                    TableButton('相同配置，再玩一局',
+                        scale: s, onPressed: () => act(game.restart)),
+                    SizedBox(width: 14 * s),
+                  ],
+                  TableButton(game.isOnline ? '回到房間' : '返回設定',
                       scale: s, primary: false, onPressed: leave),
                 ]),
               ),
@@ -1464,4 +1610,14 @@ class _ChoiceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The parts of a game whose changes the table animates.
+class _Snap {
+  _Snap.of(GameSession g)
+      : generation = g.generation,
+        phase = g.phase,
+        leader = g.leader;
+  final int generation, leader;
+  final GamePhase phase;
 }

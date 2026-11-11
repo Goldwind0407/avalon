@@ -1,0 +1,23 @@
+{
+  "name": "avalon-functions",
+  "private": true,
+  "description": "Authoritative game server for Avalon online play",
+  "main": "lib/src/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test lib/test/rules.test.js",
+    "test:emulator": "npm run build && firebase emulators:exec --only auth,firestore,functions --project avalon-shadow-council \"node --test lib/test/online.test.js\""
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "firebase": "^11.1.0",
+    "typescript": "^5.7.0"
+  }
+}

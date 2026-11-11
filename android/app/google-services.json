@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1041864366616",
+    "project_id": "avalon-shadow-council",
+    "storage_bucket": "avalon-shadow-council.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1041864366616:android:5e8d289e07bdf5d515416d",
+        "android_client_info": {
+          "package_name": "com.example.avalon_shadow_council"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4PVsWG_5qKQ1kq5VwAErlduqXhPS_qsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

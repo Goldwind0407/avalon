@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Every change to a room goes through the Cloud Functions in /functions,
+// which run with admin rights and enforce the game rules. Devices can only
+// read, and only what their player is allowed to know.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rooms/{code} {
+      // Public table state: seats, leader, team, revealed votes, score.
+      allow read: if request.auth != null
+                  && request.auth.uid in resource.data.playerUids;
+      allow write: if false;
+
+      // One document per player: their own role and what they can see.
+      match /private/{uid} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // All roles, unrevealed votes and quest cards. Server only.
+      match /secret/{doc} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

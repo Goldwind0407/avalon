@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../online/online_play_screen.dart';
 import 'local_play_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -11,17 +12,9 @@ class HomeScreen extends StatelessWidget {
         MaterialPageRoute(builder: (_) => const LocalPlayScreen()),
       );
 
-  void _showMultiplayer(BuildContext context) => showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('多機遊玩'),
-          content: const Text('多機連線尚未開放，請先使用一機遊玩。'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('知道了')),
-          ],
-        ),
+  void _showMultiplayer(BuildContext context) => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const OnlinePlayScreen()),
       );
 
   @override

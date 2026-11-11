@@ -27,6 +27,44 @@ enum Role {
   final bool isEvil;
 }
 
+/// Team size for quest number [questIndex] (0-based) with [players] players.
+int questTeamSize(int players, int questIndex) => switch (players) {
+      5 => [2, 3, 2, 3, 3],
+      6 => [2, 3, 4, 3, 4],
+      7 => [2, 3, 3, 4, 4],
+      _ => [3, 4, 4, 5, 5],
+    }[min(questIndex, 4)];
+
+/// Seats the player at [index] gets to see at the start of the game.
+/// The server has the same rule in functions/src/rules.ts.
+List<int> visibleSeats(List<Role> roles, int index) {
+  final role = roles[index];
+  return [
+    for (var i = 0; i < roles.length; i++)
+      if (i != index &&
+          ((role == Role.merlin &&
+                  roles[i].isEvil &&
+                  roles[i] != Role.mordred) ||
+              (role == Role.percival &&
+                  [Role.merlin, Role.morgana].contains(roles[i])) ||
+              (role.isEvil &&
+                  role != Role.oberon &&
+                  roles[i].isEvil &&
+                  roles[i] != Role.oberon)))
+        i
+  ];
+}
+
+/// What a player is told about the others when they look at their card.
+String knowledgeText(Role role, List<int> visible, List<String> players) {
+  final names = visible.map((i) => '${i + 1} 號 ${players[i]}').join('、');
+  if (role == Role.merlin) return '你看見的邪惡玩家：$names。莫德雷德不會被你看見。';
+  if (role == Role.percival) return '梅林候選人：$names。若有莫甘娜，你無法分辨兩者。';
+  if (role == Role.oberon) return '你屬於邪惡陣營，但你與其他邪惡玩家互不相認。';
+  if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。奧伯倫不會出現在此。';
+  return '你沒有額外情報。透過討論與投票，找出值得信任的隊友。';
+}
+
 class QuestResult {
   QuestResult(List<int> team, this.fails, this.succeeded)
       : team = List.unmodifiable(team);
@@ -73,12 +111,7 @@ class AvalonGame {
   int get successes => _history.where((q) => q.succeeded).length;
   int get failures => _history.length - successes;
   int get questNumber => _history.length + 1;
-  int get requiredTeam => switch (players.length) {
-        5 => [2, 3, 2, 3, 3],
-        6 => [2, 3, 4, 3, 4],
-        7 => [2, 3, 3, 4, 4],
-        _ => [3, 4, 4, 5, 5],
-      }[min(_history.length, 4)];
+  int get requiredTeam => questTeamSize(players.length, _history.length);
   int get failsRequired => players.length >= 7 && questNumber == 4 ? 2 : 1;
   bool get teamApproved => _votes.where((v) => v).length > players.length / 2;
   int get questActor => _team[actor];
@@ -89,32 +122,8 @@ class AvalonGame {
     if (phase != expected) throw StateError('目前階段無法執行此操作');
   }
 
-  String knowledge(int index) {
-    final role = roles[index];
-    final visible = <int>[];
-    for (var i = 0; i < roles.length; i++) {
-      if (i == index) continue;
-      if (role == Role.merlin && roles[i].isEvil && roles[i] != Role.mordred) {
-        visible.add(i);
-      }
-      if (role == Role.percival &&
-          [Role.merlin, Role.morgana].contains(roles[i])) {
-        visible.add(i);
-      }
-      if (role.isEvil &&
-          role != Role.oberon &&
-          roles[i].isEvil &&
-          roles[i] != Role.oberon) {
-        visible.add(i);
-      }
-    }
-    final names = visible.map((i) => '${i + 1} 號 ${players[i]}').join('、');
-    if (role == Role.merlin) return '你看見的邪惡玩家：$names。莫德雷德不會被你看見。';
-    if (role == Role.percival) return '梅林候選人：$names。若有莫甘娜，你無法分辨兩者。';
-    if (role == Role.oberon) return '你屬於邪惡陣營，但你與其他邪惡玩家互不相認。';
-    if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。奧伯倫不會出現在此。';
-    return '你沒有額外情報。透過討論與投票，找出值得信任的隊友。';
-  }
+  String knowledge(int index) =>
+      knowledgeText(roles[index], visibleSeats(roles, index), players);
 
   void confirmIdentity() {
     _require(GamePhase.identity);

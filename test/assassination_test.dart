@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/game/game_screen.dart';
+import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 
 Future<void> advance(WidgetTester tester, int ms) async {
@@ -33,7 +34,7 @@ void main() {
             MaterialApp(theme: AvalonTheme.dark, home: GameScreen(room: room)));
         await advance(tester, 3500);
         final dynamic screen = tester.state(find.byType(GameScreen));
-        final AvalonGame game = screen.game as AvalonGame;
+        final AvalonGame game = (screen.game as LocalGameSession).game;
         screen.act(() {
           for (var i = 0; i < count; i++) {
             game.confirmIdentity();

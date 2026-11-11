@@ -55,7 +55,9 @@ class CardReveal extends StatefulWidget {
   final Color verdictColor;
   final String detail;
   final String button;
-  final VoidCallback onContinue;
+
+  /// Null while someone else decides when to go on (online: the leader).
+  final VoidCallback? onContinue;
   final bool shuffle;
   final ParticleKind particles;
 

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/ambient_motion.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
 import 'package:avalon_shadow_council/features/game/game_screen.dart';
+import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/table/components.dart';
@@ -111,7 +112,7 @@ void main() {
     expect(find.text('請將手機交給'), findsOneWidget);
     expect(tester.takeException(), isNull);
     final dynamic screen = tester.state(find.byType(GameScreen));
-    final AvalonGame game = screen.game as AvalonGame;
+    final AvalonGame game = (screen.game as LocalGameSession).game;
     screen.act(() {
       while (game.phase == GamePhase.identity) {
         game.confirmIdentity();

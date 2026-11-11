@@ -52,10 +52,12 @@ void main() {
       expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
     }
+    // online play opens its own page (it only connects when a room is made)
     await tester.tap(find.text('多機遊玩'));
     await tester.pumpAndSettle();
-    expect(find.text('多機連線尚未開放，請先使用一機遊玩。'), findsOneWidget);
-    await tester.tap(find.text('知道了'));
+    expect(find.text('建立房間'), findsOneWidget);
+    expect(find.text('加入'), findsOneWidget);
+    await tester.tap(find.byTooltip('返回首頁'));
     await tester.pumpAndSettle();
     expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
   });

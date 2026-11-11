@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/assets.dart';
 import '../../core/theme.dart';
 import '../game/game_model.dart';
+import '../game/game_session.dart';
 import 'board_layout.dart';
 import 'components.dart';
 import 'effects.dart';
@@ -9,7 +10,7 @@ import 'effects.dart';
 /// The printed scoreboard lying on the mat, with the physical markers on it.
 class QuestBoard extends StatelessWidget {
   const QuestBoard({super.key, required this.game, this.onImpact});
-  final AvalonGame game;
+  final GameSession game;
 
   /// A score marker has just been dropped onto the board.
   final VoidCallback? onImpact;
