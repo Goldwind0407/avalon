@@ -12,7 +12,7 @@ abstract class VoiceAudio {
   Future<void> close();
 }
 
-class WebRtcVoiceTransport implements VoiceTransport {
+class WebRtcVoiceTransport implements VoiceTransport, VoiceFloorTransport {
   WebRtcVoiceTransport(
       {required this.uid,
       required this.signaling,
@@ -32,6 +32,19 @@ class WebRtcVoiceTransport implements VoiceTransport {
   bool _microphone = false, _sampling = false, _ready = false;
   Set<String> _speakers = {};
   String? _lastUpdate;
+  Set<String>? _allowedSpeakers;
+  @override
+  void setAllowedSpeakers(Set<String>? allowed) {
+    _allowedSpeakers = allowed;
+    _applyFloor();
+  }
+
+  void _applyFloor() {
+    for (final entry in (_mesh?.allPeers ?? <String, VoicePeer>{}).entries) {
+      entry.value.setPlaybackEnabled(
+          _allowedSpeakers == null || _allowedSpeakers!.contains(entry.key));
+    }
+  }
 
   @override
   Stream<VoiceUpdate> get updates => _updates.stream;
@@ -56,9 +69,13 @@ class WebRtcVoiceTransport implements VoiceTransport {
   }
 
   void _emit() {
+    _applyFloor();
     if (_closing != null || !_ready) return;
     final connected = _mesh!.connected;
     _speakers = _speakers.intersection({...connected, if (_microphone) uid});
+    if (_allowedSpeakers != null) {
+      _speakers = _speakers.intersection(_allowedSpeakers!);
+    }
     final update = VoiceUpdate(VoiceStatus.connected,
         microphone: _microphone,
         speakers: Set.unmodifiable(_speakers),

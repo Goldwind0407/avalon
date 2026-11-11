@@ -1,8 +1,11 @@
 import 'dart:math';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../core/assets.dart';
 import '../lobby/room_model.dart';
 import 'game_model.dart';
+import 'discussion_model.dart';
+import '../notebook/notebook_model.dart';
 
 /// A move was refused (wrong phase, not your turn, connection lost…).
 class GameMoveException implements Exception {
@@ -21,6 +24,51 @@ class GameMoveException implements Exception {
 ///  * the online session — every player on their own phone; it only knows
 ///    what its player may see and asks the server to make moves.
 abstract class GameSession extends ChangeNotifier {
+  GameSession({GameNotebook? notebook}) : _notebook = notebook;
+  Timer? _speechTimer;
+  bool _disposed = false;
+  DiscussionSettings get discussionSettings => const DiscussionSettings();
+  List<ProposalRecord> get proposalHistory => const [];
+  int? get speaker => null;
+  int get speechVersion => 0;
+  int? get speechDeadline => null;
+  int get nowMillis => DateTime.now().millisecondsSinceEpoch;
+  bool get discussing =>
+      phase == GamePhase.discussion || phase == GamePhase.freeDiscussion;
+  Future<void> endSpeech(int expectedVersion) async {}
+
+  /// One deadline timer per device; version checks make concurrent expiry safe.
+  void refreshSpeechTimer({bool active = true, bool retry = false}) {
+    _speechTimer?.cancel();
+    if (_disposed || !active || !discussing || speechDeadline == null) return;
+    final version = speechVersion, deal = generation;
+    final delay = max(
+        retry ? 3000 : 0,
+        speechDeadline! -
+            nowMillis +
+            (canAdvance || mySeat == speaker ? 250 : 4250));
+    _speechTimer = Timer(Duration(milliseconds: delay), () async {
+      if (_disposed || deal != generation || version != speechVersion) return;
+      try {
+        await endSpeech(version);
+      } catch (_) {/* Retry after a transient connection failure. */}
+      if (!_disposed && deal == generation && version == speechVersion) {
+        refreshSpeechTimer(retry: true);
+      }
+    });
+  }
+
+  GameNotebook? _notebook;
+  GameNotebook get notebook => _notebook ??= GameNotebook();
+  String get notebookScope => 'local/${identityHashCode(this)}/$generation';
+  @override
+  void dispose() {
+    _disposed = true;
+    _speechTimer?.cancel();
+    _notebook?.dispose();
+    super.dispose();
+  }
+
   // ───────────── public table ─────────────
 
   List<String> get players;
@@ -78,6 +126,9 @@ abstract class GameSession extends ChangeNotifier {
 
   /// What the player at [seat] learns when they look at their card.
   String knowledge(int seat);
+
+  /// Public seat numbers this player is allowed to see in their private card.
+  List<int> visiblePlayers(int seat) => const [];
 
   /// May this device press the shared "continue" buttons?
   bool get canAdvance;
@@ -143,6 +194,7 @@ class LocalGameSession extends GameSession {
       throw GameMoveException('${e.message}');
     }
     notifyListeners();
+    refreshSpeechTimer();
   }
 
   Set<int> _first(int count, [List<int>? seats]) =>
@@ -162,6 +214,20 @@ class LocalGameSession extends GameSession {
   List<bool> get votes => _game.votes;
   @override
   List<QuestResult> get history => _game.history;
+  @override
+  DiscussionSettings get discussionSettings => _game.discussion;
+  @override
+  List<ProposalRecord> get proposalHistory =>
+      List.unmodifiable(_game.proposals);
+  @override
+  int? get speaker => _game.speaker;
+  @override
+  int get speechVersion => _game.speechVersion;
+  @override
+  int? get speechDeadline => _game.speechDeadline;
+  @override
+  Future<void> endSpeech(int expectedVersion) =>
+      _apply(() => _game.endSpeech(expectedVersion: expectedVersion));
   @override
   String? get winner => _game.winner;
   @override
@@ -198,6 +264,8 @@ class LocalGameSession extends GameSession {
   String? roleArt(int seat) => _art[seat];
   @override
   String knowledge(int seat) => _game.knowledge(seat);
+  @override
+  List<int> visiblePlayers(int seat) => visibleSeats(_game.roles, seat);
   @override
   bool get canAdvance => true;
   @override

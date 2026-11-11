@@ -4,6 +4,8 @@ import 'package:avalon_shadow_council/features/online/voice/webrtc_voice_audio.d
 
 class AudioTrack implements MediaStreamTrack {
   @override
+  bool enabled = true;
+  @override
   String get kind => 'audio';
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -90,6 +92,20 @@ class Connection extends RTCPeerConnection {
 }
 
 void main() {
+  test('receive floor silences current and newly arriving remote audio tracks',
+      () {
+    final connection = Connection();
+    final peer = WebRtcVoicePeer(connection);
+    peer.setPlaybackEnabled(false);
+    final track = AudioTrack();
+    final event = RTCTrackEvent(streams: [], track: track);
+    connection.onTrack!(event);
+    expect(track.enabled, isFalse);
+    peer.setPlaybackEnabled(true);
+    expect(track.enabled, isTrue);
+    peer.setPlaybackEnabled(false);
+    expect(track.enabled, isFalse);
+  });
   test('answerer sends on the offered transceiver without adding an unused one',
       () async {
     final connection = Connection();

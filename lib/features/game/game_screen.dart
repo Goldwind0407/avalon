@@ -13,8 +13,10 @@ import '../table/quest_board.dart';
 import '../table/table_surface.dart';
 import 'game_model.dart';
 import 'game_session.dart';
+import 'discussion_widgets.dart';
 import '../online/voice/voice_controller.dart';
 import '../online/voice/voice_controls.dart';
+import '../notebook/notebook_screen.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -91,6 +93,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   (String, String, int)? _announcement;
   int? _assassinTarget;
   bool _assassinShown = false;
+  bool _notebookOpen = false;
 
   @override
   void initState() {
@@ -206,7 +209,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   /// Identifies the step of the game a secret move belongs to.
   String get _turnKey =>
-      '${game.generation}|${game.phase}|${game.history.length}|${game.rejections}';
+      '${game.generation}|${game.phase}|${game.history.length}|${game.rejections}|${game.speechVersion}';
 
   /// Makes a move. The table reacts once the session reports the new state
   /// (straight away on this phone; after the server answers online).
@@ -436,6 +439,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String player(int i) => playerLabel(i, game.players[i]);
+  Future<void> _openNotebook() async {
+    if (!game.isOnline || _notebookOpen || _dealing || _interlude) return;
+    setState(() => _notebookOpen = true);
+    try {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => NotebookScreen(session: game, voice: widget.voice)));
+    } finally {
+      if (mounted) setState(() => _notebookOpen = false);
+    }
+  }
+
   String roleArt(int i) => game.roleArt(i) ?? Assets.cardBackRole;
 
   bool get isPrivate => const [
@@ -471,6 +485,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Seats lit up on the table: the team being picked, the player the phone
   /// goes to, or (online) everyone the table is still waiting for.
   bool _highlightSeat(int i) {
+    if (game.discussing) return game.speaker == i;
     if (game.phase == GamePhase.team) return selected.contains(i);
     if (!game.isOnline) return isPrivate && i == privateActor;
     return switch (game.phase) {
@@ -643,12 +658,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   SizedBox(height: 6 * s),
                   Expanded(
                     child: Center(
-                      child: QuestBoard(
-                          game: game,
-                          onImpact: () {
-                            HapticFeedback.heavyImpact();
-                            _shaker.currentState?.shake(4);
-                          }),
+                      child: game.discussing
+                          ? DiscussionPanel(
+                              key: ValueKey(
+                                  'speech/${game.generation}/${game.speechVersion}'),
+                              game: game)
+                          : QuestBoard(
+                              game: game,
+                              onImpact: () {
+                                HapticFeedback.heavyImpact();
+                                _shaker.currentState?.shake(4);
+                              }),
                     ),
                   ),
                   SizedBox(height: 6 * s),
@@ -667,6 +687,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final phase = game.phase;
     final onTeam = switch (phase) {
       GamePhase.team => selected.contains(i) && !_shieldLanding.contains(i),
+      GamePhase.discussion ||
+      GamePhase.freeDiscussion ||
       GamePhase.vote ||
       GamePhase.voteResult ||
       GamePhase.quest ||
@@ -841,7 +863,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ]),
         ),
       ),
-      SizedBox(width: 34 * s),
+      if (game.isOnline)
+        _roundIcon(Icons.menu_book_outlined, s, _openNotebook, '玩家筆記')
+      else
+        SizedBox(width: 34 * s),
     ]);
   }
 
@@ -895,11 +920,23 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
     }
     switch (game.phase) {
+      case GamePhase.discussion:
+        final mine = !game.isOnline || game.mySeat == game.speaker;
+        final version = game.speechVersion;
+        return bar(
+            mine ? '輪到你發言，講完可提前過麥' : '請聆聽當前玩家發言',
+            TableButton(mine ? '結束發言 / 下一位' : '等待過麥',
+                scale: s,
+                onPressed: mine && _waitingKey != _turnKey
+                    ? () => act(() => game.endSpeech(version))
+                    : null));
+      case GamePhase.freeDiscussion:
+        return bar('所有玩家可自由發言，倒數結束後投票', none);
       case GamePhase.team:
         return bar(
             '隊長點選座位，挑選 ${game.requiredTeam} 名隊員',
             TableButton(
-              '提案並開始投票（${selected.length}/${game.requiredTeam}）',
+              '${game.discussionSettings.enabled ? '確認隊伍並開始發言' : '提案並開始投票'}（${selected.length}/${game.requiredTeam}）',
               scale: s,
               onPressed: selected.length == game.requiredTeam
                   ? () {
@@ -1022,13 +1059,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   Text('請將手機交給', style: _t(15, s, color: AvalonTheme.muted))),
               line(
                   1,
-                  Text(player(actor),
-                      style: _t(30, s,
-                          color: AvalonTheme.gold,
-                          weight: FontWeight.bold,
-                          height: 1.3))),
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(player(actor),
+                          maxLines: 1,
+                          softWrap: false,
+                          style: _t(30, s,
+                              color: AvalonTheme.gold,
+                              weight: FontWeight.bold,
+                              height: 1.3)))),
               SizedBox(height: 8 * s),
-              line(2, Text('接下來要$action，請確認只有本人能看見畫面。', style: _t(13, s))),
+              line(2, Text('接下來要$action，\n請確認只有本人能看見畫面。', style: _t(13, s))),
               line(
                   3,
                   Text('其他玩家請移開視線。',
@@ -1053,6 +1095,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _identity(int actor, double s, BoxConstraints c) {
     final role = game.roleOf(actor)!;
     final cardW = min((c.maxHeight - 40 * s) * cardAspect, c.maxWidth * .32);
+    final infoW = min(380 * s, max(1.0, c.maxWidth - cardW - 64 * s));
+    final infoH = max(1.0, c.maxHeight - 32 * s);
     final color = role.isEvil ? _evil : _good;
     const flipAt = 350, flipMs = 900, shown = flipAt + flipMs;
     Widget line(int i, Widget child) => Appear(
@@ -1101,64 +1145,126 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         AnimatedOpacity(
           duration: _ms(220),
           opacity: _hiding ? 0 : 1,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: 330 * s),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                line(
-                    0,
-                    Text(player(actor),
-                        style: _t(13, s, color: AvalonTheme.muted))),
-                line(
-                    1,
-                    Text(role.label,
-                        style: TextStyle(
-                            fontSize: 34 * s,
-                            height: 1.25,
-                            fontWeight: FontWeight.bold,
-                            color: color,
-                            shadows: [
-                              Shadow(
-                                  color: color.withValues(alpha: .7),
-                                  blurRadius: 18 * s)
-                            ]))),
-                line(
-                    2,
-                    Text(
-                        role.isEvil
-                            ? '邪惡陣營 · 讓任務失敗或找出梅林'
-                            : '正義陣營 · 完成三次任務並保護梅林',
-                        style: _t(13, s, color: color.withValues(alpha: .85)))),
-                SizedBox(height: 12 * s),
-                line(
-                    3,
-                    Container(
-                      padding: EdgeInsets.all(12 * s),
-                      decoration: plaqueDecoration(radius: 10 * s),
-                      child: Text(game.knowledge(actor),
-                          style: _t(13.5, s, height: 1.7)),
-                    )),
-                SizedBox(height: 18 * s),
-                line(
-                    4,
-                    TableButton(game.isOnline ? '記住了' : '記住了，隱藏並交給下一位',
-                        scale: s, onPressed: () {
-                      if (_hiding) return;
-                      // the card is turned face down before the phone
-                      // changes hands
-                      HapticFeedback.selectionClick();
-                      setState(() => _hiding = true);
-                      _after(_ms(400),
-                          () => act(() => game.confirmIdentity(actor)));
-                    })),
-              ],
+          child: SizedBox(
+            width: infoW,
+            height: infoH,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                  width: infoW,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      line(
+                          0,
+                          FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(player(actor),
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: _t(13, s, color: AvalonTheme.muted)))),
+                      line(
+                          1,
+                          FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(role.label,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: TextStyle(
+                                      fontSize: 34 * s,
+                                      height: 1.25,
+                                      fontWeight: FontWeight.bold,
+                                      color: color,
+                                      shadows: [
+                                        Shadow(
+                                            color: color.withValues(alpha: .7),
+                                            blurRadius: 18 * s)
+                                      ])))),
+                      line(
+                          2,
+                          Wrap(spacing: 8 * s, runSpacing: 2 * s, children: [
+                            Text(role.isEvil ? '邪惡陣營' : '正義陣營',
+                                style: _t(13, s,
+                                    color: color.withValues(alpha: .85))),
+                            Text(role.isEvil ? '讓任務失敗或找出梅林' : '完成三次任務並保護梅林',
+                                style: _t(13, s,
+                                    color: color.withValues(alpha: .85))),
+                          ])),
+                      SizedBox(height: 12 * s),
+                      line(3, _identityKnowledge(actor, role, s, infoW)),
+                      SizedBox(height: 18 * s),
+                      line(
+                          4,
+                          TableButton(game.isOnline ? '記住了' : '記住了，隱藏並交給下一位',
+                              scale: s, onPressed: () {
+                            if (_hiding) return;
+                            // the card is turned face down before the phone
+                            // changes hands
+                            HapticFeedback.selectionClick();
+                            setState(() => _hiding = true);
+                            _after(_ms(400),
+                                () => act(() => game.confirmIdentity(actor)));
+                          })),
+                    ],
+                  )),
             ),
           ),
         ),
       ]),
     ]);
+  }
+
+  Widget _identityKnowledge(int actor, Role role, double s, double width) {
+    final info = roleInformation(role);
+    final visible = game.visiblePlayers(actor);
+    return Container(
+      key: const ValueKey('identityKnowledge'),
+      width: width,
+      padding: EdgeInsets.all(12 * s),
+      decoration: plaqueDecoration(radius: 10 * s),
+      child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${info.heading}${info.listsPlayers ? '：' : ''}',
+                style: _t(13.5, s)),
+            if (info.listsPlayers) ...[
+              SizedBox(height: 6 * s),
+              if (visible.isEmpty)
+                Text('無', style: _t(13.5, s))
+              else
+                Wrap(spacing: 6 * s, runSpacing: 6 * s, children: [
+                  for (final seat in visible)
+                    ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: width - 24 * s),
+                        child: Container(
+                            key: ValueKey('identitySeen$seat'),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 8 * s, vertical: 4 * s),
+                            decoration: BoxDecoration(
+                                color: AvalonTheme.gold.withValues(alpha: .08),
+                                borderRadius: BorderRadius.circular(6 * s),
+                                border: Border.all(
+                                    color: AvalonTheme.gold
+                                        .withValues(alpha: .25))),
+                            child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(player(seat),
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    style: _t(13.5, s, height: 1.3))))),
+                ]),
+            ],
+            SizedBox(height: 8 * s),
+            Text(info.reminder,
+                style: _t(13, s, color: const Color(0xFFD5CBB8))),
+          ]),
+    );
   }
 
   Widget _choiceRow(

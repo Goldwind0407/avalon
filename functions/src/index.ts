@@ -35,6 +35,7 @@ const rng: rules.Rng = () => randomInt(0, 2 ** 32) / 2 ** 32;
 interface Player {
   uid: string;
   name: string;
+  supportsDiscussion?: boolean;
 }
 
 interface Room {
@@ -46,6 +47,7 @@ interface Room {
   voiceRoomId: string;
   expireAt?: Timestamp;
   optionalRoles: RoleKey[];
+  discussion?: rules.DiscussionSettings;
   /** Increases every time a new game is dealt in this room. */
   gen: number;
   /** Increases on every change, so devices can tell updates apart. */
@@ -135,10 +137,11 @@ export const createRoom = onCall(async (req) => {
         code,
         hostUid: uid,
         status: 'lobby',
-        players: [{ uid, name }],
+        players: [{ uid, name, supportsDiscussion: req.data?.protocolVersion === 2 }],
         playerUids: [uid],
         voiceRoomId: randomUUID(),
         optionalRoles: [],
+        discussion: { ...rules.FREE_DISCUSSION, enabled: req.data?.protocolVersion === 2 },
         gen: 0,
         step: 0,
         game: null,
@@ -157,14 +160,24 @@ export const joinRoom = onCall(async (req) => {
   return db.runTransaction(async (tx) => {
     const room = await loadRoom(tx, code);
     const seat = room.playerUids.indexOf(uid);
+    const supportsDiscussion = req.data?.protocolVersion === 2;
+    if (room.discussion?.enabled && !supportsDiscussion) {
+      throw new HttpsError('failed-precondition', '這個房間已開啟依序發言，請先更新 App 再加入');
+    }
     // Coming back to a room you are already in (reopened the app, lost
     // connection) just takes you back to your seat.
-    if (seat >= 0) return { code, seat };
+    if (seat >= 0) {
+      if (room.players[seat].supportsDiscussion !== supportsDiscussion) {
+        room.players[seat].supportsDiscussion = supportsDiscussion;
+        tx.set(roomRef(code), touch(room));
+      }
+      return { code, seat };
+    }
     if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '遊戲已經開始，無法加入');
     if (room.players.length >= rules.MAX_PLAYERS) {
       throw new HttpsError('failed-precondition', '房間已滿（最多 10 人）');
     }
-    room.players.push({ uid, name });
+    room.players.push({ uid, name, supportsDiscussion });
     room.playerUids.push(uid);
     tx.set(roomRef(code), touch(room));
     return { code, seat: room.players.length - 1 };
@@ -251,7 +264,7 @@ export const startGame = onCall((req) =>
       if (room.status === 'playing' && room.game?.phase !== 'finished') {
         throw new HttpsError('failed-precondition', '遊戲正在進行中');
       }
-      const state = rules.newGame(room.players.length, room.optionalRoles, rng);
+      const state = rules.newGame(room.players.length, room.optionalRoles, rng, room.discussion);
       const { open, secret } = rules.split(state);
       room.status = 'playing';
       room.gen += 1;
@@ -290,6 +303,7 @@ export const backToLobby = onCall(async (req) => {
 // ───────────────────────── game moves ─────────────────────────
 
 type Move =
+  | 'endSpeech'
   | 'confirmIdentity'
   | 'proposeTeam'
   | 'vote'
@@ -302,7 +316,7 @@ async function applyMove(
   tx: Transaction,
   code: string,
   uid: string,
-  move: (state: GameState, seat: number, room: Room) => void,
+  move: (state: GameState, seat: number, room: Room) => void | boolean,
 ) {
   const room = await loadRoom(tx, code);
   if (room.status !== 'playing' || !room.game) {
@@ -317,7 +331,7 @@ async function applyMove(
     pendingVotes: secret.pendingVotes ?? {},
     pendingCards: secret.pendingCards ?? {},
   });
-  move(state, seat, room);
+  if (move(state, seat, room) === false) return;
   const split = rules.split(state);
   room.game = split.open;
   tx.set(roomRef(code), touch(room));
@@ -340,6 +354,9 @@ export const move = onCall((req) =>
     await db.runTransaction((tx) =>
       applyMove(tx, code, uid, (state, seat, room) => {
         switch (kind) {
+          case 'endSpeech':
+            if (data.generation !== room.gen) return false;
+            return rules.endSpeech(state, seat, data.expectedVersion);
           case 'confirmIdentity':
             return rules.confirmIdentity(state, seat);
           case 'proposeTeam':
@@ -366,6 +383,28 @@ export const move = onCall((req) =>
         }
       }),
     );
-    return { ok: true };
+    return { ok: true, serverNow: Date.now() };
   }),
 );
+
+export const serverTime = onCall((req) => {
+  uidOf(req);
+  return { serverNow: Date.now() };
+});
+
+export const setDiscussion = onCall((req) => guarded(async () => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const settings = rules.discussionSettings(req.data?.discussion);
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以設定發言');
+    if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '請先返回大廳');
+    if (settings.enabled && room.players.some((p) => !p.supportsDiscussion)) {
+      throw new HttpsError('failed-precondition', '請所有玩家更新 App 並重新加入房間後，再開啟依序發言');
+    }
+    room.discussion = settings;
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+}));

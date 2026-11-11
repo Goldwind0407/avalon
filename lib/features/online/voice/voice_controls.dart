@@ -87,8 +87,14 @@ class VoiceControls extends StatelessWidget {
                                 : AvalonTheme.green)))),
           icon(
               voice.microphone ? Icons.mic : Icons.mic_off,
-              voice.microphone ? '關閉麥克風' : '開啟麥克風',
-              connected && !voice.microphoneBusy
+              voice.microphone
+                  ? '關閉麥克風'
+                  : !voice.microphoneAllowed
+                      ? '等待發言權'
+                      : '開啟麥克風',
+              connected &&
+                      !voice.microphoneBusy &&
+                      (voice.microphoneAllowed || voice.microphone)
                   ? () => _microphone(context)
                   : null),
           icon(Icons.call_end, '離開語音', () => voice.leave()),

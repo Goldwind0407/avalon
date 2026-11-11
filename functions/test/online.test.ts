@@ -61,7 +61,7 @@ async function phone(): Promise<Phone> {
     uid: cred.user.uid,
     db,
     fns,
-    call: async (name, data) => (await httpsCallable(fns, name)(data)).data,
+    call: async (name, data) => (await httpsCallable(fns, name)({ protocolVersion: 2, ...data })).data,
   };
 }
 
@@ -112,6 +112,30 @@ describe('online game end to end', () => {
     const r = await room(phones[1], code);
     assert.equal(r.players.length, 5);
     assert.equal(r.status, 'lobby');
+    assert.equal(r.discussion.enabled, true);
+  });
+
+  test('only host configures discussion in lobby; server clock is authenticated', async () => {
+    await refused(outsider.call('joinRoom', { code, name: '舊版玩家', protocolVersion: 1 }), /更新/);
+    const legacy = await outsider.call('createRoom', { name: '舊版房主', protocolVersion: 1 });
+    try {
+      assert.equal((await room(outsider, legacy.code)).discussion.enabled, false);
+      await phones[0].call('joinRoom', { code: legacy.code, name: '新版玩家' });
+      await refused(outsider.call('setDiscussion', { code: legacy.code, discussion: {
+        enabled: true, speechSeconds: 45, freeSeconds: 0, selectionFree: true,
+      } }), /更新/);
+    } finally {
+      await phones[0].call('leaveRoom', { code: legacy.code });
+      await outsider.call('leaveRoom', { code: legacy.code });
+    }
+    const discussion = { enabled: true, speechSeconds: 30, freeSeconds: 0, selectionFree: false };
+    await denied(phones[1].call('setDiscussion', { code, discussion }));
+    await refused(phones[0].call('setDiscussion', { code,
+      discussion: { ...discussion, speechSeconds: 5 } }));
+    await phones[0].call('setDiscussion', { code, discussion });
+    assert.deepEqual((await room(phones[1], code)).discussion, discussion);
+    const clock = await phones[0].call('serverTime', {});
+    assert.ok(Math.abs(clock.serverNow - Date.now()) < 10000);
   });
 
   test('only players of the room can read it', async () => {
@@ -205,19 +229,54 @@ describe('online game end to end', () => {
     const leader: number = r.game.leader;
     await refused(move((leader + 1) % 5, 'proposeTeam', { team: [0, 1] }), /隊長/);
 
+    await refused(phones[0].call('setDiscussion', { code, discussion: {
+      enabled: false, speechSeconds: 45, freeSeconds: 0, selectionFree: true,
+    } }), /大廳/);
+
+    const speeches = async () => {
+      for (let i = 1; i <= 5; i++) {
+        const before = await room(phones[0], code);
+        assert.equal(before.game.phase, 'discussion');
+        const speaker = (before.game.leader + i) % 5;
+        const data = { expectedVersion: before.game.speechVersion, generation: before.gen };
+        await denied(move((speaker + 1) % 5, 'endSpeech', data));
+        await move(speaker, 'endSpeech', { ...data, generation: before.gen - 1 });
+        assert.equal((await room(phones[0], code)).game.speechVersion, data.expectedVersion);
+        // Simultaneous clicks/expiry callbacks can advance only one seat.
+        await Promise.all([move(speaker, 'endSpeech', data), move(speaker, 'endSpeech', data)]);
+        assert.equal((await room(phones[0], code)).game.speechVersion, data.expectedVersion + 1);
+      }
+      assert.equal((await room(phones[0], code)).game.phase, 'vote');
+    };
+
+    // Keep an initial rejected proposal alongside later successful quests.
+    await move(leader, 'proposeTeam', { team: [3, 4] });
+    await speeches();
+    for (let i = 0; i < 4; i++) await move(i, 'vote', { approve: false });
+    assert.equal((await room(phones[0], code)).game.proposals.length, 0);
+    await move(4, 'vote', { approve: true });
+    r = await room(phones[0], code);
+    assert.deepEqual(r.game.proposals[0], { quest: 1, attempt: 1,
+      leader, team: [3, 4], votes: [false, false, false, false, true], approved: false });
+    await move(leader, 'continueVote');
+
     // three quests that all succeed
     for (let q = 0; q < 3; q++) {
       r = await room(phones[0], code);
       const size = [2, 3, 2][q];
       const team = Array.from({ length: size }, (_, i) => i);
       await move(r.game.leader, 'proposeTeam', { team });
+      await speeches();
       for (let i = 0; i < 4; i++) await move(i, 'vote', { approve: i !== 3 });
       r = await room(phones[0], code);
       assert.equal(r.game.votes, null, 'votes are not published yet');
+      assert.equal(r.game.proposals.length, 1 + q, 'partial ballots are absent from proposal history');
       assert.deepEqual(r.game.voted, [0, 1, 2, 3]);
       await move(4, 'vote', { approve: true });
       r = await room(phones[0], code);
       assert.deepEqual(r.game.votes, [true, true, true, false, true]);
+      assert.equal(r.game.proposals.at(-1).attempt, q === 0 ? 2 : 1);
+      assert.equal(r.game.proposals.at(-1).quest, q + 1);
       await move(r.game.leader, 'continueVote');
       for (const seat of team) {
         if (roles[seat] === 'assassin' || roles[seat] === 'morgana') {

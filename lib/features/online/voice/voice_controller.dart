@@ -27,6 +27,11 @@ abstract class VoiceTransport {
   Future<void> close();
 }
 
+/// A receiver also filters audio from seats without the current floor.
+abstract class VoiceFloorTransport {
+  void setAllowedSpeakers(Set<String>? allowed);
+}
+
 /// Owned by the online room, not the game route. Joining is explicit and muted;
 /// the local game never constructs this controller or requests microphone access.
 class VoiceController extends ChangeNotifier {
@@ -42,6 +47,37 @@ class VoiceController extends ChangeNotifier {
   StreamSubscription<VoiceUpdate>? _subscription;
   int _generation = 0;
   bool _disposed = false;
+  bool microphoneAllowed = true;
+  Set<String>? _allowedSpeakers;
+  int _floorVersion = 0;
+
+  void setFloor(Set<String>? allowed, String uid) {
+    if (setEquals(allowed, _allowedSpeakers)) return;
+    _allowedSpeakers = allowed == null ? null : Set.unmodifiable(allowed);
+    ++_floorVersion;
+    microphoneAllowed = allowed == null || allowed.contains(uid);
+    final transport = _transport;
+    if (transport is VoiceFloorTransport) {
+      (transport as VoiceFloorTransport).setAllowedSpeakers(_allowedSpeakers);
+    }
+    if (!microphoneAllowed) {
+      microphone = false;
+      if (transport != null) unawaited(_forceMute(transport));
+    }
+    _notify();
+  }
+
+  Future<void> _forceMute(VoiceTransport transport) async {
+    try {
+      await transport.setMicrophoneEnabled(false);
+    } catch (_) {
+      if (!_disposed && _transport == transport) {
+        await leave();
+        error = '關閉麥克風失敗，已離開語音，請重新加入';
+      }
+    }
+    _notify();
+  }
 
   bool get busy => status == VoiceStatus.connecting || microphoneBusy;
   bool get connected => status == VoiceStatus.connected;
@@ -67,10 +103,13 @@ class VoiceController extends ChangeNotifier {
     try {
       transport = createTransport();
       _transport = transport;
+      if (transport is VoiceFloorTransport) {
+        (transport as VoiceFloorTransport).setAllowedSpeakers(_allowedSpeakers);
+      }
       _subscription = transport.updates.listen((update) {
         if (_disposed || generation != _generation) return;
         status = update.status;
-        microphone = update.microphone;
+        microphone = microphoneAllowed && update.microphone;
         speakers = Set.unmodifiable(update.speakers);
         connections = update.connections;
         participants = update.participants;
@@ -96,7 +135,9 @@ class VoiceController extends ChangeNotifier {
 
   Future<void> toggleMicrophone() async {
     if (_disposed || !connected || microphoneBusy || _transport == null) return;
+    if (!microphone && !microphoneAllowed) return;
     final generation = _generation;
+    final floorVersion = _floorVersion;
     final enabled = !microphone;
     microphoneBusy = true;
     error = null;
@@ -104,6 +145,10 @@ class VoiceController extends ChangeNotifier {
     try {
       final transport = _transport!;
       await transport.setMicrophoneEnabled(enabled);
+      if (enabled && (floorVersion != _floorVersion || !microphoneAllowed)) {
+        await transport.setMicrophoneEnabled(false);
+        return;
+      }
       if (!_disposed &&
           generation == _generation &&
           connected &&

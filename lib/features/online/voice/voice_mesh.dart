@@ -13,6 +13,7 @@ abstract class VoicePeer {
   Future<void> acceptAnswer(Map<String, dynamic> answer);
   Future<void> addCandidate(Map<String, dynamic> candidate);
   Future<double> remoteLevel();
+  void setPlaybackEnabled(bool enabled) {}
   Future<void> close();
 }
 
@@ -79,6 +80,8 @@ class VoiceMesh {
         for (final link in _links.values)
           if (link.state == PeerState.connected) link.uid: link.peer
       };
+  Map<String, VoicePeer> get allPeers =>
+      {for (final link in _links.values) link.uid: link.peer};
 
   void _changed() {
     if (!_stopped) _changes.add(null);
@@ -208,6 +211,7 @@ class VoiceMesh {
     }
     final link = _Link(peer, theirs, attempt, native);
     _links[peer] = link;
+    _changed();
     link.incoming
         .addAll(_earlyCandidates.remove('$peer/$theirs/$attempt') ?? []);
     native.onCandidate = (candidate) {

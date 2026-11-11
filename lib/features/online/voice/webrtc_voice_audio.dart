@@ -179,8 +179,10 @@ class WebRtcVoicePeer extends VoicePeer {
       }
     };
     pc.onTrack = (event) {
-      if (!closed && kIsWeb && event.track.kind == 'audio') {
-        unawaited(_playRemote(event));
+      if (!closed && event.track.kind == 'audio') {
+        _remoteTracks.add(event.track);
+        event.track.enabled = _playbackAllowed;
+        if (kIsWeb) unawaited(_playRemote(event));
       }
     };
   }
@@ -192,6 +194,17 @@ class WebRtcVoicePeer extends VoicePeer {
   MediaStreamTrack? _track;
   Timer? _disconnectTimer;
   bool closed = false;
+  bool _playbackAllowed = true;
+  final _remoteTracks = <MediaStreamTrack>[];
+  @override
+  void setPlaybackEnabled(bool enabled) {
+    _playbackAllowed = enabled;
+    if (closed) return;
+    for (final track in _remoteTracks) {
+      track.enabled = enabled;
+    }
+    if (_renderer != null) _renderer!.muted = !enabled;
+  }
 
   Future<void> initializePlayback() async {
     // Native WebRTC plays audio automatically. Web requires a media element.
@@ -223,6 +236,7 @@ class WebRtcVoicePeer extends VoicePeer {
         await stream.addTrack(event.track);
       }
       if (!closed) _renderer?.srcObject = stream;
+      if (!closed && _renderer != null) _renderer!.muted = !_playbackAllowed;
     } catch (_) {
       if (!closed) onState?.call(PeerState.failed);
     }

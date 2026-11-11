@@ -151,6 +151,7 @@ void main() {
     await advance(tester, 3500);
     expect(find.byType(VoiceControls), findsNothing);
     expect(tester.widget<GameScreen>(find.byType(GameScreen)).voice, isNull);
+    expect(find.byTooltip('玩家筆記'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

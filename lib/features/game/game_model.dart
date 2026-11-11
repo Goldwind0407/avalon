@@ -1,9 +1,12 @@
 import 'dart:math';
 import '../lobby/room_model.dart';
+import 'discussion_model.dart';
 
 enum GamePhase {
   identity,
   team,
+  discussion,
+  freeDiscussion,
   vote,
   voteResult,
   quest,
@@ -58,14 +61,38 @@ List<int> visibleSeats(List<Role> roles, int index) {
 /// Display a seat and nickname consistently in game prompts.
 String playerLabel(int seat, String name) => '${seat + 1} 號 【$name】';
 
-/// Keep the visible players and role-specific reminder on separate lines.
+class RoleInformation {
+  const RoleInformation(this.heading, this.reminder,
+      {this.listsPlayers = false});
+  final String heading, reminder;
+  final bool listsPlayers;
+}
+
+/// Shared wording for both the structured card view and plain-text knowledge.
+RoleInformation roleInformation(Role role) {
+  if (role == Role.merlin) {
+    return const RoleInformation('你看見的邪惡玩家', '莫德雷德不會被你看見。', listsPlayers: true);
+  }
+  if (role == Role.percival) {
+    return const RoleInformation('梅林候選人', '若有莫甘娜，\n你無法分辨兩者。',
+        listsPlayers: true);
+  }
+  if (role == Role.oberon) {
+    return const RoleInformation('你屬於邪惡陣營。', '你與其他邪惡玩家互不相認。');
+  }
+  if (role.isEvil) {
+    return const RoleInformation('你的邪惡同伴', '奧伯倫不會出現在此。', listsPlayers: true);
+  }
+  return const RoleInformation('你沒有額外情報。', '透過討論與投票，\n找出值得信任的隊友。');
+}
+
 String knowledgeText(Role role, List<int> visible, List<String> players) {
+  final info = roleInformation(role);
   final names = visible.map((i) => playerLabel(i, players[i])).join('、');
-  if (role == Role.merlin) return '你看見的邪惡玩家：$names。\n莫德雷德不會被你看見。';
-  if (role == Role.percival) return '梅林候選人：$names。\n若有莫甘娜，你無法分辨兩者。';
-  if (role == Role.oberon) return '你屬於邪惡陣營。\n你與其他邪惡玩家互不相認。';
-  if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。\n奧伯倫不會出現在此。';
-  return '你沒有額外情報。\n透過討論與投票，找出值得信任的隊友。';
+  final heading = info.listsPlayers
+      ? '${info.heading}：${names.isEmpty ? '無' : names}。'
+      : info.heading;
+  return '$heading\n${info.reminder}';
 }
 
 class QuestResult {
@@ -81,6 +108,7 @@ class AvalonGame {
   AvalonGame(Room room, {Random? random}) {
     if (!room.canStart) throw StateError('玩家或角色尚未準備完成');
     players = List.unmodifiable(room.players.map((p) => p.name));
+    discussion = room.discussion;
     final rng = random ?? Random.secure();
     final deck = room.specialRoles
         .map((name) => Role.values.firstWhere((r) => r.label == name))
@@ -100,6 +128,14 @@ class AvalonGame {
   late final List<String> players;
   late final List<Role> roles;
   late int leader;
+  late final DiscussionSettings discussion;
+  final List<ProposalRecord> proposals = [];
+  int speechIndex = 0;
+  int speechVersion = 0;
+  int? speechDeadline;
+  int? get speaker => phase == GamePhase.discussion
+      ? (leader + 1 + speechIndex) % players.length
+      : null;
   GamePhase phase = GamePhase.identity;
   int actor = 0;
   int rejections = 0;
@@ -137,7 +173,7 @@ class AvalonGame {
     }
   }
 
-  void proposeTeam(Iterable<int> selected) {
+  void proposeTeam(Iterable<int> selected, {int? now}) {
     _require(GamePhase.team);
     final members = selected.toSet().toList()..sort();
     if (members.length != requiredTeam ||
@@ -149,7 +185,42 @@ class AvalonGame {
       ..addAll(members);
     _votes.clear();
     actor = 0;
-    phase = GamePhase.vote;
+    speechIndex = 0;
+    speechVersion++;
+    phase = discussion.enabled ? GamePhase.discussion : GamePhase.vote;
+    speechDeadline = discussion.enabled
+        ? (now ?? DateTime.now().millisecondsSinceEpoch) +
+            discussion.speechSeconds * 1000
+        : null;
+  }
+
+  void endSpeech({int? seat, int? now, required int expectedVersion}) {
+    if (speechVersion != expectedVersion ||
+        ![GamePhase.discussion, GamePhase.freeDiscussion].contains(phase)) {
+      return;
+    }
+    final time = now ?? DateTime.now().millisecondsSinceEpoch;
+    if (phase == GamePhase.freeDiscussion) {
+      if (time < speechDeadline!) throw StateError('自由討論尚未結束');
+      speechVersion++;
+      phase = GamePhase.vote;
+      speechDeadline = null;
+      return;
+    }
+    if (time < speechDeadline! && seat != null && seat != speaker) {
+      throw StateError('只有目前發言者可以過麥');
+    }
+    speechVersion++;
+    speechIndex++;
+    if (speechIndex < players.length) {
+      speechDeadline = time + discussion.speechSeconds * 1000;
+    } else if (discussion.freeSeconds > 0) {
+      phase = GamePhase.freeDiscussion;
+      speechDeadline = time + discussion.freeSeconds * 1000;
+    } else {
+      phase = GamePhase.vote;
+      speechDeadline = null;
+    }
   }
 
   void vote(bool approve) {
@@ -159,6 +230,12 @@ class AvalonGame {
     if (actor == players.length) {
       actor = 0;
       phase = GamePhase.voteResult;
+      proposals.add(ProposalRecord(
+          quest: questNumber,
+          attempt: rejections + 1,
+          leader: leader,
+          team: _team,
+          votes: _votes));
     }
   }
 

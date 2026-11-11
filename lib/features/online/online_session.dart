@@ -2,6 +2,7 @@ import 'dart:async';
 import '../../core/assets.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
+import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
 import 'online_service.dart';
 
@@ -20,6 +21,9 @@ class OnlineRoom {
   OnlineRoom.fromMap(Map<String, dynamic> m)
       : code = m['code'] as String,
         hostUid = m['hostUid'] as String,
+        voiceRoomId = m['voiceRoomId'] as String?,
+        discussion = DiscussionSettings.fromMap(
+            (m['discussion'] as Map?)?.cast<String, dynamic>()),
         status = m['status'] as String,
         players = [
           for (final p in (m['players'] as List))
@@ -36,6 +40,8 @@ class OnlineRoom {
 
   final String code;
   final String hostUid;
+  final String? voiceRoomId;
+  final DiscussionSettings discussion;
   final String status;
   final List<OnlinePlayer> players;
   final Set<Role> optionalRoles;
@@ -76,6 +82,7 @@ class OnlineGameSession extends GameSession {
     required Stream<Map<String, dynamic>?> room,
     required Stream<Map<String, dynamic>?> mine,
     required ServerCall call,
+    super.notebook,
   }) : _call = call {
     _subs = [
       room.listen((data) {
@@ -84,16 +91,59 @@ class OnlineGameSession extends GameSession {
         if (data == null) {
           closed = true;
         } else {
+          error = null;
           this.room = OnlineRoom.fromMap(data);
         }
-        notifyListeners();
+        _updated();
       }, onError: _failed),
       mine.listen((data) {
         if (leaving) return;
         _mine = data;
-        notifyListeners();
+        _updated();
       }, onError: _failed),
     ];
+    unawaited(_synchronizeClock());
+  }
+
+  int _clockOffset = 0;
+  bool _disposed = false;
+  Future<void> _notebookSync = Future.value();
+  @override
+  int get nowMillis => super.nowMillis + _clockOffset;
+
+  Future<void> _synchronizeClock() async {
+    final before = super.nowMillis;
+    try {
+      final response = await _call('serverTime', {});
+      if (_disposed) return;
+      final server = (response['serverNow'] as num?)?.toInt();
+      if (server != null) {
+        _clockOffset = server - ((before + super.nowMillis) ~/ 2);
+      }
+      refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
+    } catch (_) {/* Local time remains a usable offline fallback. */}
+  }
+
+  void _updated() {
+    refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
+    if (room?.inGame == true && mySeat != null) {
+      final scope = notebookScope;
+      final card = _myCard;
+      final role =
+          card == null ? null : Role.values.byName(card['role'] as String);
+      final opening = role == null
+          ? null
+          : '${role.label}・${role.isEvil ? '邪惡陣營' : '正義陣營'}\n${role.isEvil ? '讓任務失敗或找出梅林' : '完成三次任務，並保護梅林'}\n${knowledgeText(role, [
+                for (final i in card!['visible'] as List? ?? const [])
+                  (i as num).toInt()
+              ], players)}';
+      final records = proposalHistory;
+      _notebookSync = _notebookSync.then((_) async {
+        if (_disposed || notebookScope != scope) return;
+        await notebook.synchronize(scope, opening: opening, proposals: records);
+      });
+    }
+    notifyListeners();
   }
 
   /// Connects to a room on the Firebase project.
@@ -111,6 +161,9 @@ class OnlineGameSession extends GameSession {
   final String code;
   final String uid;
   final ServerCall _call;
+  @override
+  String get notebookScope =>
+      'online/${room?.voiceRoomId ?? code}/$uid/$generation';
   late final List<StreamSubscription<Object?>> _subs;
 
   /// Latest room document; null until it arrives.
@@ -126,11 +179,13 @@ class OnlineGameSession extends GameSession {
   void _failed(Object e) {
     if (leaving) return;
     error = e;
+    refreshSpeechTimer(active: false);
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     for (final s in _subs) {
       s.cancel();
     }
@@ -144,8 +199,18 @@ class OnlineGameSession extends GameSession {
   List<int> _ints(String key) =>
       [for (final v in (_game[key] as List? ?? const [])) (v as num).toInt()];
 
-  Future<void> _move(String move, [Map<String, Object?> extra = const {}]) =>
-      _call('move', {'code': code, 'move': move, ...extra});
+  Future<void> _move(String move,
+      [Map<String, Object?> extra = const {}]) async {
+    final before = super.nowMillis;
+    final response =
+        await _call('move', {'code': code, 'move': move, ...extra});
+    if (_disposed) return;
+    final server = (response['serverNow'] as num?)?.toInt();
+    if (server != null) {
+      _clockOffset = server - ((before + super.nowMillis) ~/ 2);
+      refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
+    }
+  }
 
   // ───────────── lobby ─────────────
 
@@ -153,6 +218,8 @@ class OnlineGameSession extends GameSession {
         'code': code,
         'roles': [for (final r in roles) r.name],
       });
+  Future<void> setDiscussion(DiscussionSettings settings) =>
+      _call('setDiscussion', {'code': code, 'discussion': settings.toMap()});
   Future<void> start() => _call('startGame', {'code': code});
   Future<void> backToLobby() => _call('backToLobby', {'code': code});
 
@@ -162,10 +229,12 @@ class OnlineGameSession extends GameSession {
   /// Gives up this player's seat. During a game this ends it for everyone.
   Future<void> leave() async {
     leaving = true;
+    refreshSpeechTimer(active: false);
     try {
       await _call('leaveRoom', {'code': code});
     } catch (_) {
       leaving = false;
+      refreshSpeechTimer(active: room?.inGame == true && !closed);
       rethrow;
     }
   }
@@ -199,6 +268,26 @@ class OnlineGameSession extends GameSession {
           QuestResult([for (final i in q['team'] as List) (i as num).toInt()],
               (q['fails'] as num).toInt(), q['succeeded'] as bool)
       ];
+  @override
+  DiscussionSettings get discussionSettings => DiscussionSettings.fromMap(
+      (_game['discussion'] as Map?)?.cast<String, dynamic>());
+  @override
+  List<ProposalRecord> get proposalHistory => [
+        for (final p in _game['proposals'] as List? ?? const [])
+          ProposalRecord.fromMap(Map<String, dynamic>.from(p as Map))
+      ];
+  @override
+  int get speechVersion => (_game['speechVersion'] as num?)?.toInt() ?? 0;
+  @override
+  int? get speechDeadline => (_game['speechDeadline'] as num?)?.toInt();
+  @override
+  int? get speaker => phase == GamePhase.discussion && players.isNotEmpty
+      ? (leader + 1 + ((_game['speechIndex'] as num?)?.toInt() ?? 0)) %
+          players.length
+      : null;
+  @override
+  Future<void> endSpeech(int expectedVersion) => _move('endSpeech',
+      {'expectedVersion': expectedVersion, 'generation': generation});
   @override
   List<bool>? get revealOrder {
     final quests = _game['history'] as List? ?? const [];
@@ -264,10 +353,16 @@ class OnlineGameSession extends GameSession {
     final role = roleOf(seat);
     final card = _myCard;
     if (role == null || card == null) return '';
-    final visible = [
+    return knowledgeText(role, visiblePlayers(seat), players);
+  }
+
+  @override
+  List<int> visiblePlayers(int seat) {
+    final card = _myCard;
+    if (seat != mySeat || card == null) return const [];
+    return [
       for (final v in card['visible'] as List? ?? const []) (v as num).toInt()
     ];
-    return knowledgeText(role, visible, players);
   }
 
   @override

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/game_screen.dart';
+import '../game/discussion_model.dart';
+import '../game/discussion_widgets.dart';
 import '../lobby/room_model.dart';
 
 class LocalPlayScreen extends StatefulWidget {
@@ -13,6 +15,7 @@ class LocalPlayScreen extends StatefulWidget {
 
 class _LocalPlayScreenState extends State<LocalPlayScreen> {
   int playerCount = 5;
+  DiscussionSettings discussion = const DiscussionSettings();
   final names = List.generate(10, (i) => '玩家${i + 1}');
   final roles = <String>{'梅林', '刺客'};
   static const roleOptions = [
@@ -33,6 +36,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     game.specialRoles
       ..clear()
       ..addAll(roles);
+    game.discussion = discussion;
     return game;
   }
 
@@ -73,6 +77,16 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         fontWeight: FontWeight.bold,
                         color: AvalonTheme.gold)),
                 const Spacer(),
+                IconButton(
+                    tooltip: '發言設定',
+                    icon: const Icon(Icons.timer_outlined),
+                    color: AvalonTheme.gold,
+                    onPressed: () async {
+                      final value = await editDiscussion(context, discussion);
+                      if (mounted && value != null) {
+                        setState(() => discussion = value);
+                      }
+                    }),
                 const Text('人數',
                     style: TextStyle(color: AvalonTheme.muted, fontSize: 12)),
                 const SizedBox(width: 8),

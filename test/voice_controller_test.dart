@@ -73,6 +73,33 @@ void main() {
     expect(voice.microphone, isTrue);
   });
 
+  test('floor loss cancels pending mic and restoring floor never opens it',
+      () async {
+    await voice.join();
+    transport.pendingMicrophone = Completer<void>();
+    final opening = voice.toggleMicrophone();
+    voice.setFloor({'other'}, 'me');
+    expect(voice.microphoneAllowed, isFalse);
+    transport.pendingMicrophone!.complete();
+    await opening;
+    await Future<void>.delayed(Duration.zero);
+    expect(voice.microphone, isFalse);
+    expect(transport.microphoneRequests.last, isFalse);
+    final count = transport.microphoneRequests.length;
+    await voice.toggleMicrophone();
+    expect(transport.microphoneRequests.length, count);
+    voice.setFloor({'me'}, 'me');
+    expect(voice.microphoneAllowed, isTrue);
+    expect(voice.microphone, isFalse);
+    transport.pendingMicrophone = null;
+    await voice.toggleMicrophone();
+    expect(voice.microphone, isTrue);
+    voice.setFloor({}, 'me');
+    await Future<void>.delayed(Duration.zero);
+    expect(voice.microphone, isFalse);
+    expect(transport.microphoneRequests.last, isFalse);
+  });
+
   test('speaker identity and reconnect events update the UI state', () async {
     await voice.join();
     transport.events

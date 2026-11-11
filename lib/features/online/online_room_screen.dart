@@ -5,6 +5,7 @@ import '../../core/widgets.dart';
 import '../game/game_model.dart';
 import '../game/game_screen.dart';
 import '../game/game_session.dart';
+import '../game/discussion_widgets.dart';
 import '../lobby/room_model.dart';
 import 'online_session.dart';
 import 'online_service.dart';
@@ -76,6 +77,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   void initState() {
     super.initState();
     session.addListener(_onRoomChanged);
+    _updateVoiceFloor();
   }
 
   @override
@@ -93,6 +95,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   }
 
   void _onRoomChanged() {
+    _updateVoiceFloor();
     final room = session.room;
     if (session.closed ||
         session.error != null ||
@@ -108,6 +111,31 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     if (room.inGame && !_tableOpen && room.gen != _leftGen) {
       _openTable();
     }
+  }
+
+  void _updateVoiceFloor() {
+    final room = session.room;
+    Set<String>? allowed;
+    if (room?.inGame == true && session.discussionSettings.enabled) {
+      final seat = switch (session.phase) {
+        GamePhase.discussion => session.speaker,
+        GamePhase.team when !session.discussionSettings.selectionFree =>
+          session.leader,
+        _ => null,
+      };
+      if (seat != null) {
+        allowed = {session.playerIds[seat]};
+      } else if ([
+        GamePhase.identity,
+        GamePhase.vote,
+        GamePhase.voteResult,
+        GamePhase.quest,
+        GamePhase.questResult
+      ].contains(session.phase)) {
+        allowed = {};
+      }
+    }
+    voice.setFloor(allowed, widget.uid);
   }
 
   void _showNotice(OnlineRoom room) {
@@ -278,6 +306,18 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                   ..showSnackBar(const SnackBar(content: Text('已複製房號')));
               }),
           const Spacer(),
+          IconButton(
+              tooltip: '發言設定',
+              icon: const Icon(Icons.timer_outlined),
+              onPressed: !_busy && session.isHost && !room.inGame
+                  ? () async {
+                      final settings =
+                          await editDiscussion(context, room.discussion);
+                      if (mounted && settings != null) {
+                        await _run(() => session.setDiscussion(settings));
+                      }
+                    }
+                  : null),
           VoiceControls(
               voice: voice,
               names: {for (final p in room.players) p.uid: p.name}),

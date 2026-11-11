@@ -15,6 +15,8 @@ export type RoleKey =
 export type Phase =
   | 'identity'
   | 'team'
+  | 'discussion'
+  | 'freeDiscussion'
   | 'vote'
   | 'voteResult'
   | 'quest'
@@ -140,6 +142,35 @@ export interface Quest {
   order: boolean[];
 }
 
+export interface DiscussionSettings {
+  enabled: boolean;
+  speechSeconds: number;
+  freeSeconds: number;
+  selectionFree: boolean;
+}
+export const FREE_DISCUSSION: DiscussionSettings = {
+  enabled: false, speechSeconds: 45, freeSeconds: 0, selectionFree: true,
+};
+export function discussionSettings(value: unknown): DiscussionSettings {
+  if (value == null) return { ...FREE_DISCUSSION };
+  const v = value as DiscussionSettings;
+  if (typeof v !== 'object' || typeof v.enabled !== 'boolean' ||
+      typeof v.selectionFree !== 'boolean' || !Number.isInteger(v.speechSeconds) ||
+      v.speechSeconds < 30 || v.speechSeconds > 90 || ![0, 60].includes(v.freeSeconds)) {
+    throw new GameError('invalid-argument', '發言設定不正確');
+  }
+  return { enabled: v.enabled, speechSeconds: v.speechSeconds,
+    freeSeconds: v.freeSeconds, selectionFree: v.selectionFree };
+}
+export interface Proposal {
+  quest: number;
+  attempt: number;
+  leader: number;
+  team: number[];
+  votes: boolean[];
+  approved: boolean;
+}
+
 /** Everything about a game in progress, public and secret parts together. */
 export interface GameState {
   phase: Phase;
@@ -155,6 +186,11 @@ export interface GameState {
   /** Team members that have played a quest card. */
   played: number[];
   history: Quest[];
+  proposals: Proposal[];
+  discussion: DiscussionSettings;
+  speechIndex: number;
+  speechVersion: number;
+  speechDeadline: number | null;
   winner: '正義' | '邪惡' | null;
   result: string;
   assassinTarget: number | null;
@@ -173,6 +209,7 @@ export function newGame(
   players: number,
   optional: readonly RoleKey[],
   rng: Rng,
+  settings: DiscussionSettings = FREE_DISCUSSION,
 ): GameState {
   const roles = dealRoles(players, optional, rng);
   return {
@@ -185,6 +222,9 @@ export function newGame(
     votes: null,
     played: [],
     history: [],
+    proposals: [],
+    discussion: discussionSettings(settings),
+    speechIndex: 0, speechVersion: 0, speechDeadline: null,
     winner: null,
     result: '',
     assassinTarget: null,
@@ -235,7 +275,7 @@ export function confirmIdentity(s: GameState, seat: number) {
   if (s.confirmed.length === playerCount(s)) s.phase = 'team';
 }
 
-export function proposeTeam(s: GameState, seat: number, team: number[]) {
+export function proposeTeam(s: GameState, seat: number, team: number[], now = Date.now()) {
   requirePhase(s, 'team');
   if (seat !== s.leader) throw new GameError('permission-denied', '只有隊長可以提案');
   if (!Array.isArray(team)) throw new GameError('invalid-argument', '隊伍格式錯誤');
@@ -251,7 +291,36 @@ export function proposeTeam(s: GameState, seat: number, team: number[]) {
   s.voted = [];
   s.votes = null;
   s.pendingVotes = {};
-  s.phase = 'vote';
+  s.speechIndex = 0;
+  s.speechVersion++;
+  s.phase = s.discussion.enabled ? 'discussion' : 'vote';
+  s.speechDeadline = s.discussion.enabled ? now + s.discussion.speechSeconds * 1000 : null;
+}
+
+export const currentSpeaker = (s: GameState) =>
+  s.phase === 'discussion' ? (s.leader + 1 + s.speechIndex) % playerCount(s) : null;
+
+export function endSpeech(s: GameState, seat: number, expectedVersion: number, now = Date.now()) {
+  checkSeat(s, seat);
+  if (!Number.isInteger(expectedVersion)) throw new GameError('invalid-argument', '缺少發言版本');
+  if (expectedVersion !== s.speechVersion ||
+      !['discussion', 'freeDiscussion'].includes(s.phase)) return false;
+  if (s.phase === 'freeDiscussion') {
+    if (now < s.speechDeadline!) throw new GameError('failed-precondition', '自由討論尚未結束');
+    s.speechVersion++; s.phase = 'vote'; s.speechDeadline = null; return true;
+  }
+  if (now < s.speechDeadline! && seat !== currentSpeaker(s)) {
+    throw new GameError('permission-denied', '只有目前發言者可以過麥');
+  }
+  s.speechVersion++; s.speechIndex++;
+  if (s.speechIndex < playerCount(s)) {
+    s.speechDeadline = now + s.discussion.speechSeconds * 1000;
+  } else if (s.discussion.freeSeconds > 0) {
+    s.phase = 'freeDiscussion'; s.speechDeadline = now + s.discussion.freeSeconds * 1000;
+  } else {
+    s.phase = 'vote'; s.speechDeadline = null;
+  }
+  return true;
 }
 
 export function vote(s: GameState, seat: number, approve: boolean) {
@@ -265,6 +334,8 @@ export function vote(s: GameState, seat: number, approve: boolean) {
     s.votes = Array.from({ length: playerCount(s) }, (_, i) => s.pendingVotes[String(i)]);
     s.pendingVotes = {};
     s.phase = 'voteResult';
+    s.proposals.push({ quest: s.history.length + 1, attempt: s.rejections + 1,
+      leader: s.leader, team: [...s.team], votes: [...s.votes], approved: teamApproved(s) });
   }
 }
 
@@ -356,5 +427,11 @@ export function join(
   open: Omit<GameState, (typeof SECRET_KEYS)[number]>,
   secret: Pick<GameState, (typeof SECRET_KEYS)[number]>,
 ): GameState {
-  return { ...open, ...secret };
+  const state = { ...open, ...secret };
+  state.discussion ??= { ...FREE_DISCUSSION };
+  state.proposals ??= [];
+  state.speechIndex ??= 0;
+  state.speechVersion ??= 0;
+  state.speechDeadline ??= null;
+  return state;
 }

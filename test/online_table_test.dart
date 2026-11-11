@@ -87,8 +87,16 @@ void main() {
     await advance(tester, 1500);
     expect(find.text('請將手機交給'), findsNothing);
     expect(find.text('派西維爾'), findsOneWidget);
+    final knowledge = find.byKey(const ValueKey('identityKnowledge'));
+    expect(find.descendant(of: knowledge, matching: find.text('梅林候選人：')),
+        findsOneWidget);
+    expect(find.descendant(of: knowledge, matching: find.text('1 號 【騎士0】')),
+        findsOneWidget);
+    expect(find.descendant(of: knowledge, matching: find.text('4 號 【騎士3】')),
+        findsOneWidget);
     expect(
-        find.textContaining('梅林候選人：1 號 【騎士0】、4 號 【騎士3】。\n若有莫甘娜'), findsOneWidget);
+        find.descendant(of: knowledge, matching: find.text('若有莫甘娜，\n你無法分辨兩者。')),
+        findsOneWidget);
     await tester.tap(find.text('記住了'));
     await advance(tester, 600);
     expect(server.calls.last.$2['move'], 'confirmIdentity');

@@ -1,4 +1,5 @@
 import 'dart:math';
+import '../game/discussion_model.dart';
 
 class Player {
   Player(
@@ -16,6 +17,7 @@ class Room {
   Room({required this.code, required this.players});
   final String code;
   final List<Player> players;
+  DiscussionSettings discussion = const DiscussionSettings();
   final Set<String> specialRoles = {'梅林', '刺客'};
   static int evilCount(int count) => switch (count) {
         5 || 6 => 2,
