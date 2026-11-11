@@ -9,6 +9,7 @@ import '../lobby/room_model.dart';
 import '../table/card_reveal.dart';
 import '../table/components.dart';
 import '../table/effects.dart';
+import '../table/expansion_pieces.dart';
 import '../table/quest_board.dart';
 import '../table/table_surface.dart';
 import 'game_model.dart';
@@ -214,10 +215,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Makes a move. The table reacts once the session reports the new state
   /// (straight away on this phone; after the server answers online).
   Future<void> act(FutureOr<void> Function() move,
-      {bool interlude = false}) async {
+      {bool interlude = false, bool keepRevealed = false}) async {
     HapticFeedback.mediumImpact();
     setState(() {
-      revealed = false;
+      if (!keepRevealed) revealed = false;
       selected.clear();
       choice = null;
       _committing = _hiding = false;
@@ -267,12 +268,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (now.phase == GamePhase.team && old.phase != GamePhase.team) {
         if (now.leader != old.leader) _passCrown(old.leader, now.leader);
         if (old.phase != GamePhase.voteResult) {
+          final card = game.expansions.lancelot > 0 && game.questNumber <= 5
+              ? game.loyalty[game.questNumber - 1]
+              : null;
           _announceId++;
           _announcement = (
-            '第${_numerals[game.questNumber - 1]}次遠征',
-            '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
-                '${game.failsRequired == 2 ? '　·　需兩張失敗' : ''}',
-            old.phase == GamePhase.questResult ? 1500 : 350,
+            card == true ? '陣營轉換' : '第${_numerals[game.questNumber - 1]}次遠征',
+            card == true
+                ? '轉換陣營卡翻開：兩位蘭斯洛特交換了陣營'
+                : '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
+                    '${game.failsRequired == 2 ? '　·　需兩張失敗' : ''}'
+                    '${card == false && game.expansions.lancelot == 1 ? '　·　轉換陣營卡：不變' : ''}',
+            const [GamePhase.questResult, GamePhase.ladyResult]
+                    .contains(old.phase)
+                ? 1500
+                : 350,
           );
         }
       }
@@ -456,8 +466,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         GamePhase.identity,
         GamePhase.vote,
         GamePhase.quest,
+        GamePhase.lady,
+        GamePhase.ladyResult,
+        GamePhase.excalibur,
+        GamePhase.excaliburResult,
         GamePhase.assassination
       ].contains(game.phase);
+
+  /// The Lady or Excalibur holder whose turn it is, during those steps.
+  int? get _expansionActor => switch (game.phase) {
+        GamePhase.lady || GamePhase.ladyResult => game.ladyHolder,
+        GamePhase.excalibur ||
+        GamePhase.excaliburResult =>
+          game.excaliburHolder,
+        _ => null,
+      };
 
   /// Whose secret step is shown: the phone's owner online, otherwise the
   /// player the phone has to be handed to.
@@ -475,6 +498,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       GamePhase.quest =>
         game.team.contains(me) && !game.playedSeats.contains(me),
       GamePhase.assassination => game.roleOf(me) == Role.assassin,
+      GamePhase.lady || GamePhase.excalibur => _expansionActor == me,
+      // what was seen arrives in this player's private document
+      GamePhase.ladyResult || GamePhase.excaliburResult =>
+        _expansionActor == me && game.latestReveal != null,
       _ => false,
     };
   }
@@ -487,6 +514,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _highlightSeat(int i) {
     if (game.discussing) return game.speaker == i;
     if (game.phase == GamePhase.team) return selected.contains(i);
+    if (_expansionActor != null) return i == _expansionActor;
     if (!game.isOnline) return isPrivate && i == privateActor;
     return switch (game.phase) {
       GamePhase.identity => !game.confirmedSeats.contains(i),
@@ -663,12 +691,33 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                               key: ValueKey(
                                   'speech/${game.generation}/${game.speechVersion}'),
                               game: game)
-                          : QuestBoard(
-                              game: game,
-                              onImpact: () {
-                                HapticFeedback.heavyImpact();
-                                _shaker.currentState?.shake(4);
-                              }),
+                          : Stack(
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.none,
+                              children: [
+                                  QuestBoard(
+                                      game: game,
+                                      onImpact: () {
+                                        HapticFeedback.heavyImpact();
+                                        _shaker.currentState?.shake(4);
+                                      }),
+                                  if (game.expansions.lancelot > 0)
+                                    Positioned(
+                                      top: 0,
+                                      right: 0,
+                                      child: LoyaltyStrip(
+                                          cards: game.loyalty,
+                                          variant: game.expansions.lancelot,
+                                          current: game.phase ==
+                                                      GamePhase.finished ||
+                                                  game.phase ==
+                                                      GamePhase.assassination
+                                              ? -1
+                                              : min(game.history.length, 4),
+                                          switched: game.lancelotSwitched,
+                                          scale: s),
+                                    ),
+                                ]),
                     ),
                   ),
                   SizedBox(height: 6 * s),
@@ -730,6 +779,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       shieldKey: _shieldKeys[i],
       voteKey: _voteKeys[i],
       onTap: canPick ? () => _toggleSeat(i) : null,
+      badges: [
+        if (game.ladyHolder == i && phase != GamePhase.finished)
+          LadyBadge(scale: s),
+        if (game.excaliburHolder == i &&
+            const [
+              GamePhase.discussion,
+              GamePhase.freeDiscussion,
+              GamePhase.vote,
+              GamePhase.voteResult,
+              GamePhase.quest,
+              GamePhase.excalibur,
+              GamePhase.excaliburResult,
+            ].contains(phase))
+          ExcaliburBadge(scale: s),
+      ],
     );
   }
 
@@ -738,6 +802,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _props(double s) {
     final played = switch (game.phase) {
       GamePhase.quest => game.playedSeats.length,
+      GamePhase.excalibur || GamePhase.excaliburResult => game.team.length,
       GamePhase.questResult => _interlude ? game.team.length : 0,
       _ => 0,
     };
@@ -825,6 +890,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       GamePhase.assassination => ('刺殺梅林', '正義已完成三次任務，刺客的最後機會'),
       GamePhase.finished => ('遊戲結束', ''),
       GamePhase.questResult => ('第 ${game.history.length} 次遠征', '結果揭曉'),
+      GamePhase.lady || GamePhase.ladyResult => (
+          '湖中女神',
+          '持有者 ${player(game.ladyHolder!)} 查驗一名玩家的陣營'
+        ),
+      GamePhase.excalibur || GamePhase.excaliburResult => (
+          '王者之劍',
+          '持劍者 ${player(game.excaliburHolder!)} 可以翻轉一張任務牌'
+        ),
       _ => (
           '第 ${game.questNumber} 次遠征',
           '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
@@ -916,6 +989,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               '任務進行中：已出牌 ${game.playedSeats.length}/${game.team.length}', none);
         case GamePhase.assassination when game.roleOf(me) != Role.assassin:
           return bar('刺客正在選擇刺殺目標…', none);
+        case GamePhase.lady when me != game.ladyHolder:
+          return bar('湖中女神持有者 ${player(game.ladyHolder!)} 正在選擇查驗對象…', none);
+        case GamePhase.ladyResult when me != game.ladyHolder:
+          final check = game.ladyChecks.last;
+          return bar(
+              '${player(check.holder)} 查驗了 ${player(check.target)} 的陣營，湖中女神將交給對方',
+              none);
+        case GamePhase.excalibur || GamePhase.excaliburResult
+            when me != game.excaliburHolder:
+          return bar(
+              '持劍者 ${player(game.excaliburHolder!)} 正在決定是否使用王者之劍…', none);
         default:
       }
     }
@@ -939,10 +1023,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               '${game.discussionSettings.enabled ? '確認隊伍並開始發言' : '提案並開始投票'}（${selected.length}/${game.requiredTeam}）',
               scale: s,
               onPressed: selected.length == game.requiredTeam
-                  ? () {
+                  ? () async {
                       // take the list now: act() clears the selection
                       final picked = selected.toList();
-                      act(() => game.proposeTeam(picked));
+                      int? sword;
+                      if (game.expansions.excalibur) {
+                        sword = await _pickExcalibur(picked);
+                        if (sword == null || !mounted) return;
+                      }
+                      act(() => game.proposeTeam(picked, excalibur: sword));
                     }
                   : null,
             ));
@@ -982,6 +1071,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       GamePhase.identity => '查看身分',
       GamePhase.vote => '投下組隊票',
       GamePhase.quest => '執行任務',
+      GamePhase.lady || GamePhase.ladyResult => '使用湖中女神',
+      GamePhase.excalibur || GamePhase.excaliburResult => '使用王者之劍',
       _ => '選擇刺殺目標',
     };
     // online there is nobody to hand the phone to
@@ -991,6 +1082,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             GamePhase.identity => _identity(actor, s, c),
             GamePhase.vote => _secretVote(s, c),
             GamePhase.quest => _secretQuest(actor, s, c),
+            GamePhase.lady => _ladyPick(actor, s),
+            GamePhase.excalibur => _excaliburPick(actor, s),
+            GamePhase.ladyResult ||
+            GamePhase.excaliburResult =>
+              _expansionResult(actor, s, c),
             _ => _assassinate(s),
           };
     return Container(
@@ -1193,6 +1289,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             Text(role.isEvil ? '讓任務失敗或找出梅林' : '完成三次任務並保護梅林',
                                 style: _t(13, s,
                                     color: color.withValues(alpha: .85))),
+                            if (role.isLancelot && game.lancelotSwitched)
+                              Text(
+                                  '目前已轉換為${role.isEvil ? '正義' : '邪惡'}陣營',
+                                  style: _t(13,
+                                      s,
+                                      color: role.isEvil ? _good : _evil,
+                                      weight: FontWeight.bold)),
                           ])),
                       SizedBox(height: 12 * s),
                       line(3, _identityKnowledge(actor, role, s, infoW)),
@@ -1360,14 +1463,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _secretQuest(int actor, double s, BoxConstraints c) {
-    final evil = game.roleOf(actor)!.isEvil;
+    final evil = game.evilNow(actor) ?? false;
+    final mustFail = game.mustFail(actor);
+    final lancelot = game.roleOf(actor)?.isLancelot ?? false;
     return _choiceRow(
       s,
       c,
       '${player(actor)}　執行任務',
-      evil ? '邪惡玩家可以自由選擇。結果只會公布總失敗張數。' : '正義玩家只能打出「任務成功」。',
+      mustFail
+          ? '你是邪惡方的蘭斯洛特，必須打出「任務失敗」。'
+          : evil
+              ? '${lancelot ? '你目前屬於邪惡陣營。' : ''}邪惡玩家可以自由選擇。結果只會公布總失敗張數。'
+              : '${lancelot ? '你目前屬於正義陣營。' : ''}正義玩家只能打出「任務成功」。',
       [
-        (true, Assets.questSuccess, '任務成功', true),
+        (true, Assets.questSuccess, '任務成功', !mustFail),
         (false, Assets.questFail, '破壞任務', evil),
       ],
       '蓋牌打出',
@@ -1464,6 +1573,231 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     ]);
   }
 
+  // ───────────────────── expansions ─────────────────────
+
+  /// The leader hands Excalibur to one of the team (not themselves).
+  Future<int?> _pickExcalibur(List<int> team) => showDialog<int>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('把王者之劍交給哪位隊員？'),
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text('任務牌收走前，持劍者可以翻轉另一名隊員的任務牌。隊長不能拿劍。',
+                  style: TextStyle(fontSize: 12, color: AvalonTheme.muted)),
+            ),
+            for (final i in team)
+              if (i != game.leader)
+                SimpleDialogOption(
+                  key: ValueKey('excaliburTo$i'),
+                  onPressed: () => Navigator.pop(context, i),
+                  child: Text(player(i)),
+                ),
+          ],
+        ),
+      );
+
+  /// Seats to choose from, as a row of plaques (one may be picked).
+  Widget _seatPicker(List<int> seats, double s, Color color) => Wrap(
+        spacing: 12 * s,
+        runSpacing: 10 * s,
+        alignment: WrapAlignment.center,
+        children: [
+          for (final (row, i) in seats.indexed)
+            Appear(
+              delay: _ms(150 + 70 * row),
+              scaleFrom: .9,
+              child: GestureDetector(
+                key: ValueKey('pick$i'),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => selected
+                    ..clear()
+                    ..add(i));
+                },
+                child: Pressable(
+                  child: AnimatedScale(
+                    duration: _ms(200),
+                    scale: selected.contains(i) ? 1.08 : 1,
+                    child: AnimatedContainer(
+                      duration: _ms(200),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 16 * s, vertical: 10 * s),
+                      decoration: plaqueDecoration(
+                              highlight: selected.contains(i), radius: 10 * s)
+                          .copyWith(
+                              border: selected.contains(i)
+                                  ? Border.all(color: color, width: 2)
+                                  : null),
+                      child: Text(player(i),
+                          style: _t(14, s,
+                              color: selected.contains(i) ? color : _ink)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+
+  Widget _ladyPick(int holder, double s) {
+    final targets = [
+      for (var i = 0; i < game.players.length; i++)
+        if (!game.ladyPast.contains(i)) i
+    ];
+    return SingleChildScrollView(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Appear(
+          scaleFrom: .6,
+          offset: Offset.zero,
+          child: GameCard(Assets.ladyOfTheLake, width: 54 * s, elevation: 10),
+        ),
+        SizedBox(height: 8 * s),
+        Text('${player(holder)}　使用湖中女神',
+            style: _t(20, s, color: AvalonTheme.gold, weight: FontWeight.bold)),
+        Text('選擇一名玩家查驗陣營（只看陣營，不看角色）。持有過湖中女神的人不能被查驗。',
+            textAlign: TextAlign.center, style: _t(12.5, s)),
+        SizedBox(height: 14 * s),
+        _seatPicker(targets, s, _good),
+        SizedBox(height: 16 * s),
+        Appear(
+          delay: _ms(450),
+          child: TableButton('查驗陣營',
+              scale: s,
+              onPressed: selected.length == 1
+                  ? () {
+                      final target = selected.single;
+                      act(() => game.useLady(target), keepRevealed: true);
+                    }
+                  : null),
+        ),
+      ]),
+    );
+  }
+
+  Widget _excaliburPick(int holder, double s) {
+    final targets = [
+      for (final i in game.team)
+        if (i != holder) i
+    ];
+    return SingleChildScrollView(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Appear(
+          scaleFrom: .6,
+          offset: Offset.zero,
+          child: Token(Assets.excalibur, size: 90 * s, elevation: 8),
+        ),
+        Text('${player(holder)}　使用王者之劍',
+            style: _t(20, s, color: AvalonTheme.gold, weight: FontWeight.bold)),
+        Text('可以指定另一名隊員，把他打出的任務牌翻轉（成功 ↔ 失敗），你會看到那張牌原本是什麼。也可以不使用。',
+            textAlign: TextAlign.center, style: _t(12.5, s)),
+        SizedBox(height: 14 * s),
+        _seatPicker(targets, s, AvalonTheme.gold),
+        SizedBox(height: 16 * s),
+        Appear(
+          delay: _ms(450),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            TableButton('不使用',
+                scale: s,
+                primary: false,
+                onPressed: () => act(() => game.useExcalibur(null),
+                    interlude: true)),
+            SizedBox(width: 14 * s),
+            TableButton('翻轉這張牌',
+                scale: s,
+                onPressed: selected.length == 1
+                    ? () {
+                        final target = selected.single;
+                        act(() => game.useExcalibur(target),
+                            keepRevealed: true);
+                      }
+                    : null),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  /// What the Lady (a loyalty) or Excalibur (the original card) showed.
+  Widget _expansionResult(int holder, double s, BoxConstraints c) {
+    final r = game.latestReveal;
+    if (r == null) return const CircularProgressIndicator();
+    final lady = r.kind == 'lady';
+    final bad = lady ? r.evil == true : r.card == false;
+    final color = bad ? _evil : _good;
+    final cardW = min((c.maxHeight - 60 * s) * cardAspect, 150 * s);
+    final art = lady
+        ? (bad ? Assets.loyaltyEvil : Assets.loyaltyGood)
+        : (bad ? Assets.questFail : Assets.questSuccess);
+    final verdict = lady
+        ? '${bad ? '邪惡' : '正義'}陣營'
+        : '「${bad ? '任務失敗' : '任務成功'}」';
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+        Positioned.fill(
+            child: GlowBurst(color: color, size: cardW * 3, delay: _ms(700))),
+        FlipCard(
+          faceUp: true,
+          flipOnMount: true,
+          delay: _ms(300),
+          duration: _ms(800),
+          back: CardBack(
+              width: cardW,
+              elevation: 12,
+              deck: lady ? CardDeck.role : CardDeck.quest),
+          front: GameCard(art, width: cardW, elevation: 12),
+        ),
+      ]),
+      SizedBox(width: 28 * s),
+      ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 330 * s),
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Appear(
+                  delay: _ms(900),
+                  child: Text(
+                      lady
+                          ? '${player(r.target)} 的陣營是'
+                          : '${player(r.target)} 原本打出的是',
+                      style: _t(14, s, color: AvalonTheme.muted))),
+              Appear(
+                delay: _ms(1050),
+                child: Text(verdict,
+                    style: TextStyle(
+                        fontSize: 30 * s,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                        shadows: [
+                          Shadow(
+                              color: color.withValues(alpha: .7),
+                              blurRadius: 16 * s)
+                        ])),
+              ),
+              SizedBox(height: 8 * s),
+              Appear(
+                delay: _ms(1200),
+                child: Text(
+                    lady
+                        ? '你可以說出結果（也可以說謊），但不能出示這張牌。\n湖中女神將交給 ${player(r.target)}。'
+                        : '這張牌已翻轉為「${bad ? '任務成功' : '任務失敗'}」，接著所有任務牌會洗勻後公開。',
+                    style: _t(13, s)),
+              ),
+              SizedBox(height: 16 * s),
+              Appear(
+                delay: _ms(1350),
+                child: TableButton(game.isOnline ? '記住了，繼續' : '記住了，隱藏並繼續',
+                    scale: s,
+                    onPressed: () => act(
+                        lady ? game.continueLady : game.continueExcalibur,
+                        interlude: true)),
+              ),
+            ]),
+      ),
+    ]);
+  }
+
   // ───────────────────── public reveals ─────────────────────
 
   void _onReveal(RevealItem item) {
@@ -1503,7 +1837,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         verdict: q.succeeded ? '任務成功' : '任務失敗',
         verdictColor: q.succeeded ? _good : _evil,
         particles: q.succeeded ? ParticleKind.spark : ParticleKind.ember,
-        detail: '收到 ${q.team.length - q.fails} 張成功、${q.fails} 張失敗',
+        detail: '收到 ${q.team.length - q.fails} 張成功、${q.fails} 張失敗'
+            '${q.excaliburHolder == null ? '' : q.excaliburTarget == null ? '\n王者之劍：${player(q.excaliburHolder!)} 沒有翻轉任何牌' : '\n王者之劍：${player(q.excaliburHolder!)} 翻轉了 ${player(q.excaliburTarget!)} 的任務牌'}',
         button: game.canAdvance ? '繼續議會' : '等待隊長繼續',
         onReveal: _onReveal,
         onVerdict: () {
@@ -1602,7 +1937,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               Appear(
                 delay: _ms(firstFlip + step * i + 350),
                 offset: Offset(0, 6 * s),
-                child: Text('${i + 1}. ${game.players[i]}',
+                child: Text(
+                    '${i + 1}. ${game.players[i]}'
+                    '${(game.roleOf(i)?.isLancelot ?? false) && game.lancelotSwitched ? '（已換邊）' : ''}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _t(11, s, height: 1.2)),

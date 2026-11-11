@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../game/discussion_model.dart';
+import '../game/expansion_model.dart';
 
 class Player {
   Player(
@@ -18,6 +19,7 @@ class Room {
   final String code;
   final List<Player> players;
   DiscussionSettings discussion = const DiscussionSettings();
+  ExpansionSettings expansions = const ExpansionSettings();
   final Set<String> specialRoles = {'梅林', '刺客'};
   static int evilCount(int count) => switch (count) {
         5 || 6 => 2,
@@ -27,10 +29,14 @@ class Room {
       };
   String? get roleIssue {
     if (players.length < 5 || players.length > 10) return '需要 5～10 位玩家';
+    // the two Lancelots take one good and one evil place
+    final lancelot = expansions.lancelot > 0 ? 1 : 0;
     final evil = specialRoles
-        .where((r) => ['刺客', '莫甘娜', '莫德雷德', '奧伯倫'].contains(r))
-        .length;
-    final good = specialRoles.where((r) => ['梅林', '派西維爾'].contains(r)).length;
+            .where((r) => ['刺客', '莫甘娜', '莫德雷德', '奧伯倫'].contains(r))
+            .length +
+        lancelot;
+    final good =
+        specialRoles.where((r) => ['梅林', '派西維爾'].contains(r)).length + lancelot;
     if (evil > evilCount(players.length)) return '邪惡角色超過本局邪惡陣營名額';
     if (good > players.length - evilCount(players.length)) {
       return '正義角色超過本局正義陣營名額';

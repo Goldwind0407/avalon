@@ -219,6 +219,7 @@ class _CardRevealState extends State<CardReveal>
                       offset: Offset(0, 12 * s * (1 - cp)),
                       child: Column(children: [
                         Text(widget.detail,
+                            textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 13 * s, color: ink)),
                         SizedBox(height: 10 * s),
                         IgnorePointer(

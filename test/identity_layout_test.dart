@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
+import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_screen.dart';
 import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
@@ -25,8 +26,13 @@ class IdentitySession extends LocalGameSession {
                 '派西維爾',
                 '莫甘娜',
                 '奧伯倫',
-                if (role != Role.minion && role != Role.merlin) '莫德雷德'
-              }),
+                if (role != Role.minion &&
+                    role != Role.merlin &&
+                    !role.isLancelot)
+                  '莫德雷德'
+              })
+              ..expansions =
+                  ExpansionSettings(lancelot: role.isLancelot ? 1 : 0),
             random: Random(42)) {
     seat = game.roles.indexOf(role);
     while (game.actor < seat) {

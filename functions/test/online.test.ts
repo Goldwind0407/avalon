@@ -343,3 +343,79 @@ describe('online game end to end', () => {
     assert.match(r.notice, /離開了房間$/);
   });
 });
+
+describe('expansions online', () => {
+  const phones: Phone[] = [];
+  let legacy: Phone;
+  let code = '';
+  const v3 = (p: Phone, name: string, data: Record<string, unknown> = {}) =>
+    p.call(name, { protocolVersion: 3, code, ...data });
+  const mine = async (p: Phone) =>
+    (await getDoc(doc(p.db, 'rooms', code, 'private', p.uid))).data() as any;
+
+  before(async () => {
+    for (let i = 0; i < 5; i++) phones.push(await phone());
+    legacy = await phone();
+  });
+
+  after(async () => {
+    if (code) {
+      for (const p of [...phones, legacy]) await p.call('leaveRoom', { code }).catch(() => {});
+    }
+    await Promise.all([...phones, legacy].map((p) => deleteApp(p.app)));
+  });
+
+  test('only the host turns expansions on, and old apps cannot join', async () => {
+    ({ code } = await phones[0].call('createRoom', { name: '亞瑟', protocolVersion: 3 }));
+    for (let i = 1; i < 5; i++) await v3(phones[i], 'joinRoom', { name: `騎士${i}` });
+    const all = { lady: true, lancelot: 2, excalibur: true };
+    await denied(v3(phones[1], 'setExpansions', { expansions: all }));
+    await refused(v3(phones[0], 'setExpansions', { expansions: { ...all, lancelot: 5 } }));
+    await v3(phones[0], 'setExpansions', { expansions: all });
+    // vote straight after the proposal (no turn-based discussion)
+    await v3(phones[0], 'setDiscussion', {
+      discussion: { enabled: false, speechSeconds: 45, freeSeconds: 0, selectionFree: true },
+    });
+    assert.deepEqual((await room(phones[0], code)).expansions, all);
+    await refused(legacy.call('joinRoom', { code, name: '舊版' }), /更新/);
+  });
+
+  test('Excalibur: only the holder learns the flipped card', async () => {
+    await v3(phones[0], 'startGame');
+    let g = (await room(phones[0], code)).game;
+    assert.ok(g.loyalty.every((c: boolean | null) => c !== null));
+    assert.equal(g.ladyHolder, (g.leader + 4) % 5);
+    assert.equal('reveals' in g, false);
+    assert.equal('loyaltyDeck' in g, false);
+    for (const p of phones) await v3(p, 'move', { move: 'confirmIdentity' });
+    const leader = g.leader;
+    const holder = (leader + 1) % 5;
+    const team = [leader, holder].sort((a, b) => a - b);
+    await refused(v3(phones[leader], 'move', { move: 'proposeTeam', team }), /王者之劍/);
+    await refused(v3(phones[leader], 'move', { move: 'proposeTeam', team, excalibur: leader }), /王者之劍/);
+    await v3(phones[leader], 'move', { move: 'proposeTeam', team, excalibur: holder });
+    for (const p of phones) await v3(p, 'move', { move: 'vote', approve: true });
+    await v3(phones[leader], 'move', { move: 'continueVote' });
+    g = (await room(phones[0], code)).game;
+    for (const seat of team) {
+      const role: string = (await mine(phones[seat])).role;
+      const lancelot = role === 'lancelotGood' || role === 'lancelotEvil';
+      const evilNow = ['assassin', 'minion', 'lancelotEvil'].includes(role) !== (lancelot && g.lancelotSwitched);
+      await v3(phones[seat], 'move', { move: 'playQuest', success: !(lancelot && evilNow) });
+    }
+    assert.equal((await room(phones[0], code)).game.phase, 'excalibur');
+    await denied(v3(phones[leader], 'move', { move: 'useExcalibur', target: holder }));
+    await v3(phones[holder], 'move', { move: 'useExcalibur', target: leader });
+    const seen = (await mine(phones[holder])).reveals;
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].kind, 'excalibur');
+    assert.equal(seen[0].target, leader);
+    assert.equal(typeof seen[0].card, 'boolean');
+    assert.deepEqual((await mine(phones[leader])).reveals, []);
+    await denied(v3(phones[leader], 'move', { move: 'continueExcalibur' }));
+    await v3(phones[holder], 'move', { move: 'continueExcalibur' });
+    g = (await room(phones[0], code)).game;
+    assert.equal(g.phase, 'questResult');
+    assert.deepEqual(g.history[0].excalibur, { holder, target: leader });
+  });
+});

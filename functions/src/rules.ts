@@ -10,7 +10,9 @@ export type RoleKey =
   | 'morgana'
   | 'mordred'
   | 'oberon'
-  | 'minion';
+  | 'minion'
+  | 'lancelotGood'
+  | 'lancelotEvil';
 
 export type Phase =
   | 'identity'
@@ -21,6 +23,10 @@ export type Phase =
   | 'voteResult'
   | 'quest'
   | 'questResult'
+  | 'lady'
+  | 'ladyResult'
+  | 'excalibur'
+  | 'excaliburResult'
   | 'assassination'
   | 'finished';
 
@@ -38,7 +44,36 @@ const EVIL: ReadonlySet<RoleKey> = new Set<RoleKey>([
   'mordred',
   'oberon',
   'minion',
+  'lancelotEvil',
 ]);
+
+export const isLancelot = (role: RoleKey): boolean =>
+  role === 'lancelotGood' || role === 'lancelotEvil';
+
+/**
+ * Optional expansions chosen before the game.
+ *  lady       Lady of the Lake: after quests 2-4 the holder examines a loyalty.
+ *  lancelot   0 off; 1 loyalty cards turned over from quest 3; 2 five cards
+ *             dealt face up at the start (Lancelots then must play their side).
+ *  excalibur  the leader hands Excalibur to a team member, who may flip one
+ *             other member's quest card.
+ */
+export interface Expansions {
+  lady: boolean;
+  lancelot: 0 | 1 | 2;
+  excalibur: boolean;
+}
+export const NO_EXPANSIONS: Expansions = { lady: false, lancelot: 0, excalibur: false };
+export function expansionSettings(value: unknown): Expansions {
+  if (value == null) return { ...NO_EXPANSIONS };
+  const v = value as Expansions;
+  if (typeof v !== 'object' || typeof v.lady !== 'boolean' ||
+      typeof v.excalibur !== 'boolean' || ![0, 1, 2].includes(v.lancelot)) {
+    throw new GameError('invalid-argument', '擴充設定不正確');
+  }
+  return { lady: v.lady, lancelot: v.lancelot, excalibur: v.excalibur };
+}
+export const anyExpansion = (e: Expansions) => e.lady || e.lancelot > 0 || e.excalibur;
 
 export const isEvil = (role: RoleKey): boolean => EVIL.has(role);
 
@@ -73,17 +108,21 @@ export function failsRequired(players: number, questNumber: number): number {
 export function configIssue(
   players: number,
   optional: readonly RoleKey[],
+  expansions: Expansions = NO_EXPANSIONS,
 ): string | null {
   if (players < MIN_PLAYERS || players > MAX_PLAYERS) return '需要 5～10 位玩家';
   if (optional.some((r) => !OPTIONAL_ROLES.includes(r))) return '包含未知角色';
   if (new Set(optional).size !== optional.length) return '角色重複';
-  const special: RoleKey[] = ['merlin', 'assassin', ...optional];
+  const special: RoleKey[] = ['merlin', 'assassin', ...optional, ...lancelots(expansions)];
   const evil = special.filter(isEvil).length;
   const good = special.length - evil;
   if (evil > evilCount(players)) return '邪惡角色超過本局邪惡陣營名額';
   if (good > players - evilCount(players)) return '正義角色超過本局正義陣營名額';
   return null;
 }
+
+const lancelots = (e: Expansions): RoleKey[] =>
+  e.lancelot > 0 ? ['lancelotGood', 'lancelotEvil'] : [];
 
 export type Rng = () => number;
 
@@ -100,10 +139,11 @@ export function dealRoles(
   players: number,
   optional: readonly RoleKey[],
   rng: Rng,
+  expansions: Expansions = NO_EXPANSIONS,
 ): RoleKey[] {
-  const issue = configIssue(players, optional);
+  const issue = configIssue(players, optional, expansions);
   if (issue) throw new GameError('failed-precondition', issue);
-  const deck: RoleKey[] = ['merlin', 'assassin', ...optional];
+  const deck: RoleKey[] = ['merlin', 'assassin', ...optional, ...lancelots(expansions)];
   while (deck.filter(isEvil).length < evilCount(players)) deck.push('minion');
   while (deck.length < players) deck.push('loyal');
   return shuffle(deck, rng);
@@ -118,8 +158,10 @@ export function visibleSeats(roles: readonly RoleKey[], seat: number): number[] 
     const merlinSees = role === 'merlin' && isEvil(other) && other !== 'mordred';
     const percivalSees =
       role === 'percival' && (other === 'merlin' || other === 'morgana');
+    // Evil Lancelot is known to the other evil players but does not see them.
     const evilSees =
-      isEvil(role) && role !== 'oberon' && isEvil(other) && other !== 'oberon';
+      isEvil(role) && role !== 'oberon' && role !== 'lancelotEvil' &&
+      isEvil(other) && other !== 'oberon';
     if (merlinSees || percivalSees || evilSees) visible.push(i);
   });
   return visible;
@@ -140,6 +182,20 @@ export interface Quest {
   succeeded: boolean;
   /** The played cards in the order they are turned over (same on every device). */
   order: boolean[];
+  /** Excalibur on this quest: who held it and whose card they flipped. */
+  excalibur?: { holder: number; target: number | null } | null;
+}
+
+/** Something only one player learns (copied to their private document). */
+export interface Reveal {
+  seat: number;
+  kind: 'lady' | 'excalibur';
+  quest: number;
+  target: number;
+  /** lady: the target's loyalty at that moment. */
+  evil?: boolean;
+  /** excalibur: the card the target had played before it was flipped. */
+  card?: boolean;
 }
 
 export interface DiscussionSettings {
@@ -196,25 +252,54 @@ export interface GameState {
   assassinTarget: number | null;
   /** All roles, published when the game ends. */
   revealedRoles: RoleKey[] | null;
+  expansions: Expansions;
+  /** Lancelot loyalty card on each quest (null = none turned over). */
+  loyalty: (boolean | null)[];
+  /** The Lancelots currently play for the other side. */
+  lancelotSwitched: boolean;
+  ladyHolder: number | null;
+  /** Everyone who has held the Lady (they cannot be examined). */
+  ladyPast: number[];
+  ladyChecks: { holder: number; target: number; quest: number }[];
+  /** Who holds Excalibur on the current team. */
+  excaliburHolder: number | null;
 
   // ── secret: never sent to devices ──
   roles: RoleKey[];
   pendingVotes: Record<string, boolean>;
   pendingCards: Record<string, boolean>;
+  /** Variant 1: loyalty cards still face down. */
+  loyaltyDeck: boolean[];
+  reveals: Reveal[];
 }
 
-export const SECRET_KEYS = ['roles', 'pendingVotes', 'pendingCards'] as const;
+export const SECRET_KEYS = ['roles', 'pendingVotes', 'pendingCards', 'loyaltyDeck', 'reveals'] as const;
 
 export function newGame(
   players: number,
   optional: readonly RoleKey[],
   rng: Rng,
   settings: DiscussionSettings = FREE_DISCUSSION,
+  expansionsValue: Expansions = NO_EXPANSIONS,
 ): GameState {
-  const roles = dealRoles(players, optional, rng);
-  return {
+  const expansions = expansionSettings(expansionsValue);
+  const roles = dealRoles(players, optional, rng, expansions);
+  const leader = Math.floor(rng() * players);
+  // 5 "no change" and 2 "switch" loyalty cards
+  let loyaltyDeck: boolean[] = [];
+  let loyalty: (boolean | null)[] = [null, null, null, null, null];
+  if (expansions.lancelot > 0) {
+    loyaltyDeck = shuffle([false, false, false, false, false, true, true], rng);
+    if (expansions.lancelot === 2) {
+      loyalty = loyaltyDeck.slice(0, 5);
+      loyaltyDeck = [];
+    }
+  }
+  // the Lady starts with the player on the first leader's right
+  const ladyHolder = expansions.lady ? (leader - 1 + players) % players : null;
+  const s: GameState = {
     phase: 'identity',
-    leader: Math.floor(rng() * players),
+    leader,
     rejections: 0,
     team: [],
     confirmed: [],
@@ -229,11 +314,36 @@ export function newGame(
     result: '',
     assassinTarget: null,
     revealedRoles: null,
+    expansions,
+    loyalty,
+    lancelotSwitched: false,
+    ladyHolder,
+    ladyPast: ladyHolder == null ? [] : [ladyHolder],
+    ladyChecks: [],
+    excaliburHolder: null,
     roles,
     pendingVotes: {},
     pendingCards: {},
+    loyaltyDeck,
+    reveals: [],
   };
+  beginQuest(s);
+  return s;
 }
+
+/** A new quest starts: turn over a loyalty card when one is due. */
+function beginQuest(s: GameState) {
+  const q = s.history.length;
+  if (q > 4) return;
+  if (s.expansions.lancelot === 1 && q >= 2 && s.loyaltyDeck.length > 0) {
+    s.loyalty[q] = s.loyaltyDeck.shift()!;
+  }
+  if (s.loyalty[q] === true) s.lancelotSwitched = !s.lancelotSwitched;
+}
+
+/** The side the player at [seat] plays for right now. */
+export const evilNow = (s: GameState, seat: number): boolean =>
+  isEvil(s.roles[seat]) !== (isLancelot(s.roles[seat]) && s.lancelotSwitched);
 
 const playerCount = (s: GameState) => s.roles.length;
 export const successes = (s: GameState) => s.history.filter((q) => q.succeeded).length;
@@ -263,6 +373,13 @@ function finish(s: GameState, side: '正義' | '邪惡', reason: string) {
 function nextLeader(s: GameState) {
   s.leader = (s.leader + 1) % playerCount(s);
   s.team = [];
+  s.excaliburHolder = null;
+}
+
+function nextQuest(s: GameState) {
+  nextLeader(s);
+  s.phase = 'team';
+  beginQuest(s);
 }
 
 // Every action below mutates [s] in place and throws GameError when the
@@ -275,7 +392,9 @@ export function confirmIdentity(s: GameState, seat: number) {
   if (s.confirmed.length === playerCount(s)) s.phase = 'team';
 }
 
-export function proposeTeam(s: GameState, seat: number, team: number[], now = Date.now()) {
+export function proposeTeam(
+  s: GameState, seat: number, team: number[], now = Date.now(), excalibur: unknown = null,
+) {
   requirePhase(s, 'team');
   if (seat !== s.leader) throw new GameError('permission-denied', '只有隊長可以提案');
   if (!Array.isArray(team)) throw new GameError('invalid-argument', '隊伍格式錯誤');
@@ -287,6 +406,11 @@ export function proposeTeam(s: GameState, seat: number, team: number[], now = Da
   ) {
     throw new GameError('invalid-argument', '隊伍人數不正確');
   }
+  if (s.expansions.excalibur &&
+      (typeof excalibur !== 'number' || !members.includes(excalibur) || excalibur === seat)) {
+    throw new GameError('invalid-argument', '請把王者之劍交給隊長以外的一名隊員');
+  }
+  s.excaliburHolder = s.expansions.excalibur ? (excalibur as number) : null;
   s.team = members;
   s.voted = [];
   s.votes = null;
@@ -368,19 +492,87 @@ export function playQuest(s: GameState, seat: number, success: boolean, rng: Rng
   if (!s.team.includes(seat)) throw new GameError('permission-denied', '你不是這次任務的隊員');
   if (typeof success !== 'boolean') throw new GameError('invalid-argument', '任務牌格式錯誤');
   if (s.played.includes(seat)) throw new GameError('failed-precondition', '你已經出過牌了');
-  if (!success && !isEvil(s.roles[seat])) {
+  if (!success && !evilNow(s, seat)) {
     throw new GameError('permission-denied', '正義玩家只能出成功');
+  }
+  if (success && mustFail(s, seat)) {
+    throw new GameError('permission-denied', '邪惡方的蘭斯洛特必須出失敗');
   }
   s.played.push(seat);
   s.pendingCards[String(seat)] = success;
   if (s.played.length === s.team.length) {
-    const cards = s.team.map((i) => s.pendingCards[String(i)]);
-    const fails = cards.filter((c) => !c).length;
-    const succeeded = fails < failsRequired(playerCount(s), s.history.length + 1);
-    s.history.push({ team: [...s.team], fails, succeeded, order: shuffle(cards, rng) });
-    s.pendingCards = {};
-    s.phase = 'questResult';
+    if (s.excaliburHolder != null) s.phase = 'excalibur';
+    else resolveQuest(s, rng, null);
   }
+}
+
+/** Variant 2: a Lancelot on the evil side may only play Fail. */
+export const mustFail = (s: GameState, seat: number): boolean =>
+  s.expansions.lancelot === 2 && isLancelot(s.roles[seat]) && evilNow(s, seat);
+
+function resolveQuest(s: GameState, rng: Rng, target: number | null) {
+  const cards = s.team.map((i) => s.pendingCards[String(i)]);
+  const fails = cards.filter((c) => !c).length;
+  const succeeded = fails < failsRequired(playerCount(s), s.history.length + 1);
+  s.history.push({
+    team: [...s.team], fails, succeeded, order: shuffle(cards, rng),
+    excalibur: s.excaliburHolder == null ? null : { holder: s.excaliburHolder, target },
+  });
+  s.pendingCards = {};
+  s.phase = 'questResult';
+}
+
+/** Excalibur: flip one other team member's card ([target] null to pass). */
+export function useExcalibur(s: GameState, seat: number, target: unknown, rng: Rng) {
+  requirePhase(s, 'excalibur');
+  if (seat !== s.excaliburHolder) {
+    throw new GameError('permission-denied', '只有王者之劍持有者可以使用');
+  }
+  if (target == null) return resolveQuest(s, rng, null);
+  if (typeof target !== 'number' || !s.team.includes(target) || target === seat) {
+    throw new GameError('invalid-argument', '請選擇另一名隊員');
+  }
+  const card = s.pendingCards[String(target)];
+  s.pendingCards[String(target)] = !card;
+  s.reveals.push({ seat, kind: 'excalibur', quest: s.history.length + 1, target, card });
+  s.phase = 'excaliburResult';
+}
+
+export function continueExcalibur(s: GameState, seat: number, rng: Rng) {
+  requirePhase(s, 'excaliburResult');
+  if (seat !== s.excaliburHolder) {
+    throw new GameError('permission-denied', '請等待王者之劍持有者');
+  }
+  resolveQuest(s, rng, s.reveals[s.reveals.length - 1].target);
+}
+
+/** Lady of the Lake: the holder examines one player's loyalty. */
+export function useLady(s: GameState, seat: number, target: unknown) {
+  requirePhase(s, 'lady');
+  if (seat !== s.ladyHolder) {
+    throw new GameError('permission-denied', '只有湖中女神持有者可以查驗');
+  }
+  if (typeof target !== 'number') throw new GameError('invalid-argument', '請選擇玩家');
+  checkSeat(s, target);
+  if (s.ladyPast.includes(target)) {
+    throw new GameError('invalid-argument', '持有過湖中女神的玩家不能被查驗');
+  }
+  const quest = s.history.length;
+  s.ladyChecks.push({ holder: seat, target, quest });
+  s.reveals.push({ seat, kind: 'lady', quest, target, evil: evilNow(s, target) });
+  s.phase = 'ladyResult';
+}
+
+/** The examined player receives the Lady; the next quest begins. */
+export function continueLady(s: GameState, seat: number) {
+  requirePhase(s, 'ladyResult');
+  if (seat !== s.ladyHolder) {
+    throw new GameError('permission-denied', '請等待湖中女神持有者');
+  }
+  const target = s.ladyChecks[s.ladyChecks.length - 1].target;
+  s.ladyHolder = target;
+  s.ladyPast.push(target);
+  nextQuest(s);
 }
 
 export function continueQuest(s: GameState) {
@@ -390,9 +582,10 @@ export function continueQuest(s: GameState) {
     finish(s, '邪惡', '三次任務失敗，邪惡陣營獲勝。');
   } else if (successes(s) === 3) {
     s.phase = 'assassination';
+  } else if (s.ladyHolder != null && [2, 3, 4].includes(s.history.length)) {
+    s.phase = 'lady';
   } else {
-    nextLeader(s);
-    s.phase = 'team';
+    nextQuest(s);
   }
 }
 
@@ -419,8 +612,8 @@ export function assassinate(
 
 /** Splits a state into what devices may read and what stays on the server. */
 export function split(s: GameState) {
-  const { roles, pendingVotes, pendingCards, ...open } = s;
-  return { open, secret: { roles, pendingVotes, pendingCards } };
+  const { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, ...open } = s;
+  return { open, secret: { roles, pendingVotes, pendingCards, loyaltyDeck, reveals } };
 }
 
 export function join(
@@ -433,5 +626,14 @@ export function join(
   state.speechIndex ??= 0;
   state.speechVersion ??= 0;
   state.speechDeadline ??= null;
+  state.expansions ??= { ...NO_EXPANSIONS };
+  state.loyalty ??= [null, null, null, null, null];
+  state.lancelotSwitched ??= false;
+  state.ladyHolder ??= null;
+  state.ladyPast ??= [];
+  state.ladyChecks ??= [];
+  state.excaliburHolder ??= null;
+  state.loyaltyDeck ??= [];
+  state.reveals ??= [];
   return state;
 }

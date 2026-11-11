@@ -430,6 +430,7 @@ class SeatPlate extends StatelessWidget {
     this.voteKey,
     this.onTap,
     this.activity,
+    this.badges = const [],
   });
   final int number;
   final String name;
@@ -445,6 +446,9 @@ class SeatPlate extends StatelessWidget {
   final Key? plateKey, crownKey, shieldKey, voteKey;
   final VoidCallback? onTap;
   final Widget? activity;
+
+  /// Expansion pieces lying by the seat (Lady of the Lake, Excalibur).
+  final List<Widget> badges;
 
   @override
   Widget build(BuildContext context) {
@@ -570,6 +574,13 @@ class SeatPlate extends StatelessWidget {
                 : null,
           ),
         ),
+        if (badges.isNotEmpty)
+          // on the table side of the seat, under the shield and vote
+          Positioned(
+            bottom: -7 * s,
+            left: tokensOnRight ? 118 * s : 2 * s,
+            child: Row(mainAxisSize: MainAxisSize.min, children: badges),
+          ),
       ]),
     );
   }

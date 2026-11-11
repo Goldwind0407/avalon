@@ -17,7 +17,16 @@ class Assets {
         Role.mordred => '$_roles/mordred.webp',
         Role.oberon => '$_roles/oberon.webp',
         Role.minion => '$_roles/minion_${variant % 3 + 1}.webp',
+        Role.lancelotGood => '$_roles/lancelot_good.webp',
+        Role.lancelotEvil => '$_roles/lancelot_evil.webp',
       };
+
+  // ── expansions ──
+  static const ladyOfTheLake = '$_roles/lady_of_the_lake.webp';
+  static const loyaltySwitch = '$_cards/lancelot_switch.webp';
+  static const loyaltyNoSwitch = '$_cards/lancelot_no_switch.webp';
+  static const loyaltyBack = '$_cards/lancelot_switch_back.webp';
+  static const excalibur = '$_tokens/excalibur.webp';
 
   static const loyaltyGood = '$_cards/loyalty_good.webp';
   static const loyaltyEvil = '$_cards/loyalty_evil.webp';

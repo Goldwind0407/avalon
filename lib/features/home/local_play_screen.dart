@@ -4,6 +4,8 @@ import '../../core/widgets.dart';
 import '../game/game_screen.dart';
 import '../game/discussion_model.dart';
 import '../game/discussion_widgets.dart';
+import '../game/expansion_model.dart';
+import '../game/expansion_widgets.dart';
 import '../lobby/room_model.dart';
 
 class LocalPlayScreen extends StatefulWidget {
@@ -16,6 +18,7 @@ class LocalPlayScreen extends StatefulWidget {
 class _LocalPlayScreenState extends State<LocalPlayScreen> {
   int playerCount = 5;
   DiscussionSettings discussion = const DiscussionSettings();
+  ExpansionSettings expansions = const ExpansionSettings();
   final names = List.generate(10, (i) => '玩家${i + 1}');
   final roles = <String>{'梅林', '刺客'};
   static const roleOptions = [
@@ -37,6 +40,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
       ..clear()
       ..addAll(roles);
     game.discussion = discussion;
+    game.expansions = expansions;
     return game;
   }
 
@@ -304,10 +308,25 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                   ])),
               const SizedBox(height: 10),
               Row(children: [
+                SizedBox(
+                    width: 250,
+                    height: 42,
+                    child: ExpansionsButton(
+                        settings: expansions,
+                        onTap: () async {
+                          final value =
+                              await editExpansions(context, expansions);
+                          if (mounted && value != null) {
+                            setState(() => expansions = value);
+                          }
+                        })),
+                const SizedBox(width: 12),
                 Expanded(
                     child: Text(
                         configuration.roleIssue ??
                             '正義 ${playerCount - evilCount} 人・邪惡 $evilCount 人，其他名額自動補齊',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontSize: 12,
                             color: configuration.roleIssue == null

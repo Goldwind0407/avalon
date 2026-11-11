@@ -3,6 +3,7 @@ import '../../core/assets.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
 import '../game/discussion_model.dart';
+import '../game/expansion_model.dart';
 import '../lobby/room_model.dart';
 import 'online_service.dart';
 
@@ -24,6 +25,8 @@ class OnlineRoom {
         voiceRoomId = m['voiceRoomId'] as String?,
         discussion = DiscussionSettings.fromMap(
             (m['discussion'] as Map?)?.cast<String, dynamic>()),
+        expansions = ExpansionSettings.fromMap(
+            (m['expansions'] as Map?)?.cast<String, dynamic>()),
         status = m['status'] as String,
         players = [
           for (final p in (m['players'] as List))
@@ -42,6 +45,7 @@ class OnlineRoom {
   final String hostUid;
   final String? voiceRoomId;
   final DiscussionSettings discussion;
+  final ExpansionSettings expansions;
   final String status;
   final List<OnlinePlayer> players;
   final Set<Role> optionalRoles;
@@ -62,9 +66,15 @@ const optionalRoles = [Role.percival, Role.morgana, Role.mordred, Role.oberon];
 
 /// Why a game with [players] players and these extra roles cannot start
 /// (same check as the server's configIssue).
-String? onlineSetupIssue(int players, Set<Role> extra) {
+String? onlineSetupIssue(int players, Set<Role> extra,
+    [ExpansionSettings expansions = const ExpansionSettings()]) {
   if (players < 5 || players > 10) return '需要 5～10 位玩家';
-  final special = [Role.merlin, Role.assassin, ...extra];
+  final special = [
+    Role.merlin,
+    Role.assassin,
+    ...extra,
+    if (expansions.lancelot > 0) ...[Role.lancelotGood, Role.lancelotEvil],
+  ];
   final evil = special.where((r) => r.isEvil).length;
   final good = special.length - evil;
   if (evil > Room.evilCount(players)) return '邪惡角色超過本局邪惡陣營名額';
@@ -218,6 +228,8 @@ class OnlineGameSession extends GameSession {
         'code': code,
         'roles': [for (final r in roles) r.name],
       });
+  Future<void> setExpansions(ExpansionSettings settings) =>
+      _call('setExpansions', {'code': code, 'expansions': settings.toMap()});
   Future<void> setDiscussion(DiscussionSettings settings) =>
       _call('setDiscussion', {'code': code, 'discussion': settings.toMap()});
   Future<void> start() => _call('startGame', {'code': code});
@@ -266,7 +278,9 @@ class OnlineGameSession extends GameSession {
   List<QuestResult> get history => [
         for (final q in (_game['history'] as List? ?? const []))
           QuestResult([for (final i in q['team'] as List) (i as num).toInt()],
-              (q['fails'] as num).toInt(), q['succeeded'] as bool)
+              (q['fails'] as num).toInt(), q['succeeded'] as bool,
+              excaliburHolder: (q['excalibur']?['holder'] as num?)?.toInt(),
+              excaliburTarget: (q['excalibur']?['target'] as num?)?.toInt())
       ];
   @override
   DiscussionSettings get discussionSettings => DiscussionSettings.fromMap(
@@ -375,8 +389,9 @@ class OnlineGameSession extends GameSession {
   @override
   Future<void> confirmIdentity(int seat) => _move('confirmIdentity');
   @override
-  Future<void> proposeTeam(List<int> team) =>
-      _move('proposeTeam', {'team': team});
+  Future<void> proposeTeam(List<int> team, {int? excalibur}) =>
+      _move('proposeTeam',
+          {'team': team, if (excalibur != null) 'excalibur': excalibur});
   @override
   Future<void> vote(int seat, bool approve) =>
       _move('vote', {'approve': approve});
@@ -392,4 +407,59 @@ class OnlineGameSession extends GameSession {
       _move('assassinate', {'target': target});
   @override
   Future<void> restart() => start();
+
+  // ───────────── expansions ─────────────
+
+  @override
+  ExpansionSettings get expansions => ExpansionSettings.fromMap(
+      (_game['expansions'] as Map?)?.cast<String, dynamic>());
+  @override
+  List<bool?> get loyalty {
+    final cards = _game['loyalty'] as List? ?? const [];
+    return [for (var i = 0; i < 5; i++) i < cards.length ? cards[i] as bool? : null];
+  }
+
+  @override
+  bool get lancelotSwitched => _game['lancelotSwitched'] == true;
+  @override
+  int? get ladyHolder => (_game['ladyHolder'] as num?)?.toInt();
+  @override
+  List<int> get ladyPast => _ints('ladyPast');
+  @override
+  List<LadyCheck> get ladyChecks => [
+        for (final c in _game['ladyChecks'] as List? ?? const [])
+          LadyCheck((c['holder'] as num).toInt(), (c['target'] as num).toInt(),
+              (c['quest'] as num).toInt())
+      ];
+  @override
+  int? get excaliburHolder => (_game['excaliburHolder'] as num?)?.toInt();
+
+  /// Everything the Lady and Excalibur have shown this player.
+  List<PrivateReveal> get myReveals => [
+        for (final r in _myCard?['reveals'] as List? ?? const [])
+          PrivateReveal.fromMap(Map<String, dynamic>.from(r as Map))
+      ];
+
+  @override
+  PrivateReveal? get latestReveal {
+    final (kind, quest) = switch (phase) {
+      GamePhase.ladyResult => ('lady', history.length),
+      GamePhase.excaliburResult => ('excalibur', questNumber),
+      _ => ('', -1),
+    };
+    for (final r in myReveals.reversed) {
+      if (r.kind == kind && r.quest == quest) return r;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> useLady(int target) => _move('useLady', {'target': target});
+  @override
+  Future<void> continueLady() => _move('continueLady');
+  @override
+  Future<void> useExcalibur(int? target) =>
+      _move('useExcalibur', {'target': target});
+  @override
+  Future<void> continueExcalibur() => _move('continueExcalibur');
 }

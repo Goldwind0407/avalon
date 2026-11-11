@@ -6,6 +6,7 @@ import '../game/game_model.dart';
 import '../game/game_screen.dart';
 import '../game/game_session.dart';
 import '../game/discussion_widgets.dart';
+import '../game/expansion_widgets.dart';
 import '../lobby/room_model.dart';
 import 'online_session.dart';
 import 'online_service.dart';
@@ -273,7 +274,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     }
     final host = session.isHost;
     final n = room.players.length;
-    final issue = onlineSetupIssue(n, room.optionalRoles);
+    final issue = onlineSetupIssue(n, room.optionalRoles, room.expansions);
     final finished = room.inGame && session.phase == GamePhase.finished;
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -346,6 +347,22 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
               label: const Text('離開房間'),
             ),
           ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 250,
+            height: 42,
+            child: ExpansionsButton(
+                settings: room.expansions,
+                onTap: host && !room.inGame && !_busy
+                    ? () async {
+                        final value =
+                            await editExpansions(context, room.expansions);
+                        if (mounted && value != null) {
+                          await _run(() => session.setExpansions(value));
+                        }
+                      }
+                    : null),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -353,6 +370,8 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                   ? (finished ? '對局已結束' : '對局進行中')
                   : issue ??
                       '正義 ${n - Room.evilCount(n)} 人・邪惡 ${Room.evilCount(n)} 人，其他名額自動補齊',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 12,
                   color: !room.inGame && issue != null

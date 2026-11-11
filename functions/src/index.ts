@@ -36,6 +36,8 @@ interface Player {
   uid: string;
   name: string;
   supportsDiscussion?: boolean;
+  /** App protocol: 3 understands the expansions. */
+  protocol?: number;
 }
 
 interface Room {
@@ -48,6 +50,7 @@ interface Room {
   expireAt?: Timestamp;
   optionalRoles: RoleKey[];
   discussion?: rules.DiscussionSettings;
+  expansions?: rules.Expansions;
   /** Increases every time a new game is dealt in this room. */
   gen: number;
   /** Increases on every change, so devices can tell updates apart. */
@@ -60,6 +63,9 @@ interface Room {
 }
 
 const roomRef = (code: string) => db.collection('rooms').doc(code);
+const protocolOf = (req: CallableRequest): number =>
+  typeof req.data?.protocolVersion === 'number' ? req.data.protocolVersion : 1;
+const EXPANSION_UPDATE = '這個房間使用了擴充規則，請先更新 App 再加入';
 const secretRef = (code: string) => roomRef(code).collection('secret').doc('state');
 const privateRef = (code: string, uid: string) =>
   roomRef(code).collection('private').doc(uid);
@@ -137,11 +143,12 @@ export const createRoom = onCall(async (req) => {
         code,
         hostUid: uid,
         status: 'lobby',
-        players: [{ uid, name, supportsDiscussion: req.data?.protocolVersion === 2 }],
+        players: [{ uid, name, supportsDiscussion: protocolOf(req) >= 2, protocol: protocolOf(req) }],
         playerUids: [uid],
         voiceRoomId: randomUUID(),
         optionalRoles: [],
-        discussion: { ...rules.FREE_DISCUSSION, enabled: req.data?.protocolVersion === 2 },
+        discussion: { ...rules.FREE_DISCUSSION, enabled: protocolOf(req) >= 2 },
+        expansions: { ...rules.NO_EXPANSIONS },
         gen: 0,
         step: 0,
         game: null,
@@ -160,15 +167,21 @@ export const joinRoom = onCall(async (req) => {
   return db.runTransaction(async (tx) => {
     const room = await loadRoom(tx, code);
     const seat = room.playerUids.indexOf(uid);
-    const supportsDiscussion = req.data?.protocolVersion === 2;
+    const protocol = protocolOf(req);
+    const supportsDiscussion = protocol >= 2;
     if (room.discussion?.enabled && !supportsDiscussion) {
       throw new HttpsError('failed-precondition', '這個房間已開啟依序發言，請先更新 App 再加入');
+    }
+    if (rules.anyExpansion(rules.expansionSettings(room.expansions)) && protocol < 3) {
+      throw new HttpsError('failed-precondition', EXPANSION_UPDATE);
     }
     // Coming back to a room you are already in (reopened the app, lost
     // connection) just takes you back to your seat.
     if (seat >= 0) {
-      if (room.players[seat].supportsDiscussion !== supportsDiscussion) {
+      if (room.players[seat].supportsDiscussion !== supportsDiscussion ||
+          room.players[seat].protocol !== protocol) {
         room.players[seat].supportsDiscussion = supportsDiscussion;
+        room.players[seat].protocol = protocol;
         tx.set(roomRef(code), touch(room));
       }
       return { code, seat };
@@ -177,7 +190,7 @@ export const joinRoom = onCall(async (req) => {
     if (room.players.length >= rules.MAX_PLAYERS) {
       throw new HttpsError('failed-precondition', '房間已滿（最多 10 人）');
     }
-    room.players.push({ uid, name, supportsDiscussion });
+    room.players.push({ uid, name, supportsDiscussion, protocol });
     room.playerUids.push(uid);
     tx.set(roomRef(code), touch(room));
     return { code, seat: room.players.length - 1 };
@@ -264,7 +277,8 @@ export const startGame = onCall((req) =>
       if (room.status === 'playing' && room.game?.phase !== 'finished') {
         throw new HttpsError('failed-precondition', '遊戲正在進行中');
       }
-      const state = rules.newGame(room.players.length, room.optionalRoles, rng, room.discussion);
+      const state = rules.newGame(room.players.length, room.optionalRoles, rng, room.discussion,
+        rules.expansionSettings(room.expansions));
       const { open, secret } = rules.split(state);
       room.status = 'playing';
       room.gen += 1;
@@ -277,6 +291,7 @@ export const startGame = onCall((req) =>
           seat,
           role: state.roles[seat],
           visible: rules.visibleSeats(state.roles, seat),
+          reveals: [],
           expireAt: expiry(),
         });
       });
@@ -310,6 +325,10 @@ type Move =
   | 'continueVote'
   | 'playQuest'
   | 'continueQuest'
+  | 'useLady'
+  | 'continueLady'
+  | 'useExcalibur'
+  | 'continueExcalibur'
   | 'assassinate';
 
 async function applyMove(
@@ -330,12 +349,21 @@ async function applyMove(
     roles: secret.roles,
     pendingVotes: secret.pendingVotes ?? {},
     pendingCards: secret.pendingCards ?? {},
+    loyaltyDeck: secret.loyaltyDeck ?? [],
+    reveals: secret.reveals ?? [],
   });
+  const revealed = state.reveals.length;
   if (move(state, seat, room) === false) return;
   const split = rules.split(state);
   room.game = split.open;
   tx.set(roomRef(code), touch(room));
   tx.set(secretRef(code), { gen: room.gen, ...split.secret, expireAt: expiry() });
+  // what the Lady or Excalibur showed goes only to the player who used it
+  for (const r of state.reveals.slice(revealed)) {
+    tx.set(privateRef(code, room.playerUids[r.seat]), {
+      reveals: state.reveals.filter((x) => x.seat === r.seat),
+    }, { merge: true });
+  }
 }
 
 /** Continue buttons belong to the leader; the host can step in if needed. */
@@ -360,7 +388,7 @@ export const move = onCall((req) =>
           case 'confirmIdentity':
             return rules.confirmIdentity(state, seat);
           case 'proposeTeam':
-            return rules.proposeTeam(state, seat, data.team);
+            return rules.proposeTeam(state, seat, data.team, Date.now(), data.excalibur ?? null);
           case 'vote':
             return rules.vote(state, seat, data.approve);
           case 'continueVote':
@@ -371,6 +399,14 @@ export const move = onCall((req) =>
           case 'continueQuest':
             mayAdvance(room, state, seat);
             return rules.continueQuest(state);
+          case 'useLady':
+            return rules.useLady(state, seat, data.target);
+          case 'continueLady':
+            return rules.continueLady(state, seat);
+          case 'useExcalibur':
+            return rules.useExcalibur(state, seat, data.target ?? null, rng);
+          case 'continueExcalibur':
+            return rules.continueExcalibur(state, seat, rng);
           case 'assassinate':
             return rules.assassinate(
               state,
@@ -391,6 +427,23 @@ export const serverTime = onCall((req) => {
   uidOf(req);
   return { serverNow: Date.now() };
 });
+
+export const setExpansions = onCall((req) => guarded(async () => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const expansions = rules.expansionSettings(req.data?.expansions);
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以設定擴充');
+    if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '請先返回大廳');
+    if (rules.anyExpansion(expansions) && room.players.some((p) => (p.protocol ?? 1) < 3)) {
+      throw new HttpsError('failed-precondition', '請所有玩家更新 App 並重新加入房間後，再開啟擴充');
+    }
+    room.expansions = expansions;
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+}));
 
 export const setDiscussion = onCall((req) => guarded(async () => {
   const uid = uidOf(req);
