@@ -9,7 +9,8 @@ import '../lobby/room_model.dart';
 import 'online_session.dart';
 import 'online_service.dart';
 import 'voice/voice_controller.dart';
-import 'voice/livekit_voice_transport.dart';
+import 'voice/webrtc_voice_transport.dart';
+import 'voice/voice_signaling.dart';
 import 'voice/voice_controls.dart';
 
 /// A room before (and between) games: who is in, which roles are used.
@@ -37,22 +38,27 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       widget.session ?? OnlineGameSession.connect(widget.code, widget.uid);
   late final VoiceController voice = widget.voice ??
       VoiceController(
-        credentials: () async {
-          try {
-            final access = await OnlineService.instance
-                .call('voiceToken', {'code': widget.code});
-            final url = access['url'];
-            final token = access['token'];
-            if (url is! String || token is! String) {
-              throw const VoiceException('語音服務暫時無法使用');
-            }
-            return VoiceCredentials(url, token);
-          } on GameMoveException catch (e) {
-            throw VoiceException(
-                e.message == 'NOT FOUND' ? '語音服務尚未啟用，仍可繼續遊戲' : e.message);
-          }
-        },
-        createTransport: LiveKitVoiceTransport.new,
+        createTransport: () => WebRtcVoiceTransport(
+            uid: widget.uid,
+            signaling: FirestoreVoiceSignaling(widget.code),
+            // Direct voice is the default: no TURN credentials/function call.
+            // A future relay trial must be enabled explicitly when building.
+            iceServers: const bool.fromEnvironment('VOICE_ENABLE_TURN')
+                ? () async {
+                    try {
+                      final config = await OnlineService.instance
+                          .call('voiceIce', {'code': widget.code});
+                      return [
+                        for (final server in config['iceServers'] as List)
+                          Map<String, dynamic>.from(server as Map)
+                      ];
+                    } on GameMoveException catch (error) {
+                      throw VoiceException(error.message == 'NOT FOUND'
+                          ? '語音更新尚未部署，仍可繼續遊戲'
+                          : error.message);
+                    }
+                  }
+                : null),
       );
   bool _tableOpen = false;
 

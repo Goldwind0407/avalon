@@ -12,7 +12,7 @@ dependencies:
   firebase_auth: ^7.0.1
   cloud_firestore: ^7.1.0
   cloud_functions: ^7.0.1
-  livekit_client: ^2.13.2
+  flutter_webrtc: ^1.6.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -11,7 +11,7 @@ class SilentAudio implements VoiceTransport {
   @override
   Stream<VoiceUpdate> get updates => const Stream.empty();
   @override
-  Future<void> connect(VoiceCredentials credentials) async {}
+  Future<void> connect() async {}
   @override
   Future<void> setMicrophoneEnabled(bool enabled) async {}
   @override
@@ -82,9 +82,7 @@ void main() {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final voice = VoiceController(
-        credentials: () async => const VoiceCredentials('wss://test', 't'),
-        createTransport: SilentAudio.new);
+    final voice = VoiceController(createTransport: SilentAudio.new);
     addTearDown(voice.dispose);
     await tester.pumpWidget(MaterialApp(
         theme: AvalonTheme.dark,

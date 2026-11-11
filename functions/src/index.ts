@@ -1,6 +1,6 @@
 // Cloud Functions: the referee for online games.
 //
-// Devices never write to Firestore directly (see firestore.rules). Every
+// Devices never write game state directly (see firestore.rules). Every
 // move is a callable function that checks who is calling, applies the rules
 // from rules.ts inside a transaction, and writes three kinds of documents:
 //
@@ -8,7 +8,7 @@
 //   rooms/{code}/private/{uid}  one player's role and what they can see
 //   rooms/{code}/secret/state   all roles, unrevealed votes and quest cards
 
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import {
   FieldValue,
@@ -20,6 +20,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
+import { voiceIceServers } from './voice_ice';
 
 initializeApp();
 // Callable functions must be reachable by the app; who is calling is
@@ -42,6 +43,8 @@ interface Room {
   status: 'lobby' | 'playing';
   players: Player[];
   playerUids: string[];
+  voiceRoomId: string;
+  expireAt?: Timestamp;
   optionalRoles: RoleKey[];
   /** Increases every time a new game is dealt in this room. */
   gen: number;
@@ -134,6 +137,7 @@ export const createRoom = onCall(async (req) => {
         status: 'lobby',
         players: [{ uid, name }],
         playerUids: [uid],
+        voiceRoomId: randomUUID(),
         optionalRoles: [],
         gen: 0,
         step: 0,
@@ -174,6 +178,7 @@ export const leaveRoom = onCall(async (req) => {
     const room = await loadRoom(tx, code);
     const seat = room.playerUids.indexOf(uid);
     if (seat < 0) return { left: true, ended: false };
+    tx.delete(roomRef(code).collection('voice').doc(uid));
     const name = room.players[seat].name;
     // Seats are fixed while cards are dealt, so a player leaving ends the
     // game for everyone and the room goes back to the lobby.
@@ -195,6 +200,27 @@ export const leaveRoom = onCall(async (req) => {
     tx.set(roomRef(code), touch(room));
     return { left: true, ended };
   });
+});
+
+/** Optional self-hosted TURN. No secret is needed for the default STUN mode. */
+export const voiceIce = onCall(async (req) => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  await db.runTransaction(async tx => {
+    const room = await loadRoom(tx, code);
+    seatOf(room, uid);
+    if (!room.expireAt || room.expireAt.toMillis() <= Date.now()) {
+      throw new HttpsError('failed-precondition', '房間已到期');
+    }
+  });
+  try {
+    return { iceServers: voiceIceServers(uid, {
+      urls: process.env.VOICE_TURN_URLS,
+      secret: process.env.VOICE_TURN_SECRET,
+    }) };
+  } catch (_) {
+    throw new HttpsError('failed-precondition', '語音中繼伺服器設定不完整');
+  }
 });
 
 export const setRoles = onCall(async (req) => {

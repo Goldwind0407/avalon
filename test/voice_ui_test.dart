@@ -16,7 +16,7 @@ class TestAudio implements VoiceTransport {
   @override
   Stream<VoiceUpdate> get updates => events.stream;
   @override
-  Future<void> connect(VoiceCredentials credentials) async {
+  Future<void> connect() async {
     connections++;
   }
 
@@ -42,9 +42,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final audio = TestAudio();
-    final voice = VoiceController(
-        credentials: () async => const VoiceCredentials('wss://test', 'test'),
-        createTransport: () => audio);
+    final voice = VoiceController(createTransport: () => audio);
     final rooms = StreamController<Map<String, dynamic>?>.broadcast();
     final mine = StreamController<Map<String, dynamic>?>.broadcast();
     final session = OnlineGameSession(

@@ -435,7 +435,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
-  String player(int i) => '${i + 1} 號 · ${game.players[i]}';
+  String player(int i) => playerLabel(i, game.players[i]);
   String roleArt(int i) => game.roleArt(i) ?? Assets.cardBackRole;
 
   bool get isPrivate => const [
@@ -1234,7 +1234,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       s,
       c,
       '${player(seat)}　投下組隊票',
-      '提案隊伍：${game.team.map((i) => '${i + 1} 號 ${game.players[i]}').join('、')}',
+      '提案隊伍：${game.team.map(player).join('、')}',
       [
         (true, Assets.voteApprove, '贊成', true),
         (false, Assets.voteReject, '反對', true),

@@ -13,6 +13,7 @@ import {
   doc,
   getDoc,
   getFirestore,
+  collection, deleteDoc, getDocs, query, setDoc, Timestamp, updateDoc, where,
 } from 'firebase/firestore';
 import {
   Functions,
@@ -120,6 +121,57 @@ describe('online game end to end', () => {
     assert.deepEqual((await room(phones[3], code)).optionalRoles, ['percival', 'morgana']);
   });
 
+  test('voice metadata is restricted to room members and the correct sessions', async () => {
+    const a = phones[0], b = phones[1];
+    const data = await room(a, code);
+    assert.equal(typeof data.voiceRoomId, 'string');
+    const people = (p: Phone, uid: string) => doc(p.db, 'rooms', code, 'voice', uid);
+    const presence = (uid: string, session: string) => ({ uid, session,
+      roomId: data.voiceRoomId, expireAt: Timestamp.fromMillis(Date.now() + 90000) });
+    const as = 'aaaaaaaaaaaaaaaaaaaaaaaa', bs = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    await setDoc(people(a, a.uid), presence(a.uid, as));
+    await setDoc(people(b, b.uid), presence(b.uid, bs));
+    await denied(setDoc(people(b, a.uid), presence(a.uid, as)));
+    await denied(deleteDoc(people(b, a.uid)));
+    await denied(getDocs(collection(outsider.db, 'rooms', code, 'voice')));
+    await denied(setDoc(people(outsider, outsider.uid), presence(outsider.uid, as)));
+    await denied(setDoc(people(a, a.uid), { ...presence(a.uid, as), roomId: 'old-room' }));
+    await denied(setDoc(people(a, a.uid), { ...presence(a.uid, as),
+      expireAt: Timestamp.fromMillis(Date.now() + 10000000) }));
+
+    const signal = { from: a.uid, fromSession: as, to: b.uid, toSession: bs,
+      roomId: data.voiceRoomId, attempt: 1, kind: 'offer',
+      data: { type: 'offer', sdp: 'test-sdp' }, order: 0,
+      expireAt: Timestamp.fromMillis(Date.now() + 300000) };
+    const message = (p: Phone, id: string) => doc(p.db, 'rooms', code, 'voiceSignals', id);
+    await setDoc(message(a, 'valid'), signal);
+    assert.equal((await getDoc(message(b, 'valid'))).data()!.from, a.uid);
+    assert.equal((await getDocs(query(collection(b.db, 'rooms', code, 'voiceSignals'),
+      where('to', '==', b.uid)))).size, 1);
+    await denied(getDoc(message(a, 'valid')));
+    await denied(getDocs(collection(b.db, 'rooms', code, 'voiceSignals')));
+    await denied(getDoc(message(outsider, 'valid')));
+    await denied(updateDoc(message(b, 'valid'), { kind: 'answer' }));
+    for (const patch of [
+      { from: b.uid }, { fromSession: 'old-session' }, { toSession: 'old-session' },
+      { to: outsider.uid }, { roomId: 'old-room' }, { kind: 'chat' },
+      { data: { type: 'offer', sdp: 'x'.repeat(32001) } }, { unexpected: true },
+    ]) await denied(setDoc(message(a, 'invalid'), { ...signal, ...patch }));
+    await deleteDoc(message(b, 'valid'));
+    // Updating a voice session invalidates messages from its predecessor.
+    await setDoc(people(a, a.uid), presence(a.uid, 'cccccccccccccccccccccccc'));
+    await denied(setDoc(message(a, 'stale'), signal));
+    await deleteDoc(people(a, a.uid));
+    await deleteDoc(people(b, b.uid));
+    // The STUN-only production deployment intentionally omits this optional
+    // TURN configuration endpoint. Exercise it in the local emulator.
+    if (!CLOUD) {
+      assert.deepEqual((await a.call('voiceIce', { code })).iceServers,
+        [{ urls: 'stun:stun.l.google.com:19302' }]);
+      await denied(outsider.call('voiceIce', { code }));
+    }
+  });
+
   test('each phone can read its own role only, never the secret', async () => {
     await refused(phones[1].call('startGame', { code }), /房主/);
     await phones[0].call('startGame', { code });
@@ -204,6 +256,10 @@ describe('online game end to end', () => {
 
   test('a player leaving mid-game ends it for everyone', async () => {
     const before = await room(phones[0], code);
+    await setDoc(doc(phones[4].db, 'rooms', code, 'voice', phones[4].uid), {
+      uid: phones[4].uid, session: 'leaving-session-12345678', roomId: before.voiceRoomId,
+      expireAt: Timestamp.fromMillis(Date.now() + 90000),
+    });
     const leaver = before.players[4].name;
     const result = await phones[4].call('leaveRoom', { code });
     assert.deepEqual(result, { left: true, ended: true });
@@ -213,6 +269,7 @@ describe('online game end to end', () => {
     assert.equal(r.players.length, 4);
     assert.equal(r.notice, `${leaver} 離開了房間，對局已中止`);
     assert.equal(r.noticeStep, r.step);
+    assert.equal((await getDoc(doc(phones[0].db, 'rooms', code, 'voice', phones[4].uid))).exists(), false);
     // the seat is gone: the room can no longer be read from that phone
     await denied(getDoc(doc(phones[4].db, 'rooms', code)));
     // and the others can carry on: someone new can join the lobby

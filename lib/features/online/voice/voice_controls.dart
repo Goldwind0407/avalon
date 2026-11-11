@@ -38,7 +38,11 @@ class VoiceControls extends StatelessWidget {
         final label = switch (voice.status) {
           VoiceStatus.offline => '加入語音',
           VoiceStatus.connecting => '語音連線中',
-          VoiceStatus.connected => speaking.isEmpty ? '語音已連線' : '$speaking 說話中',
+          VoiceStatus.connected => speaking.isNotEmpty
+              ? '$speaking 說話中'
+              : voice.participants == 0
+                  ? '等待其他人加入'
+                  : '語音 ${voice.connections}/${voice.participants} 人',
           VoiceStatus.reconnecting => '語音重連中',
           VoiceStatus.failed => '重試語音',
         };
@@ -70,7 +74,9 @@ class VoiceControls extends StatelessWidget {
             SizedBox(
                 width: 110,
                 child: Tooltip(
-                    message: label,
+                    message: connected && voice.connections < voice.participants
+                        ? '$label；部分玩家尚未連上，請離開語音再加入，或切換 Wi-Fi／行動網路後重試。'
+                        : label,
                     child: Text(label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

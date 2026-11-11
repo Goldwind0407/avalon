@@ -1,11 +1,11 @@
-﻿# Avalon — 暗影議會
+# Avalon — 暗影議會
 
 繁體中文 Flutter 阿瓦隆 App，5～10 人，兩種玩法：
 
 - **一機遊玩**：大家在現場討論，依提示把手機交給指定玩家，秘密查看身分、投票及執行任務。
 - **多機遊玩**：每人用自己的手機加入同一個房間。身分、投票和任務牌只出現在自己的手機上，由伺服器（Firebase Cloud Functions）裁決，任何手機都讀不到別人的秘密。
 
-多機模式提供房間即時語音（LiveKit，需完成下方服務設定）；一機模式不啟動語音或要求麥克風權限。
+多機模式提供房間即時語音（自建 WebRTC，跨網路時可搭配自架 TURN）；一機模式不啟動語音或要求麥克風權限。
 
 兩種玩法共用同一個橫向遊戲桌面與動畫。
 
@@ -44,7 +44,7 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
                 rooms/{房號}/secret/state     任何手機都讀不到：全員角色、未揭曉的票與任務牌
 ```
 
-- 手機不能直接寫入 Firestore（`firestore.rules`），所有動作都經過伺服器檢查。
+- 遊戲狀態不能由手機直接寫入 Firestore（`firestore.rules`），遊戲動作都經過伺服器檢查；語音連線訊息則有獨立的成員及收件人權限。
 - 匿名登入；同一支手機重開 App 後，用同一個房號可以回到原座位。
 - 規則在兩處各有一份：`lib/features/game/game_model.dart`（一機）與 `functions/src/rules.ts`（多機）。修改規則時兩邊都要改，並同步更新兩邊的測試。
 
@@ -71,62 +71,73 @@ flutter run --dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2      # Android 模擬�
 flutter run --dart-define=FIREBASE_EMULATOR_HOST=192.168.x.x   # 實體手機（同一個 Wi-Fi 下電腦的 IP）
 ```
 
-## 多機即時語音（LiveKit）
+## 多機即時語音（自建 WebRTC）
 
-### 服務設定
+沿用手機間直連的 full-mesh 架構，使用 `flutter_webrtc`；已移除 LiveKit SDK、Token 呼叫與付費語音服務依賴。Firestore 只同步加入狀態和連線訊息，聲音不經 Firebase。**目前預設只用公開 STUN 嘗試直連，不使用 TURN，也不呼叫 `voiceIce` 取得中繼帳密。** 沒有按分鐘收費的語音 API，原本的 Firebase 用量仍可能產生費用。
 
-App 與 Firebase 函式已整合 LiveKit SDK；需要自行建立 LiveKit Cloud 專案並設定後，才有真正的語音通話。尚未設定時，不影響原本的多機遊戲。
+### 更新與啟動
 
-1. 建立 LiveKit Cloud 專案，在專案設定取得 WebSocket URL、API Key 與 API Secret。
-2. 參考 `functions/.env.example`，建立 `functions/.env.avalon-shadow-council`，只放服務網址：
+```sh
+cd functions
+npm install
+npm test
+cd ..
+firebase deploy --only firestore,functions:createRoom,functions:leaveRoom --project avalon-shadow-council
+flutter pub get
+flutter run
+```
+
+必須部署新的安全規則、TTL 及房間函式，並建立**新房間**，舊房間沒有新的語音識別碼。直連模式不需要部署 `voiceIce` 或準備 TURN 主機／金鑰。iOS 需在 Mac 上重新編譯；原生套件更新不能只做 hot reload。不需要建立 LiveKit 帳號或填 LiveKit 金鑰。
+
+### 先測直連
+
+兩支手機安裝同一版 App，加入同一個新房間，兩邊各按「加入語音」。顯示 `語音 1/1 人` 代表已連上對方，再開麥測雙向聲音。輪流測「同一個 Wi-Fi」、「一支 Wi-Fi、一支行動網路」及「兩支都用行動網路」，並記錄各組合是否成功。若持續顯示 `0/1 人`，可切換網路、離開語音後重新加入；無法直連時不會自動使用任何付費中繼。最好戴耳機或分開測，避免回授影響判斷。
+
+### 使用方式
+
+- 僅多機模式顯示「加入語音」。加入時先聆聽，按麥克風才要求錄音權限並收音；一機模式不建立連線、不要求權限。
+- 每人都要加入語音。畫面顯示實際連線數／其他已加入人數，例如 `語音 3/4 人`，以及說話提示；顯示加入成功不代表所有其他手機均已連上。
+- 所有對手共用一份本機麥克風收音；關閉麥克風會停止收音軌，重新開啟時替換音軌，不必重建整個語音房。
+- 大廳與對局共用通話，看秘密身分與動畫時仍能靜音。離開語音／整個房間會停止麥克風並關閉連線。
+- 連線失敗會限次退避重試；持續部分無聲時，可離開語音再加入或切換網路。本輪先確認直連成功的網路組合，再決定是否需要中繼。
+
+### 自架 coturn（跨網路時建議配置）
+
+此節供未來需要中繼時使用；目前直連測試不需要執行。
+
+1. 準備能從外網連到的 Linux 主機，安裝 coturn，例如 Ubuntu 的 `sudo apt install coturn`。
+2. 將 `infra/voice/turnserver.conf.example` 複製成 `/etc/turnserver.conf`。修改 `realm`、外網／內網 IP（若主機在 NAT 後）及 `static-auth-secret`；用密碼產生器建立至少 32 位元組的隨機 Secret。不要把真實 Secret 寫入範例檔、Flutter 或 Git。
+3. 開放主機防火牆與路由器的 `3478/UDP`、`3478/TCP`、`49160–49259/UDP`。雲端安全群組也須允許；家用網路若是 CGNAT，單靠路由器轉發無法讓外網連入。
+4. 執行 `sudo systemctl enable --now coturn`；修改設定後執行 `sudo systemctl restart coturn`。
+5. 複製 `functions/.env.example` 為被 Git 忽略的 `functions/.env.avalon-shadow-council`，填入：
 
    ```dotenv
-   LIVEKIT_URL=wss://YOUR-PROJECT.livekit.cloud
+   VOICE_TURN_URLS=turn:voice.example.com:3478?transport=udp,turn:voice.example.com:3478?transport=tcp
+   VOICE_TURN_SECRET=與伺服器static-auth-secret相同的值
    ```
 
-3. 在本機終端機設定後端 Secret。依 CLI 提示輸入，勿把金鑰寫進 Flutter、Firestore 或 Git：
+6. 部署 `firebase deploy --only functions:voiceIce --project avalon-shadow-council`。以 `flutter run --dart-define=VOICE_ENABLE_TURN=true`（或對應的 build 指令）重新編譯安裝，手機重新加入語音即可取得設定，不必把 TURN 密碼編進 App。未明確開啟此旗標的 App 仍只使用 STUN 直連。
 
-   ```sh
-   firebase functions:secrets:set LIVEKIT_API_KEY --project avalon-shadow-council
-   firebase functions:secrets:set LIVEKIT_API_SECRET --project avalon-shadow-council
-   ```
+`voiceIce` 只接受仍在有效房間中的玩家，透過 coturn REST HMAC 簽發四小時的短期帳密。共享 Secret 留在後端環境變數與 coturn 設定中。此版不會在通話中更新 TURN 帳密，超過四小時請重新加入語音。已有環境 Secret 管理機制時，應從該機制注入 `VOICE_TURN_SECRET`。
 
-4. 部署新增的語音憑證函式：
+範例提供 UDP／TCP TURN，未包含 TLS 憑證。若要支援只允許 TLS 的網路，需為 coturn 加上有效憑證、移除 `no-tls`、開放 TLS 連接埠，再將 `turns:voice.example.com:5349?transport=tcp` 加進網址列表。這些步驟是配置範本；本次沒有替你租主機或部署 TURN。
 
-   ```sh
-   cd functions
-   npm install
-   npm test
-   cd ..
-   firebase deploy --only functions:voiceToken --project avalon-shadow-council
-   ```
+參考 [WebRTC TURN 說明](https://webrtc.org/getting-started/turn-server)、[coturn 官方設定](https://github.com/coturn/coturn/blob/master/examples/etc/turnserver.conf) 與 [Flutter WebRTC API](https://flutter-webrtc.org/docs/flutter-webrtc/api-docs/rtc-peerconnection/)。
 
-5. 執行 `flutter pub get`，重新編譯並安裝 App（新增原生語音 SDK 與權限，不能只做 hot reload）。iOS 需在 Mac 上重新建置。
+### 權限與驗證範圍
 
-### 使用方式與權限
-
-- 在多機大廳按「加入語音」，先以麥克風關閉的狀態聆聽；按麥克風才請求錄音權限並開始說話。加入與錄音都是玩家主動操作。
-- 其他玩家須各自加入語音，才能互相聽見。大廳及座位旁顯示「說話中」。
-- 大廳、對局及結算共用同一條語音連線；看秘密身分或結果動畫時仍可靜音。返回大廳不斷線，按「離開語音」或離開整個房間才結束通話。
-- SDK 會嘗試自動重連；重連失敗時顯示「重試語音」，重新向 Firebase 取得憑證。
-- Firebase 先驗證匿名登入及有效房間成員資格，再簽發 5 分鐘的房間限定 JWT。憑證只能發布麥克風音訊、接收其他人聲音，不能發布鏡頭、螢幕或資料訊息，也沒有管理／錄製權限。
-- 語音房使用獨立 UUID，不直接使用六碼房號，避免房號日後重複而混入舊語音房。憑證只有公開暱稱與玩家 UID，不含任何角色情報。
-- iOS 已加入麥克風用途說明及背景音訊宣告。Android 已加入錄音、網路與音訊權限；此版以 App 在前景遊玩為主，尚未加入 Android 背景麥克風前景服務。
-- 本專案不啟用錄音或轉錄。音訊經過所設定的 LiveKit 服務傳輸。
-
-### 驗證範圍
-
-`flutter test` 包含控制器的權限失敗、重連狀態、離房清理、延遲連線取消，以及大廳／對局共用連線的畫面測試。`npm test` 包含實際 JWT 簽章、房間與成員限制、失效房間、音訊權限及有效期限測試。
-
-這些自動測試使用假的音訊傳輸；在沒有 LiveKit 專案的環境下，不能驗證真正的收音、雙向聲音、耳機切換與平台背景行為。設定完成後，需用至少兩支實體手機加入同一房間測試這些項目，並確認離房後系統麥克風指示熄滅。
-
-參考 [LiveKit Flutter 官方文件](https://docs.livekit.io/transport/sdk-platforms/flutter/) 與 [Firebase Secret 設定](https://firebase.google.com/docs/functions/config-env)。
+- 語音狀態每 30 秒更新，約 90 秒未更新就視為離線；TTL 負責最終清除，App 不等待 TTL 才關閉失聯玩家。房間重建、玩家重入及重試都有獨立識別，避免套用舊的 offer／answer／ICE 訊息。
+- 安全規則只允許有效房間成員寫自己的語音狀態，發送者不能冒用 UID，連線訊息只允許接收者讀取。遊戲資料仍由 Cloud Functions 裁決，語音不交換身分或未公開投票。
+- 不啟用錄音或轉錄。P2P 會讓通話對方得知網路連線位址；需隱藏對方 IP 時應另做強制 TURN 模式與頻寬評估。
+- iOS 已宣告麥克風用途和背景音訊；Android 已宣告錄音和網路權限。本版以 App 在前景使用為主，Android 尚無背景麥克風服務。
+- `flutter test` 涵蓋 10 人的模擬握手、ICE 提早到達、重試與舊訊息隔離、離房清理、麥克風拒絕及大廳到對局共用通話。`npm test` 驗證 TURN 短期帳密；`npm run test:emulator` 驗證 Firebase 成員／訊息權限及完整遊戲。
+- 自動測試不等於真實音訊驗證。仍需至少兩支實體手機測雙向聲音、拒絕麥克風後重試、關麥後系統收音指示、Wi-Fi 與行動網路互通、耳機和背景行為。十人 mesh 每支手機最多九條連線，發熱與電量必須用實機量測，再決定是否改成自架 SFU。
 
 ## 隱私與限制
 
 - 一機模式每次秘密操作都有交接遮罩；App 進入背景時重新隱藏秘密畫面。適合彼此信任的現場玩家，無防窺或截圖阻擋。
-- 多機模式的秘密由伺服器保管；房主也看不到別人的身分。遊戲開始後無法加入新玩家，離開對局不會讓出座位。
-- 尚未實作湖中女神等擴充規則、文字聊天或戰績。語音需設定 LiveKit 服務後使用。平台檔案使用開發用應用程式識別碼（`com.example.*`），上架前需更換並重新執行 `flutterfire configure`。
+- 多機模式的秘密由伺服器保管；房主也看不到別人的身分。遊戲開始後無法加入新玩家；暫時離開保留座位，離開房間則釋出座位，進行中的對局會中止並通知其他人。
+- 尚未實作湖中女神等擴充規則、文字聊天或戰績。跨網路語音建議設定自架 TURN。平台檔案使用開發用應用程式識別碼（`com.example.*`），上架前需更換並重新執行 `flutterfire configure`。
 
 ## 驗證
 
@@ -145,7 +156,7 @@ npm run test:cloud      # 同樣的測試，直接打已部署的正式環境（
 - `lib/core/`：主題、素材路徑與共用元件。
 - `lib/features/home/`：首頁與一機遊玩設定。
 - `lib/features/online/`：多機遊玩的連線服務、房間大廳與連線版遊戲來源。
-- `lib/features/online/voice/`：語音控制器、LiveKit 音訊傳輸、麥克風及說話狀態元件。
+- `lib/features/online/voice/`：語音控制器、WebRTC 音訊傳輸與 Firestore 連線協調、麥克風及說話狀態元件。
 - `lib/features/game/game_model.dart`：一機遊玩的遊戲狀態與規則。
 - `lib/features/game/game_session.dart`：遊戲桌面讀取的介面（`GameSession`），一機與多機各有實作。
 - `lib/features/game/game_screen.dart`：遊戲桌面、秘密操作與揭曉畫面。

@@ -61,7 +61,7 @@ void main() {
     final game = setup(count: 10, extras: {'派西維爾', '莫甘娜', '莫德雷德', '奧伯倫'});
     String label(Role role) {
       final i = game.roles.indexOf(role);
-      return '${i + 1} 號 ${game.players[i]}';
+      return '${i + 1} 號 【${game.players[i]}】';
     }
 
     final merlin = game.knowledge(game.roles.indexOf(Role.merlin));

@@ -8,17 +8,21 @@ class FakeVoiceTransport implements VoiceTransport {
   int connections = 0;
   int closes = 0;
   bool denied = false;
+  bool failConnect = false;
   Completer<void>? pendingConnect;
+  Completer<void>? pendingMicrophone;
   @override
   Stream<VoiceUpdate> get updates => events.stream;
   @override
-  Future<void> connect(VoiceCredentials _) async {
+  Future<void> connect() async {
     connections++;
+    if (failConnect) throw const VoiceException('無法連上語音');
     await pendingConnect?.future;
   }
 
   @override
   Future<void> setMicrophoneEnabled(bool enabled) async {
+    await pendingMicrophone?.future;
     if (denied) throw Exception('permission denied');
     microphoneRequests.add(enabled);
   }
@@ -34,10 +38,7 @@ void main() {
   late VoiceController voice;
   setUp(() {
     transport = FakeVoiceTransport();
-    voice = VoiceController(
-        credentials: () async =>
-            const VoiceCredentials('wss://voice.test', 'test-token'),
-        createTransport: () => transport);
+    voice = VoiceController(createTransport: () => transport);
   });
   tearDown(() async {
     voice.dispose();
@@ -87,6 +88,19 @@ void main() {
     expect(voice.connected, isTrue);
   });
 
+  test('late microphone permission cannot unmute a failed connection',
+      () async {
+    await voice.join();
+    transport.pendingMicrophone = Completer<void>();
+    final pending = voice.toggleMicrophone();
+    transport.events.add(const VoiceUpdate(VoiceStatus.failed));
+    await Future<void>.delayed(Duration.zero);
+    transport.pendingMicrophone!.complete();
+    await pending;
+    expect(voice.status, VoiceStatus.failed);
+    expect(voice.microphone, isFalse);
+  });
+
   test('leaving closes audio and ignores subsequent speaker events', () async {
     await voice.join();
     await voice.toggleMicrophone();
@@ -100,17 +114,14 @@ void main() {
     expect(voice.speakers, isEmpty);
   });
 
-  test('late token after leave cannot open a connection', () async {
-    final access = Completer<VoiceCredentials>();
-    voice.dispose();
-    voice = VoiceController(
-        credentials: () => access.future, createTransport: () => transport);
+  test('late connection after leave cannot reactivate voice', () async {
+    transport.pendingConnect = Completer<void>();
     final pending = voice.join();
     await Future<void>.delayed(Duration.zero);
     await voice.leave();
-    access.complete(const VoiceCredentials('wss://voice.test', 'late-token'));
+    transport.pendingConnect!.complete();
     await pending;
-    expect(transport.connections, 0);
+    expect(transport.closes, greaterThanOrEqualTo(1));
     expect(voice.status, VoiceStatus.offline);
   });
 
@@ -123,21 +134,18 @@ void main() {
     await pending;
     expect(transport.closes, greaterThanOrEqualTo(1));
     // Avoid disposing the same ChangeNotifier in tearDown.
-    voice = VoiceController(
-        credentials: () async => const VoiceCredentials('', ''),
-        createTransport: () => transport);
+    voice = VoiceController(createTransport: () => transport);
   });
 
-  test('service not configured is recoverable and never opens the mic',
-      () async {
-    voice.dispose();
-    voice = VoiceController(
-        credentials: () async => throw const VoiceException('語音服務尚未啟用'),
-        createTransport: () => transport);
+  test('connection failure is recoverable and never opens the mic', () async {
+    transport.failConnect = true;
     await voice.join();
     expect(voice.status, VoiceStatus.failed);
-    expect(voice.error, '語音服務尚未啟用');
-    expect(transport.connections, 0);
+    expect(voice.error, '無法連上語音');
+    expect(transport.connections, 1);
     expect(transport.microphoneRequests, isEmpty);
+    transport.failConnect = false;
+    await voice.join();
+    expect(voice.connected, isTrue);
   });
 }

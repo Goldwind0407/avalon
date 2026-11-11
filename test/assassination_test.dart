@@ -54,7 +54,7 @@ void main() {
         await advance(tester, 1500);
         await tester.tap(find.text('我是本人，開啟秘密畫面'));
         await advance(tester, 1800);
-        String label(int i) => '${i + 1} 號 · ${game.players[i]}';
+        String label(int i) => '${i + 1} 號 【${game.players[i]}】';
         for (var i = 0; i < count; i++) {
           expect(find.text(label(i)),
               game.roles[i] == Role.assassin ? findsNothing : findsOneWidget);

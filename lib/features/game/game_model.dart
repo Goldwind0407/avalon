@@ -55,14 +55,17 @@ List<int> visibleSeats(List<Role> roles, int index) {
   ];
 }
 
-/// What a player is told about the others when they look at their card.
+/// Display a seat and nickname consistently in game prompts.
+String playerLabel(int seat, String name) => '${seat + 1} 號 【$name】';
+
+/// Keep the visible players and role-specific reminder on separate lines.
 String knowledgeText(Role role, List<int> visible, List<String> players) {
-  final names = visible.map((i) => '${i + 1} 號 ${players[i]}').join('、');
-  if (role == Role.merlin) return '你看見的邪惡玩家：$names。莫德雷德不會被你看見。';
-  if (role == Role.percival) return '梅林候選人：$names。若有莫甘娜，你無法分辨兩者。';
-  if (role == Role.oberon) return '你屬於邪惡陣營，但你與其他邪惡玩家互不相認。';
-  if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。奧伯倫不會出現在此。';
-  return '你沒有額外情報。透過討論與投票，找出值得信任的隊友。';
+  final names = visible.map((i) => playerLabel(i, players[i])).join('、');
+  if (role == Role.merlin) return '你看見的邪惡玩家：$names。\n莫德雷德不會被你看見。';
+  if (role == Role.percival) return '梅林候選人：$names。\n若有莫甘娜，你無法分辨兩者。';
+  if (role == Role.oberon) return '你屬於邪惡陣營。\n你與其他邪惡玩家互不相認。';
+  if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。\n奧伯倫不會出現在此。';
+  return '你沒有額外情報。\n透過討論與投票，找出值得信任的隊友。';
 }
 
 class QuestResult {

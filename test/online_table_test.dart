@@ -87,7 +87,8 @@ void main() {
     await advance(tester, 1500);
     expect(find.text('請將手機交給'), findsNothing);
     expect(find.text('派西維爾'), findsOneWidget);
-    expect(find.textContaining('梅林候選人：1 號 騎士0、4 號 騎士3'), findsOneWidget);
+    expect(
+        find.textContaining('梅林候選人：1 號 【騎士0】、4 號 【騎士3】。\n若有莫甘娜'), findsOneWidget);
     await tester.tap(find.text('記住了'));
     await advance(tester, 600);
     expect(server.calls.last.$2['move'], 'confirmIdentity');
@@ -105,7 +106,7 @@ void main() {
       'confirmed': [0, 1, 2, 3, 4]
     });
     await advance(tester, 3500);
-    expect(find.text('等待隊長 1 號 · 騎士0 挑選 2 名隊員'), findsOneWidget);
+    expect(find.text('等待隊長 1 號 【騎士0】 挑選 2 名隊員'), findsOneWidget);
     expect(find.textContaining('提案並開始投票'), findsNothing);
 
     // ── vote: my cards come up on my own phone ──
