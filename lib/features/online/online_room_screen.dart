@@ -131,8 +131,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     final count = room.players.length, last = _lastCount;
     _lastCount = count;
     if (last == null || last == count || room.inGame || !session.isHost) return;
-    final preset =
-        rolePreset(count, lancelot: room.expansions.lancelot > 0);
+    final preset = rolePreset(count);
     if (preset == null) return;
     _presets = _presets.then((_) async {
       if (!mounted || session.room?.players.length != count) return;

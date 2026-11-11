@@ -79,6 +79,7 @@ export const isEvil = (role: RoleKey): boolean => EVIL.has(role);
 
 export const MIN_PLAYERS = 5;
 export const MAX_PLAYERS = 10;
+export const LANCELOT_MIN_PLAYERS = 7;
 
 export function evilCount(players: number): number {
   if (players === 5 || players === 6) return 2;
@@ -111,6 +112,7 @@ export function configIssue(
   expansions: Expansions = NO_EXPANSIONS,
 ): string | null {
   if (players < MIN_PLAYERS || players > MAX_PLAYERS) return '需要 5～10 位玩家';
+  if (expansions.lancelot > 0 && players < LANCELOT_MIN_PLAYERS) return '蘭斯洛特擴充需要 7 人以上';
   if (optional.some((r) => !OPTIONAL_ROLES.includes(r))) return '包含未知角色';
   if (new Set(optional).size !== optional.length) return '角色重複';
   const special: RoleKey[] = ['merlin', 'assassin', ...optional, ...lancelots(expansions)];

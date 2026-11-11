@@ -3,20 +3,25 @@ import '../../core/theme.dart';
 import 'expansion_model.dart';
 
 /// Lets the host choose the expansions before the game starts.
+/// With [players] known (pass & play), Lancelot can only be picked from 7.
 Future<ExpansionSettings?> editExpansions(
-        BuildContext context, ExpansionSettings initial) =>
+        BuildContext context, ExpansionSettings initial, {int? players}) =>
     showDialog<ExpansionSettings>(
-        context: context, builder: (_) => _ExpansionDialog(initial));
+        context: context,
+        builder: (_) => _ExpansionDialog(initial, players));
 
 class _ExpansionDialog extends StatefulWidget {
-  const _ExpansionDialog(this.initial);
+  const _ExpansionDialog(this.initial, this.players);
   final ExpansionSettings initial;
+  final int? players;
   @override
   State<_ExpansionDialog> createState() => _ExpansionDialogState();
 }
 
 class _ExpansionDialogState extends State<_ExpansionDialog> {
   late var value = widget.initial;
+  bool get _lancelotAllowed =>
+      widget.players == null || widget.players! >= lancelotMinPlayers;
 
   static const _lancelotHelp = [
     '不加入蘭斯洛特。',
@@ -63,10 +68,16 @@ class _ExpansionDialogState extends State<_ExpansionDialog> {
                     child: SegmentedButton<int>(
                       key: const ValueKey('expansionLancelot'),
                       showSelectedIcon: false,
-                      segments: const [
-                        ButtonSegment(value: 0, label: Text('不使用')),
-                        ButtonSegment(value: 1, label: Text('變體一・每輪翻牌')),
-                        ButtonSegment(value: 2, label: Text('變體二・開局公開')),
+                      segments: [
+                        const ButtonSegment(value: 0, label: Text('不使用')),
+                        ButtonSegment(
+                            value: 1,
+                            enabled: _lancelotAllowed,
+                            label: const Text('變體一・每輪翻牌')),
+                        ButtonSegment(
+                            value: 2,
+                            enabled: _lancelotAllowed,
+                            label: const Text('變體二・開局公開')),
                       ],
                       selected: {value.lancelot},
                       onSelectionChanged: (v) => setState(
@@ -74,7 +85,9 @@ class _ExpansionDialogState extends State<_ExpansionDialog> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  _note(_lancelotHelp[value.lancelot]),
+                  _note(_lancelotAllowed
+                      ? '需要 7 人以上才能使用。${_lancelotHelp[value.lancelot]}'
+                      : '需要 7 人以上才能使用（目前 ${widget.players} 人）。'),
                   if (value.lancelot > 0)
                     _note('正義與邪惡蘭斯洛特各占一個正義、邪惡名額。兩人互不認識；'
                         '邪惡蘭斯洛特會被其他壞人看見，但他看不到其他壞人。'),

@@ -70,14 +70,16 @@ void main() {
   const v2 = ExpansionSettings(lancelot: 2);
 
   test('the Lancelots take one good and one evil place', () {
-    for (final count in [5, 7, 10]) {
+    for (final count in [7, 8, 10]) {
       final game = setup(v1, count: count);
       expect(game.roles, containsAll([Role.lancelotGood, Role.lancelotEvil]));
       expect(game.roles.where((r) => r.isEvil).length, Room.evilCount(count));
     }
-    // 5 players: Assassin, Morgana and evil Lancelot are one evil too many
-    expect(room(5, v1, {'莫甘娜'}).roleIssue, isNotNull);
+    // Lancelot needs 7 players
+    expect(room(6, v1).roleIssue, '蘭斯洛特擴充需要 7 人以上');
     expect(room(7, v1, {'莫甘娜'}).roleIssue, isNull);
+    // 7 players: Assassin, Morgana, Mordred and evil Lancelot are one too many
+    expect(room(7, v1, {'莫甘娜', '莫德雷德'}).roleIssue, isNotNull);
   });
 
   test('evil sees evil Lancelot; Lancelot sees nobody', () {

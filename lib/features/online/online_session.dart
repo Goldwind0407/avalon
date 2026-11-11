@@ -69,6 +69,9 @@ const optionalRoles = [Role.percival, Role.morgana, Role.mordred, Role.oberon];
 String? onlineSetupIssue(int players, Set<Role> extra,
     [ExpansionSettings expansions = const ExpansionSettings()]) {
   if (players < 5 || players > 10) return '需要 5～10 位玩家';
+  if (expansions.lancelot > 0 && players < lancelotMinPlayers) {
+    return lancelotPlayersIssue;
+  }
   final special = [
     Role.merlin,
     Role.assassin,

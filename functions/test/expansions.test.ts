@@ -64,13 +64,14 @@ function play(s: GameState, fail = false) {
 describe('expansions mirror expansion_test.dart', () => {
   test('the Lancelots take one good and one evil place', () => {
     const v1: Expansions = { ...r.NO_EXPANSIONS, lancelot: 1 };
-    for (const n of [5, 7, 10]) {
+    for (const n of [7, 8, 10]) {
       const roles = r.dealRoles(n, [], seeded(n), v1);
       assert.ok(roles.includes('lancelotGood') && roles.includes('lancelotEvil'));
       assert.equal(roles.filter(r.isEvil).length, r.evilCount(n));
     }
-    assert.notEqual(r.configIssue(5, ['morgana'], v1), null);
+    assert.equal(r.configIssue(6, [], v1), '蘭斯洛特擴充需要 7 人以上');
     assert.equal(r.configIssue(7, ['morgana'], v1), null);
+    assert.notEqual(r.configIssue(7, ['morgana', 'mordred'], v1), null);
     assert.throws(() => r.expansionSettings({ lady: true, lancelot: 3, excalibur: false }));
   });
 

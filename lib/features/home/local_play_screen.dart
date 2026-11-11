@@ -35,7 +35,9 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   /// be changed by hand afterwards.
   void _setPlayers(int count) {
     playerCount = count;
-    final preset = rolePreset(count, lancelot: expansions.lancelot > 0);
+    // Lancelot cannot be played with fewer than 7
+    if (count < lancelotMinPlayers) expansions = expansions.copyWith(lancelot: 0);
+    final preset = rolePreset(count);
     if (preset == null) return;
     roles
       ..clear()
@@ -327,7 +329,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         settings: expansions,
                         onTap: () async {
                           final value =
-                              await editExpansions(context, expansions);
+                              await editExpansions(context, expansions,
+                                  players: playerCount);
                           if (mounted && value != null) {
                             setState(() => expansions = value);
                           }

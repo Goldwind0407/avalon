@@ -29,6 +29,9 @@ class Room {
       };
   String? get roleIssue {
     if (players.length < 5 || players.length > 10) return '需要 5～10 位玩家';
+    if (expansions.lancelot > 0 && players.length < lancelotMinPlayers) {
+      return lancelotPlayersIssue;
+    }
     // the two Lancelots take one good and one evil place
     final lancelot = expansions.lancelot > 0 ? 1 : 0;
     final evil = specialRoles

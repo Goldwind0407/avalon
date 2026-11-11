@@ -368,7 +368,8 @@ describe('expansions online', () => {
   test('only the host turns expansions on, and old apps cannot join', async () => {
     ({ code } = await phones[0].call('createRoom', { name: '亞瑟', protocolVersion: 3 }));
     for (let i = 1; i < 5; i++) await v3(phones[i], 'joinRoom', { name: `騎士${i}` });
-    const all = { lady: true, lancelot: 2, excalibur: true };
+    // five phones: Lancelot needs seven players, so it stays off here
+    const all = { lady: true, lancelot: 0, excalibur: true };
     await denied(v3(phones[1], 'setExpansions', { expansions: all }));
     await refused(v3(phones[0], 'setExpansions', { expansions: { ...all, lancelot: 5 } }));
     await v3(phones[0], 'setExpansions', { expansions: all });
@@ -383,7 +384,7 @@ describe('expansions online', () => {
   test('Excalibur: only the holder learns the flipped card', async () => {
     await v3(phones[0], 'startGame');
     let g = (await room(phones[0], code)).game;
-    assert.ok(g.loyalty.every((c: boolean | null) => c !== null));
+    assert.ok(g.loyalty.every((c: boolean | null) => c === null));
     assert.equal(g.ladyHolder, (g.leader + 4) % 5);
     assert.equal('reveals' in g, false);
     assert.equal('loyaltyDeck' in g, false);

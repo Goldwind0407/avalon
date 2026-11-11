@@ -10,14 +10,14 @@ import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 void main() {
   test('every preset is a legal setup, with or without Lancelot', () {
     for (var n = 5; n <= 10; n++) {
-      for (final lancelot in [false, true]) {
+      for (final lancelot in [false, if (n >= 7) true]) {
         final room = Room(
             code: '',
             players: List.generate(
                 n, (i) => Player(id: '$i', name: '$i', isReady: true)))
           ..expansions = ExpansionSettings(lancelot: lancelot ? 1 : 0);
         room.specialRoles.addAll(
-            [for (final r in rolePreset(n, lancelot: lancelot)!) r.label]);
+            [for (final r in rolePreset(n)!) r.label]);
         expect(room.roleIssue, isNull, reason: '$n players, lancelot $lancelot');
       }
     }
@@ -50,6 +50,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(on('莫甘娜') && on('莫德雷德') && !on('奧伯倫'), isTrue);
     // no expansion is switched on by a preset
+    expect(find.textContaining('未使用'), findsOneWidget);
+  });
+
+  testWidgets('Lancelot needs 7 players in pass & play setup', (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+        MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
+    await tester.pumpAndSettle();
+    Future<void> openExpansions() async {
+      await tester.tap(find.byKey(const ValueKey('expansions')));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('playerCount8')));
+    await tester.pumpAndSettle();
+    await openExpansions();
+    await tester.tap(find.text('變體一・每輪翻牌'));
+    await tester.tap(find.byKey(const ValueKey('expansionSave')));
+    await tester.pumpAndSettle();
+    expect(find.text('蘭斯洛特（變體一）'), findsOneWidget);
+    // fewer than 7: Lancelot is switched off and cannot be picked
+    await tester.tap(find.byKey(const ValueKey('playerCount6')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('未使用'), findsOneWidget);
+    await openExpansions();
+    expect(find.textContaining('目前 6 人'), findsOneWidget);
+    await tester.tap(find.text('變體一・每輪翻牌'), warnIfMissed: false);
+    await tester.tap(find.byKey(const ValueKey('expansionSave')));
+    await tester.pumpAndSettle();
     expect(find.textContaining('未使用'), findsOneWidget);
   });
 }

@@ -1,3 +1,7 @@
+/// The Lancelot expansion needs at least this many players.
+const lancelotMinPlayers = 7;
+const lancelotPlayersIssue = '蘭斯洛特擴充需要 7 人以上';
+
 /// Optional expansions chosen before the game (same as `Expansions` in
 /// functions/src/rules.ts).
 class ExpansionSettings {
