@@ -50,14 +50,14 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
 
 1. Firebase Console 將專案升級為 **Blaze 方案**（Cloud Functions 需要），建議同時設定預算提醒。
 2. 啟用 Firestore（地區選 `asia-east1`）與 Authentication 的「匿名」登入。
-3. 部署伺服器與安全規則：
+3. 部署伺服器、安全規則與自動清除設定（房間 24 小時後由 Firestore TTL 刪除）：
 
    ```sh
    cd functions && npm install && cd ..
    firebase deploy --only firestore,functions
    ```
 
-4. （建議）在 Firestore 為 `rooms` 集合的 `expireAt` 欄位設定 TTL，房間會在 24 小時後自動清除。
+> 函式需要允許公開呼叫（`invoker: 'public'`），身分由函式內的 Firebase 登入憑證檢查。若函式第一次建立失敗，之後的「更新」部署不會補上公開權限，呼叫會得到 403；此時刪除函式（`firebase functions:delete …`）再重新部署即可。
 
 ### 不連雲端，用模擬器測試
 
@@ -84,6 +84,7 @@ flutter test
 cd functions
 npm test                # 伺服器規則（對應 game_model_test.dart）
 npm run test:emulator   # 模擬器上的完整多人對局與安全規則
+npm run test:cloud      # 同樣的測試，直接打已部署的正式環境（會建立並清除測試房間）
 ```
 
 ## 程式結構

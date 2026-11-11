@@ -22,7 +22,9 @@ import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
 
 initializeApp();
-setGlobalOptions({ region: 'asia-east1', maxInstances: 20 });
+// Callable functions must be reachable by the app; who is calling is
+// checked inside every function with the Firebase sign-in token (uidOf).
+setGlobalOptions({ region: 'asia-east1', maxInstances: 20, invoker: 'public' });
 const db = getFirestore();
 
 /** Rooms are kept for a day; set a TTL policy on `expireAt` to clean up. */
@@ -100,12 +102,15 @@ function seatOf(room: Room, uid: string): number {
   return seat;
 }
 
+/** When a room (and its private and secret documents) may be deleted. */
+const expiry = () => Timestamp.fromMillis(Date.now() + ROOM_LIFETIME_MS);
+
 function touch(room: Room) {
   return {
     ...room,
     step: room.step + 1,
     updatedAt: FieldValue.serverTimestamp(),
-    expireAt: Timestamp.fromMillis(Date.now() + ROOM_LIFETIME_MS),
+    expireAt: expiry(),
   };
 }
 
@@ -213,13 +218,14 @@ export const startGame = onCall((req) =>
       room.gen += 1;
       room.game = open;
       tx.set(roomRef(code), touch(room));
-      tx.set(secretRef(code), { gen: room.gen, ...secret });
+      tx.set(secretRef(code), { gen: room.gen, ...secret, expireAt: expiry() });
       room.playerUids.forEach((playerUid, seat) => {
         tx.set(privateRef(code, playerUid), {
           gen: room.gen,
           seat,
           role: state.roles[seat],
           visible: rules.visibleSeats(state.roles, seat),
+          expireAt: expiry(),
         });
       });
       return { gen: room.gen };
@@ -276,7 +282,7 @@ async function applyMove(
   const split = rules.split(state);
   room.game = split.open;
   tx.set(roomRef(code), touch(room));
-  tx.set(secretRef(code), { gen: room.gen, ...split.secret });
+  tx.set(secretRef(code), { gen: room.gen, ...split.secret, expireAt: expiry() });
 }
 
 /** Continue buttons belong to the leader; the host can step in if needed. */

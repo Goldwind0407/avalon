@@ -1,6 +1,8 @@
-// End-to-end test against the Firebase emulators (npm run test:emulator).
-// Several "phones" sign in anonymously, play a whole game through the
-// callable functions, and try to read things they must not see.
+// End-to-end test: several "phones" sign in anonymously, play a whole game
+// through the callable functions, and try to read things they must not see.
+//
+//   npm run test:emulator   against the local emulators (default)
+//   npm run test:cloud      against the deployed project (AVALON_TARGET=cloud)
 import { strict as assert } from 'node:assert';
 import { after, before, describe, test } from 'node:test';
 import { FirebaseApp, deleteApp, initializeApp } from 'firebase/app';
@@ -29,18 +31,29 @@ interface Phone {
   call: (name: string, data: Record<string, unknown>) => Promise<any>;
 }
 
+const CLOUD = process.env.AVALON_TARGET === 'cloud';
+// the web app's public config (lib/firebase_options.dart)
+const CLOUD_CONFIG = {
+  apiKey: 'AIzaSyBX59ZuswRIrIvmhqdvd__44xl5MPyLR8A',
+  appId: '1:1041864366616:web:01906d9135bce53515416d',
+  projectId: PROJECT,
+  authDomain: 'avalon-shadow-council.firebaseapp.com',
+};
+
 let counter = 0;
 async function phone(): Promise<Phone> {
   const app = initializeApp(
-    { apiKey: 'fake', projectId: PROJECT, appId: 'test' },
+    CLOUD ? CLOUD_CONFIG : { apiKey: 'fake', projectId: PROJECT, appId: 'test' },
     `phone${counter++}`,
   );
   const auth = getAuth(app);
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   const db = getFirestore(app);
-  connectFirestoreEmulator(db, '127.0.0.1', 8080);
   const fns = getFunctions(app, 'asia-east1');
-  connectFunctionsEmulator(fns, '127.0.0.1', 5001);
+  if (!CLOUD) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    connectFunctionsEmulator(fns, '127.0.0.1', 5001);
+  }
   const cred = await signInAnonymously(auth);
   return {
     app,
@@ -65,7 +78,7 @@ async function refused(work: Promise<unknown>, pattern?: RegExp) {
 const room = async (p: Phone, code: string) =>
   (await getDoc(doc(p.db, 'rooms', code))).data() as any;
 
-describe('online game through the emulators', () => {
+describe('online game end to end', () => {
   const phones: Phone[] = [];
   let outsider: Phone;
   let code = '';
@@ -76,6 +89,13 @@ describe('online game through the emulators', () => {
   });
 
   after(async () => {
+    if (code) {
+      // empty the room so it is deleted (host deals → lobby → everyone leaves)
+      await phones[0].call('backToLobby', { code }).catch(() => {});
+      for (const p of [...phones].reverse()) {
+        await p.call('leaveRoom', { code }).catch(() => {});
+      }
+    }
     await Promise.all([...phones, outsider].map((p) => deleteApp(p.app)));
   });
 

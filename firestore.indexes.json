@@ -1,4 +1,8 @@
 {
   "indexes": [],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "rooms", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "private", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "secret", "fieldPath": "expireAt", "ttl": true, "indexes": [] }
+  ]
 }
