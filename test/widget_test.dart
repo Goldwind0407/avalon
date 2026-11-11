@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/main.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
-import 'package:avalon_shadow_council/features/lobby/lobby_screen.dart';
-import 'package:avalon_shadow_council/features/lobby/room_model.dart';
+import 'package:avalon_shadow_council/features/home/local_play_screen.dart';
 import 'package:avalon_shadow_council/features/table/components.dart';
 
 void main() {
@@ -62,7 +61,7 @@ void main() {
     expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
   });
 
-  testWidgets('從大廳開始，秘密交接與背景隱藏，完成發牌後組隊', (tester) async {
+  testWidgets('一機遊玩：秘密交接與背景隱藏，完成發牌後組隊', (tester) async {
     // the app is landscape only
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
@@ -76,17 +75,10 @@ void main() {
       }
     }
 
-    final repository = LocalRoomRepository();
-    final room = repository.create('亞瑟');
-    for (var i = 0; i < 4; i++) {
-      repository.addDemoPlayer(room);
-    }
-    room.players.first.isReady = true;
     await tester.pumpWidget(MaterialApp(
-        theme: AvalonTheme.dark,
-        home: LobbyScreen(room: room, repository: repository)));
-    await tester.scrollUntilVisible(find.text('開始對局'), 400);
-    await tester.tap(find.text('開始對局'));
+        theme: AvalonTheme.dark, home: const LocalPlayScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('開始遊戲'));
     // the role cards are dealt to every seat before the first hand-off
     await settle(3500);
     expect(find.text('請將手機交給'), findsOneWidget);
