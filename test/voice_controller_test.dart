@@ -60,6 +60,26 @@ void main() {
     expect(transport.microphoneRequests, [true, false]);
   });
 
+  test('leaving the app closes the microphone, also one still opening',
+      () async {
+    await voice.join();
+    await voice.toggleMicrophone();
+    voice.releaseMicrophone();
+    await Future<void>.delayed(Duration.zero);
+    expect(voice.microphone, isFalse);
+    expect(voice.connected, isTrue); // still listening
+    expect(transport.microphoneRequests, [true, false]);
+
+    transport.pendingMicrophone = Completer<void>();
+    final opening = voice.toggleMicrophone();
+    voice.releaseMicrophone();
+    transport.pendingMicrophone!.complete();
+    await opening;
+    await Future<void>.delayed(Duration.zero);
+    expect(voice.microphone, isFalse);
+    expect(transport.microphoneRequests.last, isFalse);
+  });
+
   test('permission refusal preserves muted state and allows another attempt',
       () async {
     await voice.join();

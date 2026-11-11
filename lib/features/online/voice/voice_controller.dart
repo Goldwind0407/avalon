@@ -67,6 +67,21 @@ class VoiceController extends ChangeNotifier {
     _notify();
   }
 
+  /// The app left the screen: never keep the microphone open in the
+  /// background (iOS would keep showing the microphone indicator). Listening
+  /// goes on; the player turns the microphone back on themselves.
+  void releaseMicrophone() {
+    final transport = _transport;
+    if (_disposed || transport == null || (!microphone && !microphoneBusy)) {
+      return;
+    }
+    microphone = false;
+    // a microphone still being opened is closed again when it arrives
+    ++_floorVersion;
+    unawaited(_forceMute(transport));
+    _notify();
+  }
+
   Future<void> _forceMute(VoiceTransport transport) async {
     try {
       await transport.setMicrophoneEnabled(false);

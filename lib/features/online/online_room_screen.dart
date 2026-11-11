@@ -63,6 +63,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                 : null),
       );
   bool _tableOpen = false;
+  late final AppLifecycleListener _lifecycle;
 
   /// This screen's route, to come back to when a game is ended for everyone.
   ModalRoute<Object?>? _route;
@@ -79,6 +80,8 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     super.initState();
     session.addListener(_onRoomChanged);
     _updateVoiceFloor();
+    // leaving the app (home screen, another app) always closes the microphone
+    _lifecycle = AppLifecycleListener(onHide: voice.releaseMicrophone);
   }
 
   @override
@@ -90,6 +93,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
   @override
   void dispose() {
     session.removeListener(_onRoomChanged);
+    _lifecycle.dispose();
     if (widget.voice == null) voice.dispose();
     if (widget.session == null) session.dispose();
     super.dispose();

@@ -21,6 +21,7 @@ import 'discussion_widgets.dart';
 import '../online/voice/voice_controller.dart';
 import '../online/voice/voice_controls.dart';
 import '../notebook/notebook_screen.dart';
+import '../rules/rules_screen.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -481,6 +482,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _notebookOpen = false);
     }
+  }
+
+  /// The rules, opened at the part that matters right now.
+  void _openRules() {
+    setState(() => revealed = false);
+    RulesScreen.open(
+        context,
+        switch (game.phase) {
+          GamePhase.lady || GamePhase.ladyResult => RulesTopic.lady,
+          GamePhase.excalibur || GamePhase.excaliburResult =>
+            RulesTopic.excalibur,
+          GamePhase.assassination => RulesTopic.round,
+          GamePhase.identity => RulesTopic.roles,
+          _ => RulesTopic.round,
+        });
   }
 
   String roleArt(int i) => game.roleArt(i) ?? Assets.cardBackRole;
@@ -975,10 +991,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ]),
         ),
       ),
-      if (game.isOnline)
-        _roundIcon(Icons.menu_book_outlined, s, _openNotebook, '玩家筆記')
-      else
-        SizedBox(width: 34 * s),
+      _roundIcon(Icons.question_mark, s, _openRules, '遊戲規則'),
+      if (game.isOnline) ...[
+        SizedBox(width: 6 * s),
+        _roundIcon(Icons.menu_book_outlined, s, _openNotebook, '玩家筆記'),
+      ],
     ]);
   }
 

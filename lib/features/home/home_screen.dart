@@ -5,6 +5,7 @@ import '../../core/sound_controls.dart';
 import '../../core/game_sounds.dart';
 import '../online/online_play_screen.dart';
 import 'local_play_screen.dart';
+import '../rules/rules_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -66,6 +67,16 @@ class HomeScreen extends StatelessWidget {
                           onPressed: () => _showMultiplayer(context),
                           icon: const Icon(Icons.devices),
                           label: const Text('多機遊玩'),
+                        ),
+                        const SizedBox(height: 4),
+                        TextButton.icon(
+                          key: const ValueKey('openRules'),
+                          onPressed: () {
+                            GameSounds.instance.play(GameSound.tap);
+                            RulesScreen.open(context);
+                          },
+                          icon: const Icon(Icons.menu_book_outlined, size: 18),
+                          label: const Text('遊戲規則・新手教學'),
                         ),
                       ],
                     ),
