@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../../core/game_sounds.dart';
 import '../../core/theme.dart';
 import 'discussion_model.dart';
 import 'game_model.dart';
@@ -86,15 +86,30 @@ class DiscussionPanel extends StatefulWidget {
 
 class _DiscussionPanelState extends State<DiscussionPanel> {
   Timer? _ticker;
+  int? _lastSecond;
+  int get _remaining => max(
+          0,
+          ((widget.game.speechDeadline ?? widget.game.nowMillis) -
+                  widget.game.nowMillis) /
+              1000)
+      .ceil();
   @override
   void initState() {
     super.initState();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      final remaining = _remaining;
+      if (remaining > 0 && remaining <= 5 && remaining != _lastSecond) {
+        GameSounds.instance.play(GameSound.tick);
+      }
+      _lastSecond = remaining;
+      setState(() {});
     });
-    // A brief native cue; no looping animation or idle audio player.
-    if (!widget.game.isOnline || widget.game.mySeat == widget.game.speaker) {
-      unawaited(SystemSound.play(SystemSoundType.click));
+    if (widget.game.phase == GamePhase.freeDiscussion) {
+      GameSounds.instance.play(GameSound.freeDiscussion);
+    } else if (!widget.game.isOnline ||
+        widget.game.mySeat == widget.game.speaker) {
+      GameSounds.instance.play(GameSound.turn);
     }
   }
 

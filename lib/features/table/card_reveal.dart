@@ -46,6 +46,7 @@ class CardReveal extends StatefulWidget {
     this.particles = ParticleKind.spark,
     this.onReveal,
     this.onVerdict,
+    this.onShuffle,
   });
   final List<RevealItem> items;
   final double cardWidth;
@@ -64,6 +65,7 @@ class CardReveal extends StatefulWidget {
   /// A card has just shown its face.
   final void Function(RevealItem item)? onReveal;
   final VoidCallback? onVerdict;
+  final VoidCallback? onShuffle;
   @override
   State<CardReveal> createState() => _CardRevealState();
 }
@@ -76,6 +78,7 @@ class _CardRevealState extends State<CardReveal>
   late final List<bool> _fired;
   late final AnimationController _c;
   bool _verdictFired = false, _skipped = false;
+  bool _shuffleFired = false;
 
   @override
   void initState() {
@@ -110,6 +113,13 @@ class _CardRevealState extends State<CardReveal>
   void _tick() {
     if (_skipped) return;
     final t = _c.value * _total;
+    if (!_shuffleFired &&
+        widget.shuffle &&
+        widget.items.length > 1 &&
+        t >= _gatherEnd) {
+      _shuffleFired = true;
+      widget.onShuffle?.call();
+    }
     for (var i = 0; i < _fired.length; i++) {
       if (!_fired[i] && t >= _reveal[i]) {
         _fired[i] = true;
@@ -126,6 +136,10 @@ class _CardRevealState extends State<CardReveal>
     if (!_c.isAnimating) return;
     _skipped = true;
     _c.value = 1;
+    if (!_verdictFired) {
+      _verdictFired = true;
+      widget.onVerdict?.call();
+    }
   }
 
   @override

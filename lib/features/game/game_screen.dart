@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import '../../core/assets.dart';
 import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';
+import '../../core/game_sounds.dart';
+import '../../core/sound_controls.dart';
+import 'game_sound_events.dart';
 import '../lobby/room_model.dart';
 import '../table/card_reveal.dart';
 import '../table/components.dart';
@@ -150,6 +153,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(GameSounds.instance.stop());
     for (final t in _timers) {
       t.cancel();
     }
@@ -198,13 +202,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           builder: (w) => CardBack(width: w, elevation: 6),
           onDone: () {
             if (!mounted) return;
+            GameSounds.instance.play(GameSound.deal);
             HapticFeedback.selectionClick();
             setState(() => _bumps[i]++);
           },
         ));
       }
-      _after(_ms(120 * (n - 1) + 480 + 280),
-          () => setState(() => _dealing = false));
+      _after(_ms(120 * (n - 1) + 480 + 280), () {
+        setState(() => _dealing = false);
+        if (game.isOnline &&
+            game.phase == GamePhase.identity &&
+            !game.confirmedSeats.contains(game.mySeat)) {
+          GameSounds.instance.play(GameSound.flip);
+        }
+      });
     });
   }
 
@@ -252,6 +263,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     final old = _last, now = _Snap.of(game);
     _last = now;
+    if (old.phase != now.phase) {
+      unawaited(GameSounds.instance.stop());
+      final cue = phaseSound(now.phase);
+      if (cue != null) GameSounds.instance.play(cue);
+    }
     setState(() {
       if (now.generation != old.generation) {
         _startTable();
@@ -271,6 +287,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           final card = game.expansions.lancelot > 0 && game.questNumber <= 5
               ? game.loyalty[game.questNumber - 1]
               : null;
+          if (card == true) GameSounds.instance.play(GameSound.magic);
           _announceId++;
           _announcement = (
             card == true ? '陣營轉換' : '第${_numerals[game.questNumber - 1]}次遠征',
@@ -294,6 +311,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _crownFlying = true;
     void land() {
       if (!mounted) return;
+      GameSounds.instance.play(GameSound.token);
       HapticFeedback.lightImpact();
       setState(() {
         _crownFlying = false;
@@ -319,6 +337,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   /// The leader hands a shield to (or takes it back from) a seat.
   void _toggleSeat(int i) {
+    GameSounds.instance.play(GameSound.tap);
     HapticFeedback.selectionClick();
     if (selected.contains(i)) {
       setState(() {
@@ -333,6 +352,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
     void land() {
       if (!mounted || !_shieldLanding.contains(i)) return;
+      GameSounds.instance.play(GameSound.token);
       HapticFeedback.lightImpact();
       setState(() {
         _shieldLanding.remove(i);
@@ -366,6 +386,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       required VoidCallback onLaunch,
       required VoidCallback onLand}) {
     if (_committing || choice == null) return;
+    GameSounds.instance.play(GameSound.flip);
     HapticFeedback.selectionClick();
     // remember the pick now: act() clears `choice` before the move is sent
     final picked = choice!;
@@ -377,6 +398,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       act(() => action(picked), interlude: true);
       void land() {
         if (!mounted) return;
+        GameSounds.instance.play(GameSound.seal);
         HapticFeedback.lightImpact();
         setState(onLand);
       }
@@ -451,6 +473,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   String player(int i) => playerLabel(i, game.players[i]);
   Future<void> _openNotebook() async {
     if (!game.isOnline || _notebookOpen || _dealing || _interlude) return;
+    GameSounds.instance.play(GameSound.page);
     setState(() => _notebookOpen = true);
     try {
       await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -500,7 +523,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       GamePhase.assassination => game.roleOf(me) == Role.assassin,
       GamePhase.lady || GamePhase.excalibur => _expansionActor == me,
       // what was seen arrives in this player's private document
-      GamePhase.ladyResult || GamePhase.excaliburResult =>
+      GamePhase.ladyResult ||
+      GamePhase.excaliburResult =>
         _expansionActor == me && game.latestReveal != null,
       _ => false,
     };
@@ -539,6 +563,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _revealedVotes.contains(seat)) {
       return;
     }
+    GameSounds.instance.play(GameSound.flip);
     setState(() => _revealedVotes.add(seat));
   }
 
@@ -613,6 +638,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           child: secret ? _privateLayer(s, c) : null),
                     ),
                     Positioned.fill(child: FlightLayer(key: _flights)),
+                    if (secret || questShow || endShow)
+                      const Positioned(
+                          top: 6,
+                          left: 6,
+                          child: Material(
+                              color: AvalonTheme.surface,
+                              borderRadius:
+                                  BorderRadius.all(Radius.circular(12)),
+                              child: SoundSettingsButton())),
                     // Keep mute/leave reachable even over a private card or
                     // public reveal scrim; these controls contain no secrets.
                     if (game.isOnline && widget.voice != null)
@@ -698,6 +732,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                                   QuestBoard(
                                       game: game,
                                       onImpact: () {
+                                        GameSounds.instance
+                                            .play(GameSound.token);
                                         HapticFeedback.heavyImpact();
                                         _shaker.currentState?.shake(4);
                                       }),
@@ -852,6 +888,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   key: ValueKey('v${game.history.length}.${game.rejections}'),
                   angle: -.1,
                   onLand: () {
+                    GameSounds.instance
+                        .play(approved ? GameSound.approve : GameSound.reject);
                     HapticFeedback.heavyImpact();
                     _shaker.currentState?.shake(approved ? 3 : 6);
                   },
@@ -906,6 +944,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     };
     return Row(children: [
       _roundIcon(Icons.arrow_back, s, leave, game.isOnline ? '離開對局' : '返回設定'),
+      const SoundSettingsButton(),
       Expanded(
         child: AnimatedSwitcher(
           duration: _ms(380),
@@ -1175,6 +1214,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               line(
                   4,
                   TableButton('我是本人，開啟秘密畫面', scale: s, onPressed: () {
+                    GameSounds.instance.play(GameSound.flip);
                     HapticFeedback.selectionClick();
                     setState(() {
                       revealed = true;
@@ -1290,10 +1330,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                                 style: _t(13, s,
                                     color: color.withValues(alpha: .85))),
                             if (role.isLancelot && game.lancelotSwitched)
-                              Text(
-                                  '目前已轉換為${role.isEvil ? '正義' : '邪惡'}陣營',
-                                  style: _t(13,
-                                      s,
+                              Text('目前已轉換為${role.isEvil ? '正義' : '邪惡'}陣營',
+                                  style: _t(13, s,
                                       color: role.isEvil ? _good : _evil,
                                       weight: FontWeight.bold)),
                           ])),
@@ -1305,6 +1343,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           TableButton(game.isOnline ? '記住了' : '記住了，隱藏並交給下一位',
                               scale: s, onPressed: () {
                             if (_hiding) return;
+                            GameSounds.instance.play(GameSound.flip);
                             // the card is turned face down before the phone
                             // changes hands
                             HapticFeedback.selectionClick();
@@ -1417,6 +1456,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   committing: _committing,
                   enabled: enabled,
                   onTap: () {
+                    GameSounds.instance.play(GameSound.tap);
                     HapticFeedback.selectionClick();
                     setState(() => choice = value);
                   },
@@ -1520,6 +1560,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 scaleFrom: .9,
                 child: GestureDetector(
                   onTap: () {
+                    GameSounds.instance.play(GameSound.tap);
                     HapticFeedback.selectionClick();
                     setState(() => selected
                       ..clear()
@@ -1610,6 +1651,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: GestureDetector(
                 key: ValueKey('pick$i'),
                 onTap: () {
+                  GameSounds.instance.play(GameSound.tap);
                   HapticFeedback.selectionClick();
                   setState(() => selected
                     ..clear()
@@ -1700,8 +1742,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             TableButton('不使用',
                 scale: s,
                 primary: false,
-                onPressed: () => act(() => game.useExcalibur(null),
-                    interlude: true)),
+                onPressed: () =>
+                    act(() => game.useExcalibur(null), interlude: true)),
             SizedBox(width: 14 * s),
             TableButton('翻轉這張牌',
                 scale: s,
@@ -1729,9 +1771,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final art = lady
         ? (bad ? Assets.loyaltyEvil : Assets.loyaltyGood)
         : (bad ? Assets.questFail : Assets.questSuccess);
-    final verdict = lady
-        ? '${bad ? '邪惡' : '正義'}陣營'
-        : '「${bad ? '任務失敗' : '任務成功'}」';
+    final verdict =
+        lady ? '${bad ? '邪惡' : '正義'}陣營' : '「${bad ? '任務失敗' : '任務成功'}」';
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
         Positioned.fill(
@@ -1801,6 +1842,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // ───────────────────── public reveals ─────────────────────
 
   void _onReveal(RevealItem item) {
+    GameSounds.instance.play(GameSound.flip);
     if (item.shock) {
       HapticFeedback.heavyImpact();
       _shaker.currentState?.shake(9);
@@ -1841,7 +1883,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             '${q.excaliburHolder == null ? '' : q.excaliburTarget == null ? '\n王者之劍：${player(q.excaliburHolder!)} 沒有翻轉任何牌' : '\n王者之劍：${player(q.excaliburHolder!)} 翻轉了 ${player(q.excaliburTarget!)} 的任務牌'}',
         button: game.canAdvance ? '繼續議會' : '等待隊長繼續',
         onReveal: _onReveal,
+        onShuffle: () => GameSounds.instance.play(GameSound.shuffle),
         onVerdict: () {
+          GameSounds.instance
+              .play(q.succeeded ? GameSound.success : GameSound.failure);
           HapticFeedback.heavyImpact();
           if (!q.succeeded) _shaker.currentState?.shake(7);
         },
@@ -1890,8 +1935,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         particles: hit ? ParticleKind.ember : ParticleKind.spark,
         detail: hit ? '邪惡陣營逆轉獲勝' : '梅林安然無恙，正義陣營獲勝',
         button: '揭曉全員身分',
-        onReveal: _onReveal,
+        onReveal: (item) {
+          _onReveal(item);
+          GameSounds.instance.play(GameSound.token);
+        },
         onVerdict: () {
+          GameSounds.instance.play(hit ? GameSound.failure : GameSound.success);
           HapticFeedback.heavyImpact();
           if (hit) _shaker.currentState?.shake(8);
         },
@@ -1925,6 +1974,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   faceUp: true,
                   flipOnMount: true,
                   delay: _ms(firstFlip + step * i),
+                  onRevealed: () => GameSounds.instance.play(GameSound.flip),
                   back: CardBack(width: cardW, elevation: 6),
                   front: ShineSweep(
                     delay: _ms(300),
@@ -1959,6 +2009,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               StampIn(
                 delay: _ms(150),
                 onLand: () {
+                  GameSounds.instance
+                      .play(evilWon ? GameSound.evilWin : GameSound.goodWin);
                   HapticFeedback.heavyImpact();
                   _shaker.currentState?.shake(5);
                 },

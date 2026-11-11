@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../../core/game_sounds.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
 import '../table/table_surface.dart';
@@ -61,6 +62,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   Future<void> _edit({int? player, int? quest}) async {
     if (!notes.canEdit) return;
+    GameSounds.instance.play(GameSound.page);
     final scope = _scope;
     final uid = player == null ? null : game.playerIds[player];
     final text = player == null ? notes.quest(quest!) : notes.player(uid!).text;
@@ -222,8 +224,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                                         Icons.chevron_left,
                                                         '上一頁玩家',
                                                         _page > 0
-                                                            ? () => setState(
-                                                                () => _page--)
+                                                            ? () {
+                                                                GameSounds
+                                                                    .instance
+                                                                    .play(GameSound
+                                                                        .page);
+                                                                setState(() =>
+                                                                    _page--);
+                                                              }
                                                             : null,
                                                         s),
                                                     SizedBox(
@@ -238,8 +246,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                                         Icons.chevron_right,
                                                         '下一頁玩家',
                                                         _page + 1 < pages
-                                                            ? () => setState(
-                                                                () => _page++)
+                                                            ? () {
+                                                                GameSounds
+                                                                    .instance
+                                                                    .play(GameSound
+                                                                        .page);
+                                                                setState(() =>
+                                                                    _page++);
+                                                              }
                                                             : null,
                                                         s),
                                                   ])),
@@ -267,8 +281,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                           key: ValueKey('notebookQuest$i'),
                                           borderRadius:
                                               BorderRadius.circular(22 * s),
-                                          onTap: () =>
-                                              setState(() => _quest = i),
+                                          onTap: () {
+                                            GameSounds.instance
+                                                .play(GameSound.page);
+                                            setState(() => _quest = i);
+                                          },
                                           child: Container(
                                               width: 38 * s,
                                               height: 38 * s,
@@ -278,7 +295,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                                   color: _quest == i
                                                       ? const Color(0xFFD4B36D)
                                                       : const Color(0xFF483321),
-                                                  border: Border.all(color: const Color(0xFFB79557)),
+                                                  border: Border.all(
+                                                      color:
+                                                          const Color(0xFFB79557)),
                                                   boxShadow: const [
                                                     BoxShadow(
                                                         color: Colors.black45,

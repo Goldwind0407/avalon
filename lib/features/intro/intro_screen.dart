@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/assets.dart';
+import '../../core/game_sounds.dart';
 import '../table/effects.dart';
 
 /// Opening animation: the Goldwind signature is written onto parchment,
@@ -66,8 +67,10 @@ class _IntroScreenState extends State<IntroScreen>
       ((_c.value * _total - from) / (to - from)).clamp(0.0, 1.0);
 
   void _tick() {
+    if (_left) return;
     if (!_starLanded && _c.value * _total >= _starFrom + 260) {
       _starLanded = true;
+      GameSounds.instance.play(GameSound.magic);
       HapticFeedback.lightImpact();
     }
   }

@@ -1,24 +1,34 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/sound_controls.dart';
+import '../../core/game_sounds.dart';
 import '../online/online_play_screen.dart';
 import 'local_play_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  void _openLocalPlay(BuildContext context) => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LocalPlayScreen()),
-      );
+  void _openLocalPlay(BuildContext context) {
+    GameSounds.instance.play(GameSound.tap);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LocalPlayScreen()),
+    );
+  }
 
-  void _showMultiplayer(BuildContext context) => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const OnlinePlayScreen()),
-      );
+  void _showMultiplayer(BuildContext context) {
+    GameSounds.instance.play(GameSound.tap);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const OnlinePlayScreen()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+        floatingActionButton: const SoundSettingsButton(),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
         body: FantasyBackground(
           child: SafeArea(
             child: Center(

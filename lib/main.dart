@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme.dart';
+import 'core/game_sounds.dart';
 import 'features/home/home_screen.dart';
 import 'features/intro/intro_screen.dart';
 
@@ -10,6 +11,7 @@ Future<void> main() async {
   await SystemChrome.setPreferredOrientations(
       [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  await GameSounds.instance.initialize();
   runApp(const AvalonApp());
 }
 
