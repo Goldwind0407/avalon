@@ -126,7 +126,7 @@ class LadyBadge extends StatelessWidget {
           key: const ValueKey('ladyBadge'),
           scaleFrom: .4,
           offset: Offset.zero,
-          child: GameCard(Assets.ladyOfTheLake, width: 18 * scale, elevation: 3),
+          child: GameCard(Assets.ladyOfTheLake, width: 26 * scale, elevation: 3),
         ),
       );
 }
