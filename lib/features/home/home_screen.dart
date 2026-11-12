@@ -68,6 +68,20 @@ class HomeScreen extends StatelessWidget {
                           icon: const Icon(Icons.devices),
                           label: const Text('多機遊玩'),
                         ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          key: const ValueKey('openSolo'),
+                          onPressed: () {
+                            GameSounds.instance.play(GameSound.tap);
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const LocalPlayScreen(solo: true)));
+                          },
+                          icon: const Icon(Icons.smart_toy_outlined),
+                          label: const Text('單人練習・電腦對手'),
+                        ),
                         const SizedBox(height: 4),
                         TextButton.icon(
                           key: const ValueKey('openRules'),

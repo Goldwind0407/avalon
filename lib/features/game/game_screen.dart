@@ -23,6 +23,7 @@ import '../online/voice/voice_controller.dart';
 import '../online/voice/voice_controls.dart';
 import '../notebook/notebook_screen.dart';
 import '../rules/rules_screen.dart';
+import '../solo/solo_session.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -37,16 +38,24 @@ class GameScreen extends StatefulWidget {
   /// Pass & play: this phone is passed around the table.
   const GameScreen({super.key, required Room this.room})
       : session = null,
-        voice = null;
+        voice = null,
+        solo = false;
+
+  const GameScreen.solo({super.key, required Room this.room})
+      : session = null,
+        voice = null,
+        solo = true;
 
   /// One seat in an online game.
   const GameScreen.online(
       {super.key, required GameSession this.session, this.voice})
-      : room = null;
+      : room = null,
+        solo = false;
 
   final Room? room;
   final GameSession? session;
   final VoiceController? voice;
+  final bool solo;
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -102,11 +111,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   int? _assassinTarget;
   bool _assassinShown = false;
   bool _notebookOpen = false;
+  int _pauseDepth = 0;
+  bool _background = false;
 
   @override
   void initState() {
     super.initState();
-    game = widget.session ?? LocalGameSession(widget.room!);
+    game = widget.session ??
+        (widget.solo
+            ? SoloGameSession(widget.room!)
+            : LocalGameSession(widget.room!));
     final n = game.players.length;
     List<GlobalKey> keys() => List.generate(n, (_) => GlobalKey());
     _plateKeys = keys();
@@ -187,6 +201,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _background = state != AppLifecycleState.resumed;
+    game.pauseAutomation(_background || _pauseDepth > 0);
     if (state != AppLifecycleState.resumed && mounted) {
       setState(() => revealed = false);
     }
@@ -242,7 +258,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
       _after(_ms(120 * (n - 1) + 480 + 280), () {
         setState(() => _dealing = false);
-        if (game.isOnline &&
+        if (game.hasOwnSeat &&
             game.phase == GamePhase.identity &&
             !game.confirmedSeats.contains(game.mySeat)) {
           GameSounds.instance.play(GameSound.flip);
@@ -321,6 +337,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         choice = null;
         selected.clear();
         _hiding = _committing = false;
+        if (game.isSolo && now.phase == GamePhase.discussion) {
+          _announcement = null;
+        }
       }
       if (now.phase != GamePhase.voteResult) _revealedVotes.clear();
       if (now.phase == GamePhase.questResult &&
@@ -494,7 +513,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (game.phase != GamePhase.finished) {
       setState(() => revealed = false);
       final online = game.canLeaveRoom;
-      final choice = await showDialog<String>(
+      final choice = await _paused(() => showDialog<String>(
           context: context,
           builder: (context) => AlertDialog(
                 title: Text(online ? '離開這場對局？' : '結束這場對局？'),
@@ -517,7 +536,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       onPressed: () => Navigator.pop(context, 'step'),
                       child: Text(online ? '暫時離開' : '返回設定')),
                 ],
-              ));
+              )));
       if (choice == null) return;
       if (choice == 'room') return _leaveRoom();
     }
@@ -539,13 +558,48 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String player(int i) => playerLabel(i, game.players[i]);
+
+  Future<T> _paused<T>(Future<T> Function() work) async {
+    _pauseDepth++;
+    game.pauseAutomation(true);
+    try {
+      return await work();
+    } finally {
+      _pauseDepth--;
+      if (mounted) game.pauseAutomation(_background || _pauseDepth > 0);
+    }
+  }
+
+  Future<void> _openStatements() => _paused(() => showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+            title: const Text('討論紀錄'),
+            content: SizedBox(
+                width: 520,
+                height: 230,
+                child: game.statements.isEmpty
+                    ? const Text('尚無發言紀錄。')
+                    : ListView(children: [
+                        for (final line in game.statements)
+                          Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                  '第 ${line.quest} 次遠征・${player(line.speaker)}\n${line.text}'))
+                      ])),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('返回對局'))
+            ],
+          )));
+
   Future<void> _openNotebook() async {
-    if (!game.isOnline || _notebookOpen || _dealing || _interlude) return;
+    if (!game.hasOwnSeat || _notebookOpen || _dealing || _interlude) return;
     GameSounds.instance.play(GameSound.page);
     setState(() => _notebookOpen = true);
     try {
-      await Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => NotebookScreen(session: game, voice: widget.voice)));
+      await _paused(() => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => NotebookScreen(session: game, voice: widget.voice))));
     } finally {
       if (mounted) setState(() => _notebookOpen = false);
     }
@@ -554,7 +608,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// The rules, opened at the part that matters right now.
   void _openRules() {
     setState(() => revealed = false);
-    RulesScreen.open(
+    _paused(() => RulesScreen.open(
         context,
         switch (game.phase) {
           GamePhase.lady || GamePhase.ladyResult => RulesTopic.lady,
@@ -564,7 +618,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           GamePhase.assassination => RulesTopic.round,
           GamePhase.identity => RulesTopic.roles,
           _ => RulesTopic.round,
-        });
+        }));
   }
 
   String roleArt(int i) => game.roleArt(i) ?? Assets.cardBackRole;
@@ -596,7 +650,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Online: this phone's player still has a secret move to make.
   bool get _myMovePending {
     final me = game.mySeat;
-    if (me == null || _waitingKey == _turnKey) return false;
+    if (me == null || !game.hasPrivateInput || _waitingKey == _turnKey) {
+      return false;
+    }
     // the player's own card may arrive a moment after the table
     if (game.roleOf(me) == null) return false;
     return switch (game.phase) {
@@ -615,16 +671,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   bool get _secretVisible =>
-      !_dealing && !_interlude && (game.isOnline ? _myMovePending : isPrivate);
+      !_dealing &&
+      !_interlude &&
+      (game.hasOwnSeat ? _myMovePending : isPrivate);
 
   /// Seats lit up on the table: the team being picked, the player the phone
   /// goes to, or (online) everyone the table is still waiting for.
   bool _highlightSeat(int i) {
-    if (!game.isOnline && game.phase == GamePhase.vote) return false;
+    if (!game.hasOwnSeat && game.phase == GamePhase.vote) return false;
     if (game.discussing) return game.speaker == i;
     if (game.phase == GamePhase.team) return selected.contains(i);
     if (_expansionActor != null) return i == _expansionActor;
-    if (!game.isOnline) return isPrivate && i == privateActor;
+    if (!game.hasOwnSeat) return isPrivate && i == privateActor;
     return switch (game.phase) {
       GamePhase.identity => !game.confirmedSeats.contains(i),
       GamePhase.vote => !game.votedSeats.contains(i),
@@ -636,7 +694,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Picking the team happens on the leader's phone (or the shared one).
   bool get _iPickTeam =>
       game.phase == GamePhase.team &&
-      (!game.isOnline || game.mySeat == game.leader);
+      (!game.hasOwnSeat || game.mySeat == game.leader);
 
   // The last card mounts after its flight lands, so a fixed delay cannot
   // reliably tell us when every seat has finished flipping.
@@ -1020,7 +1078,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final (title, sub) = switch (game.phase) {
       GamePhase.identity => (
           '身分確認',
-          game.isOnline ? '每位玩家在自己的手機上查看身分' : '依序將手機交給每位玩家查看身分'
+          game.isSolo
+              ? '你坐在 1 號位，電腦只知道各自的身分情報'
+              : game.isOnline
+                  ? '每位玩家在自己的手機上查看身分'
+                  : '依序將手機交給每位玩家查看身分'
         ),
       GamePhase.assassination => ('刺殺梅林', '正義已完成三次任務，刺客的最後機會'),
       GamePhase.finished => ('遊戲結束', ''),
@@ -1073,7 +1135,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
       ),
       _roundIcon(Icons.question_mark, s, _openRules, '遊戲規則'),
-      if (game.isOnline) ...[
+      if (game.isSolo) ...[
+        SizedBox(width: 6 * s),
+        _roundIcon(Icons.forum_outlined, s, _openStatements, '討論紀錄'),
+      ],
+      if (game.hasOwnSeat) ...[
         SizedBox(width: 6 * s),
         _roundIcon(Icons.menu_book_outlined, s, _openNotebook, '玩家筆記'),
       ],
@@ -1142,13 +1208,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     switch (game.phase) {
       case GamePhase.discussion:
-        final mine = !game.isOnline || game.mySeat == game.speaker;
+        final mine = !game.hasOwnSeat || game.mySeat == game.speaker;
         final version = game.speechVersion;
         return bar(
             mine ? '輪到你發言，講完可提前過麥' : '請聆聽當前玩家發言',
-            TableButton(mine ? '結束發言 / 下一位' : '等待過麥',
+            TableButton(
+                mine
+                    ? '結束發言 / 下一位'
+                    : game.isSolo
+                        ? '下一位電腦'
+                        : '等待過麥',
                 scale: s,
-                onPressed: mine && _waitingKey != _turnKey
+                onPressed: (mine || game.isSolo) && _waitingKey != _turnKey
                     ? () => act(() => game.endSpeech(version))
                     : null));
       case GamePhase.freeDiscussion:
@@ -1213,9 +1284,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _ => '選擇刺殺目標',
     };
     // online there is nobody to hand the phone to
-    final content = !game.isOnline && game.phase == GamePhase.vote
+    final content = !game.hasOwnSeat && game.phase == GamePhase.vote
         ? _publicVote()
-        : !revealed && !game.isOnline
+        : !revealed && !game.hasOwnSeat
             ? _handoff(actor, action, s)
             : switch (game.phase) {
                 GamePhase.identity => _identity(actor, s, c),
@@ -1440,7 +1511,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       SizedBox(height: 18 * s),
                       line(
                           4,
-                          TableButton(game.isOnline ? '記住了' : '記住了，隱藏並交給下一位',
+                          TableButton(game.hasOwnSeat ? '記住了' : '記住了，隱藏並交給下一位',
                               scale: s, onPressed: () {
                             if (_hiding) return;
                             GameSounds.instance.play(GameSound.flip);
@@ -1943,7 +2014,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               SizedBox(height: 16 * s),
               Appear(
                 delay: _ms(1350),
-                child: TableButton(game.isOnline ? '記住了，繼續' : '記住了，隱藏並繼續',
+                child: TableButton(game.hasOwnSeat ? '記住了，繼續' : '記住了，隱藏並繼續',
                     scale: s,
                     onPressed: () => act(
                         lady ? game.continueLady : game.continueExcalibur,

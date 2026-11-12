@@ -85,6 +85,21 @@ class DiscussionPanel extends StatefulWidget {
 }
 
 class _DiscussionPanelState extends State<DiscussionPanel> {
+  Future<void> _express(bool approve) async {
+    final game = widget.game;
+    if (game.phase != GamePhase.discussion || game.speaker != game.mySeat) {
+      return;
+    }
+    try {
+      await game.expressOpinion(approve);
+    } on GameMoveException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
   Timer? _ticker;
   int? _lastSecond;
   int get _remaining => max(
@@ -107,7 +122,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
     });
     if (widget.game.phase == GamePhase.freeDiscussion) {
       GameSounds.instance.play(GameSound.freeDiscussion);
-    } else if (!widget.game.isOnline ||
+    } else if (!widget.game.hasOwnSeat ||
         widget.game.mySeat == widget.game.speaker) {
       GameSounds.instance.play(GameSound.turn);
     }
@@ -123,6 +138,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final free = game.phase == GamePhase.freeDiscussion;
+    final botSpeaking = game.isSolo && !free && game.speaker != game.mySeat;
     final remaining = max(0,
             ((game.speechDeadline ?? game.nowMillis) - game.nowMillis) / 1000)
         .ceil();
@@ -147,19 +163,42 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: AvalonTheme.gold)),
-                      Text('$remaining 秒',
+                      Text(botSpeaking ? '稍後自動過麥' : '$remaining 秒',
                           style: TextStyle(
-                              fontSize: 36,
+                              fontSize: botSpeaking ? 18 : 36,
                               color: remaining <= 5
                                   ? Colors.redAccent
                                   : Colors.white)),
-                      LinearProgressIndicator(
-                          value:
-                              total == 0 ? 0 : (remaining / total).clamp(0, 1),
-                          color: remaining <= 5
-                              ? Colors.redAccent
-                              : AvalonTheme.gold),
+                      if (!botSpeaking)
+                        LinearProgressIndicator(
+                            value: total == 0
+                                ? 0
+                                : (remaining / total).clamp(0, 1),
+                            color: remaining <= 5
+                                ? Colors.redAccent
+                                : AvalonTheme.gold),
                       const SizedBox(height: 10),
+                      if (game.currentStatement != null) ...[
+                        Text(game.currentStatement!,
+                            key: const ValueKey('botSpeech'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 16,
+                                height: 1.5,
+                                color: Colors.white)),
+                        const SizedBox(height: 10),
+                      ],
+                      if (game.isSolo && game.speaker == game.mySeat)
+                        Wrap(spacing: 8, children: [
+                          ActionChip(
+                              key: const ValueKey('soloSupport'),
+                              label: const Text('我支持這隊'),
+                              onPressed: () => _express(true)),
+                          ActionChip(
+                              key: const ValueKey('soloOppose'),
+                              label: const Text('我想換人'),
+                              onPressed: () => _express(false)),
+                        ]),
                       Text(
                           free
                               ? '時間到後自動開始投票'

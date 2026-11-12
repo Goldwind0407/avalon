@@ -10,7 +10,8 @@ import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
 
 class LocalPlayScreen extends StatefulWidget {
-  const LocalPlayScreen({super.key});
+  const LocalPlayScreen({super.key, this.solo = false});
+  final bool solo;
 
   @override
   State<LocalPlayScreen> createState() => _LocalPlayScreenState();
@@ -22,6 +23,15 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   ExpansionSettings expansions = const ExpansionSettings();
   final names = List.generate(10, (i) => '玩家${i + 1}');
   final roles = <String>{'梅林', '刺客', '派西維爾', '莫甘娜'};
+  @override
+  void initState() {
+    super.initState();
+    if (widget.solo) {
+      names.setAll(0, ['你', for (var i = 1; i < 10; i++) '電腦$i']);
+      discussion = DiscussionSettings.recommended;
+    }
+  }
+
   static const roleOptions = [
     ('梅林', '正義・固定'),
     ('刺客', '邪惡・固定'),
@@ -98,8 +108,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         const BoxConstraints.tightFor(width: 36, height: 36),
                     padding: EdgeInsets.zero),
                 const SizedBox(width: 8),
-                const Text('一機遊玩',
-                    style: TextStyle(
+                Text(widget.solo ? '單人練習' : '一機遊玩',
+                    style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AvalonTheme.gold)),
@@ -154,7 +164,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  const SectionLabel('玩家暱稱'),
+                                  SectionLabel(
+                                      widget.solo ? '1 號是你・其餘是電腦' : '玩家暱稱'),
                                   const SizedBox(height: 8),
                                   ...List.generate(
                                       (playerCount + 1) ~/ 2,
@@ -370,8 +381,9 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                             ? () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        GameScreen(room: configuration)))
+                                    builder: (_) => widget.solo
+                                        ? GameScreen.solo(room: configuration)
+                                        : GameScreen(room: configuration)))
                             : null,
                         icon: const Icon(Icons.play_arrow),
                         label: const Text('開始遊戲'))),

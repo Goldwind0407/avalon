@@ -1,3 +1,23 @@
+/// Public speech. A claimed alignment is an assertion, not verified knowledge.
+class DiscussionStatement {
+  DiscussionStatement(
+      {required this.speaker,
+      required this.quest,
+      required this.text,
+      this.target,
+      this.claimedEvil,
+      this.switched,
+      this.supportsTeam,
+      List<int> team = const []})
+      : team = List.unmodifiable(team);
+  final int speaker, quest;
+  final String text;
+  final int? target;
+  final bool? claimedEvil;
+  final bool? switched, supportsTeam;
+  final List<int> team;
+}
+
 class DiscussionSettings {
   const DiscussionSettings(
       {this.enabled = false,

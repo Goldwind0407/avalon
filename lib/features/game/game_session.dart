@@ -30,6 +30,10 @@ abstract class GameSession extends ChangeNotifier {
   bool _disposed = false;
   DiscussionSettings get discussionSettings => const DiscussionSettings();
   List<ProposalRecord> get proposalHistory => const [];
+  List<DiscussionStatement> get statements => const [];
+  String? get currentStatement => null;
+  Future<void> expressOpinion(bool approve) async {}
+  void pauseAutomation(bool paused) {}
   int? get speaker => null;
   int get speechVersion => 0;
   int? get speechDeadline => null;
@@ -113,7 +117,10 @@ abstract class GameSession extends ChangeNotifier {
 
   /// Seat of the person holding this phone, or null when it is passed round.
   int? get mySeat;
-  bool get isOnline => mySeat != null;
+  bool get hasOwnSeat => mySeat != null;
+  bool get isSolo => false;
+  bool get isOnline => hasOwnSeat && !isSolo;
+  bool get hasPrivateInput => true;
   bool get tableAvailable => true;
 
   /// The seat that has to take the phone for the current secret step
