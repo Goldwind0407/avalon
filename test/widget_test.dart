@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/main.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
-import 'package:avalon_shadow_council/features/lobby/lobby_screen.dart';
-import 'package:avalon_shadow_council/features/lobby/room_model.dart';
+import 'package:avalon_shadow_council/features/home/local_play_screen.dart';
 import 'package:avalon_shadow_council/features/table/components.dart';
 
 void main() {
@@ -11,10 +10,12 @@ void main() {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const AvalonApp());
+    await tester.pumpWidget(const AvalonApp(intro: false));
     expect(find.text('AVALON'), findsOneWidget);
     await tester.tap(find.text('一機遊玩'));
     await tester.pumpAndSettle();
+    expect(tester.widget<LocalPlayScreen>(find.byType(LocalPlayScreen)).solo,
+        isFalse);
     expect(find.text('建立私人房間'), findsNothing);
     expect(find.text('返回本機房間'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('playerName0')));
@@ -32,7 +33,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('橫向首頁只顯示標題和兩個模式按鈕，不需要捲動', (tester) async {
+  testWidgets('橫向首頁顯示三個遊玩模式，不需要捲動', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.padding =
         const FakeViewPadding(left: 59, right: 59, bottom: 21);
@@ -43,24 +44,27 @@ void main() {
       const Size(932, 430)
     ]) {
       tester.view.physicalSize = size;
-      await tester.pumpWidget(const AvalonApp());
+      await tester.pumpWidget(const AvalonApp(intro: false));
       await tester.pumpAndSettle();
       expect(find.text('AVALON'), findsOneWidget);
       expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
       expect(find.text('多機遊玩').hitTestable(), findsOneWidget);
+      expect(find.text('跟電腦遊玩（測試中）').hitTestable(), findsOneWidget);
       expect(find.byType(Scrollable), findsNothing);
       expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
     }
+    // online play opens its own page (it only connects when a room is made)
     await tester.tap(find.text('多機遊玩'));
     await tester.pumpAndSettle();
-    expect(find.text('多機連線尚未開放，請先使用一機遊玩。'), findsOneWidget);
-    await tester.tap(find.text('知道了'));
+    expect(find.text('建立房間'), findsOneWidget);
+    expect(find.text('加入'), findsOneWidget);
+    await tester.tap(find.byTooltip('返回首頁'));
     await tester.pumpAndSettle();
     expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
   });
 
-  testWidgets('從大廳開始，秘密交接與背景隱藏，完成發牌後組隊', (tester) async {
+  testWidgets('一機遊玩：秘密交接與背景隱藏，完成發牌後組隊', (tester) async {
     // the app is landscape only
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;
@@ -74,17 +78,10 @@ void main() {
       }
     }
 
-    final repository = LocalRoomRepository();
-    final room = repository.create('亞瑟');
-    for (var i = 0; i < 4; i++) {
-      repository.addDemoPlayer(room);
-    }
-    room.players.first.isReady = true;
-    await tester.pumpWidget(MaterialApp(
-        theme: AvalonTheme.dark,
-        home: LobbyScreen(room: room, repository: repository)));
-    await tester.scrollUntilVisible(find.text('開始對局'), 400);
-    await tester.tap(find.text('開始對局'));
+    await tester.pumpWidget(
+        MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('開始遊戲'));
     // the role cards are dealt to every seat before the first hand-off
     await settle(3500);
     expect(find.text('請將手機交給'), findsOneWidget);

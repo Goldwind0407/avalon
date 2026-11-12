@@ -57,14 +57,18 @@ class GameCard extends StatelessWidget {
 
 /// Which deck a face-down card belongs to.
 enum CardDeck {
-  /// Character cards (and the face-down vote cards in front of each seat).
+  /// Character cards.
   role,
+
+  /// Approve / reject vote cards.
+  vote,
 
   /// Quest success / fail cards.
   quest,
 }
 
-/// Back of a card. Role cards show the sword, quest cards the crown banner.
+/// Back of a card: the sword for roles, plain parchment for votes, the
+/// crown banner for quests.
 class CardBack extends StatelessWidget {
   const CardBack(
       {super.key,
@@ -76,7 +80,11 @@ class CardBack extends StatelessWidget {
   final CardDeck deck;
   @override
   Widget build(BuildContext context) => GameCard(
-      deck == CardDeck.quest ? Assets.cardBackQuest : Assets.cardBackRole,
+      switch (deck) {
+        CardDeck.role => Assets.cardBackRole,
+        CardDeck.vote => Assets.cardBackVote,
+        CardDeck.quest => Assets.cardBackQuest,
+      },
       width: width,
       elevation: elevation);
 }
@@ -421,6 +429,8 @@ class SeatPlate extends StatelessWidget {
     this.shieldKey,
     this.voteKey,
     this.onTap,
+    this.activity,
+    this.badges = const [],
   });
   final int number;
   final String name;
@@ -435,6 +445,10 @@ class SeatPlate extends StatelessWidget {
   final int bump;
   final Key? plateKey, crownKey, shieldKey, voteKey;
   final VoidCallback? onTap;
+  final Widget? activity;
+
+  /// Expansion pieces lying by the seat (Lady of the Lake, Excalibur).
+  final List<Widget> badges;
 
   @override
   Widget build(BuildContext context) {
@@ -483,6 +497,7 @@ class SeatPlate extends StatelessWidget {
                         color: const Color(0xFFF2E6CC),
                         fontWeight: FontWeight.w600)),
               ),
+              if (activity != null) activity!,
             ]),
           ),
         ),
@@ -513,8 +528,9 @@ class SeatPlate extends StatelessWidget {
               faceUp: vote == SeatVote.approve || vote == SeatVote.reject,
               flipOnMount: true,
               delay: voteDelay,
+              duration: const Duration(milliseconds: 420),
               onRevealed: onVoteRevealed,
-              back: CardBack(width: 26 * s, elevation: 3),
+              back: CardBack(width: 26 * s, elevation: 3, deck: CardDeck.vote),
               front: GameCard(
                   vote == SeatVote.reject
                       ? Assets.voteReject
@@ -536,15 +552,17 @@ class SeatPlate extends StatelessWidget {
     );
     return SizedBox(
       width: 178 * s,
-      height: 56 * s,
+      height: (badges.isEmpty ? 56 : 86) * s,
       child: Stack(clipBehavior: Clip.none, children: [
         Align(
-          alignment: Alignment.center,
-          child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: tokensOnRight
-                  ? [plate, SizedBox(width: 4 * s), pieces]
-                  : [pieces, SizedBox(width: 4 * s), plate]),
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+              height: 56 * s,
+              child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: tokensOnRight
+                      ? [plate, SizedBox(width: 4 * s), pieces]
+                      : [pieces, SizedBox(width: 4 * s), plate])),
         ),
         Positioned(
           top: -10 * s,
@@ -559,6 +577,21 @@ class SeatPlate extends StatelessWidget {
                 : null,
           ),
         ),
+        if (badges.isNotEmpty)
+          // A separate row below the nameplate, outside every vote rectangle.
+          Positioned(
+            bottom: 0,
+            left: tokensOnRight ? 12 * s : 78 * s,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              for (final badge in badges)
+                Padding(
+                    padding: EdgeInsets.only(right: 5 * s),
+                    child: SizedBox(
+                        width: 26 * s,
+                        height: 26 * s,
+                        child: FittedBox(fit: BoxFit.contain, child: badge))),
+            ]),
+          ),
       ]),
     );
   }

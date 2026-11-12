@@ -1,0 +1,95 @@
+rules_version = '2';
+
+// Every game-state change goes through the Cloud Functions in /functions,
+// which run with admin rights and enforce the game rules. Devices can only
+// read, and only what their player is allowed to know.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rooms/{code} {
+      function room() {
+        return get(/databases/$(database)/documents/rooms/$(code)).data;
+      }
+      function member() {
+        return request.auth != null && request.auth.uid in room().playerUids
+          && room().expireAt is timestamp
+          && room().expireAt > request.time;
+      }
+      function session(uid) {
+        return get(/databases/$(database)/documents/rooms/$(code)/voice/$(uid)).data;
+      }
+      function validSession(uid, token) {
+        let p = session(uid);
+        return p.session == token && p.roomId == room().voiceRoomId
+          && p.expireAt > request.time;
+      }
+      // Public table state: seats, leader, team, revealed votes, score.
+      allow read: if request.auth != null
+                  && request.auth.uid in resource.data.playerUids
+                  && resource.data.expireAt is timestamp
+                  && resource.data.expireAt > request.time;
+      allow write: if false;
+
+      // One document per player: their own role and what they can see.
+      match /private/{uid} {
+        allow read: if request.auth != null && request.auth.uid == uid && member();
+        allow write: if false;
+      }
+
+      // All roles, unrevealed votes and quest cards. Server only.
+      match /secret/{doc} {
+        allow read, write: if false;
+      }
+
+      // Players write only their own presence; game state stays server-only.
+      match /voice/{uid} {
+        allow read: if member();
+        allow create, update: if member() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['uid', 'session', 'roomId', 'expireAt'])
+          && request.resource.data.uid == uid
+          && request.resource.data.roomId == room().voiceRoomId
+          && request.resource.data.session is string
+          && request.resource.data.session.size() >= 16
+          && request.resource.data.session.size() <= 64
+          && request.resource.data.expireAt is timestamp
+          && request.resource.data.expireAt > request.time
+          && request.resource.data.expireAt <= request.time + duration.value(120, 's');
+        allow delete: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /voiceSignals/{id} {
+        // Inbox queries MUST filter to == the signed-in UID.
+        allow read: if member() && resource.data.to == request.auth.uid;
+        allow delete: if request.auth != null && resource.data.to == request.auth.uid;
+        allow update: if false;
+        allow create: if member() && validSignal();
+        function validSignal() {
+          let s = request.resource.data;
+          return s.keys().hasOnly(['from', 'fromSession', 'to', 'toSession',
+              'roomId', 'attempt', 'kind', 'data', 'order', 'expireAt'])
+            && s.from == request.auth.uid && s.to != s.from
+            && s.to in room().playerUids && s.roomId == room().voiceRoomId
+            && validSession(s.from, s.fromSession) && validSession(s.to, s.toSession)
+            && s.attempt is int && s.attempt >= 1 && s.attempt <= 10000
+            && s.order is int && s.order >= 0
+            && s.expireAt is timestamp && s.expireAt > request.time
+            && s.expireAt <= request.time + duration.value(360, 's')
+            && s.data is map && validPayload(s);
+        }
+        function validPayload(s) {
+          return (s.kind in ['offer', 'answer']
+              && s.data.keys().hasOnly(['sdp', 'type'])
+              && s.data.type == s.kind && s.data.sdp is string
+              && s.data.sdp.size() <= 32000)
+            || (s.kind == 'candidate'
+              && s.data.keys().hasOnly(['candidate', 'sdpMid', 'sdpMLineIndex'])
+              && s.data.candidate is string && s.data.candidate.size() <= 4096);
+        }
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

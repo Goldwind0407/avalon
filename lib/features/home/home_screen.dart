@@ -1,31 +1,35 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/sound_controls.dart';
+import '../../core/game_sounds.dart';
+import '../online/online_play_screen.dart';
 import 'local_play_screen.dart';
+import '../rules/rules_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  void _openLocalPlay(BuildContext context) => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LocalPlayScreen()),
-      );
+  void _openLocalPlay(BuildContext context) {
+    GameSounds.instance.play(GameSound.tap);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LocalPlayScreen()),
+    );
+  }
 
-  void _showMultiplayer(BuildContext context) => showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('多機遊玩'),
-          content: const Text('多機連線尚未開放，請先使用一機遊玩。'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('知道了')),
-          ],
-        ),
-      );
+  void _showMultiplayer(BuildContext context) {
+    GameSounds.instance.play(GameSound.tap);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const OnlinePlayScreen()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+        floatingActionButton: const SoundSettingsButton(),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
         body: FantasyBackground(
           child: SafeArea(
             child: Center(
@@ -63,6 +67,30 @@ class HomeScreen extends StatelessWidget {
                           onPressed: () => _showMultiplayer(context),
                           icon: const Icon(Icons.devices),
                           label: const Text('多機遊玩'),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          key: const ValueKey('openSolo'),
+                          onPressed: () {
+                            GameSounds.instance.play(GameSound.tap);
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const LocalPlayScreen(solo: true)));
+                          },
+                          icon: const Icon(Icons.smart_toy_outlined),
+                          label: const Text('跟電腦遊玩（測試中）'),
+                        ),
+                        const SizedBox(height: 4),
+                        TextButton.icon(
+                          key: const ValueKey('openRules'),
+                          onPressed: () {
+                            GameSounds.instance.play(GameSound.tap);
+                            RulesScreen.open(context);
+                          },
+                          icon: const Icon(Icons.menu_book_outlined, size: 18),
+                          label: const Text('遊戲規則・新手教學'),
                         ),
                       ],
                     ),

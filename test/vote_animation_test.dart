@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/game/game_screen.dart';
+import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/table/effects.dart';
 
@@ -37,7 +38,7 @@ void main() {
 
   for (final count in [5, 10]) {
     testWidgets(
-        '$count players: last vote lands and flips before fifth-rejection verdict',
+        '$count players: public ballots reveal smoothly before fifth-rejection verdict',
         (tester) async {
       tester.view.physicalSize = const Size(844, 390);
       tester.view.devicePixelRatio = 1;
@@ -50,7 +51,7 @@ void main() {
           MaterialApp(theme: AvalonTheme.dark, home: GameScreen(room: room)));
       await advance(tester, 3500);
       final dynamic screen = tester.state(find.byType(GameScreen));
-      final AvalonGame game = screen.game as AvalonGame;
+      final AvalonGame game = (screen.game as LocalGameSession).game;
       // Reach the fifth proposal without replaying the first four UI rounds.
       screen.act(() {
         for (var i = 0; i < count; i++) {
@@ -64,30 +65,29 @@ void main() {
           game.continueVote();
         }
         game.proposeTeam(List.generate(game.requiredTeam, (i) => i));
-        for (var i = 0; i < count - 1; i++) {
-          game.vote(false);
-        }
       });
       await advance(tester, 1000);
       expect(game.rejections, 4);
-      await tester.tap(find.text('我是本人，開啟秘密畫面'));
-      await advance(tester, 800);
-      await tester.tap(find.text('反對'));
-      await advance(tester, 300);
-      await tester.tap(find.text('蓋牌投出'));
-      await advance(tester, 460);
+      expect(find.text('公開投票登記'), findsOneWidget);
+      expect(find.text('我是本人，開啟秘密畫面'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('allReject')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('submitLocalVotes')));
+      await tester.pump();
       expect(game.phase, GamePhase.voteResult);
 
       // After two seconds the verdict used to start appearing even though
       // the last card's flight + stagger + flip was still in progress.
-      await advance(tester, 2000);
+      final revealMs = 180 + 55 * (count - 1) + 420;
+      await advance(tester, revealMs - 40);
       expect(find.text('否決'), findsNothing);
       expect(find.text('邪惡獲勝・查看結算'), findsNothing);
       expect(game.phase, GamePhase.voteResult);
 
-      await advance(tester, 2200);
+      await advance(tester, 80);
       expect(find.text('否決'), findsOneWidget);
       expect(find.text('邪惡獲勝・查看結算'), findsOneWidget);
+      await advance(tester, 900);
       await tester.tap(find.text('邪惡獲勝・查看結算'));
       await advance(tester, 1500);
       expect(game.phase, GamePhase.finished);

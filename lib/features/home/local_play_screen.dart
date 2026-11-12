@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/game_screen.dart';
+import '../game/discussion_model.dart';
+import '../game/discussion_widgets.dart';
+import '../game/expansion_model.dart';
+import '../game/expansion_widgets.dart';
+import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
+import '../solo/bot_difficulty.dart';
 
 class LocalPlayScreen extends StatefulWidget {
-  const LocalPlayScreen({super.key});
+  const LocalPlayScreen({super.key, this.solo = false});
+  final bool solo;
 
   @override
   State<LocalPlayScreen> createState() => _LocalPlayScreenState();
@@ -13,8 +20,20 @@ class LocalPlayScreen extends StatefulWidget {
 
 class _LocalPlayScreenState extends State<LocalPlayScreen> {
   int playerCount = 5;
+  DiscussionSettings discussion = const DiscussionSettings();
+  ExpansionSettings expansions = const ExpansionSettings();
+  BotDifficulty difficulty = BotDifficulty.normal;
   final names = List.generate(10, (i) => '玩家${i + 1}');
-  final roles = <String>{'梅林', '刺客'};
+  final roles = <String>{'梅林', '刺客', '派西維爾', '莫甘娜'};
+  @override
+  void initState() {
+    super.initState();
+    if (widget.solo) {
+      names.setAll(0, ['你', for (var i = 1; i < 10; i++) '電腦$i']);
+      discussion = DiscussionSettings.recommended;
+    }
+  }
+
   static const roleOptions = [
     ('梅林', '正義・固定'),
     ('刺客', '邪惡・固定'),
@@ -23,6 +42,21 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     ('莫德雷德', '邪惡'),
     ('奧伯倫', '邪惡'),
   ];
+
+  /// A new player count brings its recommended roles; everything can still
+  /// be changed by hand afterwards.
+  void _setPlayers(int count) {
+    playerCount = count;
+    // Lancelot cannot be played with fewer than 7
+    if (count < lancelotMinPlayers) {
+      expansions = expansions.copyWith(lancelot: 0);
+    }
+    final preset = rolePreset(count);
+    if (preset == null) return;
+    roles
+      ..clear()
+      ..addAll(['梅林', '刺客', for (final r in preset) r.label]);
+  }
 
   Room get setup {
     // Reuse the rules engine's configuration without creating a shared room.
@@ -33,6 +67,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     game.specialRoles
       ..clear()
       ..addAll(roles);
+    game.discussion = discussion;
+    game.expansions = expansions;
     return game;
   }
 
@@ -46,6 +82,13 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   @override
   Widget build(BuildContext context) {
     final configuration = setup;
+    final options = [
+      ...roleOptions,
+      if (expansions.lancelot > 0) ...[
+        ('正義蘭斯洛特', '正義・擴充固定'),
+        ('邪惡蘭斯洛特', '邪惡・擴充固定'),
+      ],
+    ];
     final evilCount = Room.evilCount(playerCount);
     return Scaffold(
       resizeToAvoidBottomInset: false,
@@ -67,12 +110,62 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         const BoxConstraints.tightFor(width: 36, height: 36),
                     padding: EdgeInsets.zero),
                 const SizedBox(width: 8),
-                const Text('一機遊玩',
-                    style: TextStyle(
+                Text(widget.solo ? '跟電腦遊玩' : '一機遊玩',
+                    style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AvalonTheme.gold)),
+                if (widget.solo) ...[
+                  const SizedBox(width: 10),
+                  PopupMenuButton<BotDifficulty>(
+                    key: const ValueKey('botDifficulty'),
+                    tooltip: '電腦難度',
+                    initialValue: difficulty,
+                    onSelected: (value) => setState(() => difficulty = value),
+                    itemBuilder: (_) => [
+                      for (final level in BotDifficulty.values)
+                        PopupMenuItem(
+                          key: ValueKey('botDifficulty_${level.name}'),
+                          value: level,
+                          child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(level.label),
+                                Text(level.description,
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AvalonTheme.muted)),
+                              ]),
+                        ),
+                    ],
+                    child: Container(
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                          color: AvalonTheme.raised,
+                          borderRadius: BorderRadius.circular(9)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text('難度：${difficulty.label}',
+                            style: const TextStyle(
+                                fontSize: 12, color: AvalonTheme.gold)),
+                        const Icon(Icons.arrow_drop_down,
+                            size: 18, color: AvalonTheme.muted),
+                      ]),
+                    ),
+                  ),
+                ],
                 const Spacer(),
+                IconButton(
+                    tooltip: '發言設定',
+                    icon: const Icon(Icons.timer_outlined),
+                    color: AvalonTheme.gold,
+                    onPressed: () async {
+                      final value = await editDiscussion(context, discussion);
+                      if (mounted && value != null) {
+                        setState(() => discussion = value);
+                      }
+                    }),
                 const Text('人數',
                     style: TextStyle(color: AvalonTheme.muted, fontSize: 12)),
                 const SizedBox(width: 8),
@@ -96,8 +189,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                     active ? AvalonTheme.bg : AvalonTheme.muted,
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(9))),
-                            onPressed: () =>
-                                setState(() => playerCount = count),
+                            onPressed: () => setState(() => _setPlayers(count)),
                             child: Text('$count')),
                       ));
                 }),
@@ -114,7 +206,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  const SectionLabel('玩家暱稱'),
+                                  SectionLabel(
+                                      widget.solo ? '1 號是你・其餘是電腦' : '玩家暱稱'),
                                   const SizedBox(height: 8),
                                   ...List.generate(
                                       (playerCount + 1) ~/ 2,
@@ -199,7 +292,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                   const SectionLabel('角色配置'),
                                   const SizedBox(height: 8),
                                   ...List.generate(
-                                      3,
+                                      options.length ~/ 2,
                                       (row) => Expanded(
                                               child: Padding(
                                             padding: EdgeInsets.only(
@@ -208,11 +301,14 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                                 children:
                                                     List.generate(2, (column) {
                                               final (role, side) =
-                                                  roleOptions[row * 2 + column];
-                                              final active =
+                                                  options[row * 2 + column];
+                                              final expansionRole =
+                                                  role.endsWith('蘭斯洛特');
+                                              final active = expansionRole ||
                                                   roles.contains(role);
-                                              final required =
-                                                  role == '梅林' || role == '刺客';
+                                              final required = expansionRole ||
+                                                  role == '梅林' ||
+                                                  role == '刺客';
                                               return Expanded(
                                                   child: Padding(
                                                 padding: EdgeInsets.only(
@@ -246,28 +342,30 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                                                 horizontal: 8),
                                                         child: Row(children: [
                                                           Expanded(
-                                                              child: Column(
-                                                                  mainAxisAlignment:
-                                                                      MainAxisAlignment
-                                                                          .center,
-                                                                  crossAxisAlignment:
-                                                                      CrossAxisAlignment
-                                                                          .start,
-                                                                  children: [
-                                                                Text(role,
-                                                                    style: TextStyle(
-                                                                        fontSize:
-                                                                            13,
-                                                                        color: active
-                                                                            ? AvalonTheme.gold
-                                                                            : Colors.white)),
-                                                                Text(side,
-                                                                    style: const TextStyle(
-                                                                        fontSize:
-                                                                            10,
-                                                                        color: AvalonTheme
-                                                                            .muted)),
-                                                              ])),
+                                                              child: FittedBox(
+                                                                  fit: BoxFit
+                                                                      .scaleDown,
+                                                                  alignment:
+                                                                      Alignment
+                                                                          .centerLeft,
+                                                                  child: Column(
+                                                                      mainAxisAlignment:
+                                                                          MainAxisAlignment
+                                                                              .center,
+                                                                      crossAxisAlignment:
+                                                                          CrossAxisAlignment
+                                                                              .start,
+                                                                      children: [
+                                                                        FittedBox(
+                                                                            fit:
+                                                                                BoxFit.scaleDown,
+                                                                            alignment: Alignment.centerLeft,
+                                                                            child: Text(role, style: TextStyle(fontSize: 13, color: active ? AvalonTheme.gold : Colors.white))),
+                                                                        Text(
+                                                                            side,
+                                                                            style:
+                                                                                const TextStyle(fontSize: 10, color: AvalonTheme.muted)),
+                                                                      ]))),
                                                           Icon(
                                                               active
                                                                   ? Icons
@@ -290,10 +388,26 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                   ])),
               const SizedBox(height: 10),
               Row(children: [
+                SizedBox(
+                    width: 250,
+                    height: 42,
+                    child: ExpansionsButton(
+                        settings: expansions,
+                        onTap: () async {
+                          final value = await editExpansions(
+                              context, expansions,
+                              players: playerCount);
+                          if (mounted && value != null) {
+                            setState(() => expansions = value);
+                          }
+                        })),
+                const SizedBox(width: 12),
                 Expanded(
                     child: Text(
                         configuration.roleIssue ??
                             '正義 ${playerCount - evilCount} 人・邪惡 $evilCount 人，其他名額自動補齊',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontSize: 12,
                             color: configuration.roleIssue == null
@@ -309,8 +423,11 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                             ? () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        GameScreen(room: configuration)))
+                                    builder: (_) => widget.solo
+                                        ? GameScreen.solo(
+                                            room: configuration,
+                                            difficulty: difficulty)
+                                        : GameScreen(room: configuration)))
                             : null,
                         icon: const Icon(Icons.play_arrow),
                         label: const Text('開始遊戲'))),

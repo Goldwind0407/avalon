@@ -1,13 +1,21 @@
 import 'dart:math';
 import '../lobby/room_model.dart';
+import 'discussion_model.dart';
+import 'expansion_model.dart';
 
 enum GamePhase {
   identity,
   team,
+  discussion,
+  freeDiscussion,
   vote,
   voteResult,
   quest,
   questResult,
+  lady,
+  ladyResult,
+  excalibur,
+  excaliburResult,
   assassination,
   finished
 }
@@ -20,19 +28,151 @@ enum Role {
   morgana('莫甘娜', true),
   mordred('莫德雷德', true),
   oberon('奧伯倫', true),
-  minion('莫德雷德的爪牙', true);
+  minion('莫德雷德的爪牙', true),
+  lancelotGood('正義蘭斯洛特', false),
+  lancelotEvil('邪惡蘭斯洛特', true);
 
   const Role(this.label, this.isEvil);
   final String label;
   final bool isEvil;
+  bool get isLancelot => this == lancelotGood || this == lancelotEvil;
+}
+
+/// Team size for quest number [questIndex] (0-based) with [players] players.
+int questTeamSize(int players, int questIndex) => switch (players) {
+      5 => [2, 3, 2, 3, 3],
+      6 => [2, 3, 4, 3, 4],
+      7 => [2, 3, 3, 4, 4],
+      _ => [3, 4, 4, 5, 5],
+    }[min(questIndex, 4)];
+
+/// Seats the player at [index] gets to see at the start of the game.
+/// The server has the same rule in functions/src/rules.ts.
+List<int> visibleSeats(List<Role> roles, int index) {
+  final role = roles[index];
+  return [
+    for (var i = 0; i < roles.length; i++)
+      if (i != index &&
+          ((role == Role.merlin &&
+                  roles[i].isEvil &&
+                  roles[i] != Role.mordred) ||
+              (role == Role.percival &&
+                  [Role.merlin, Role.morgana].contains(roles[i])) ||
+              // evil Lancelot is known to evil but does not see them
+              (role.isEvil &&
+                  role != Role.oberon &&
+                  role != Role.lancelotEvil &&
+                  roles[i].isEvil &&
+                  roles[i] != Role.oberon)))
+        i
+  ];
+}
+
+/// The evil Lancelot among [index]'s opening allies. Evil players (Oberon
+/// and Lancelot himself excepted) know which of them he is; Merlin sees him
+/// as evil but cannot tell. Null when there is none to point out.
+int? knownLancelot(List<Role> roles, int index) {
+  final role = roles[index];
+  if (!role.isEvil || role == Role.oberon || role == Role.lancelotEvil) {
+    return null;
+  }
+  final seat = roles.indexOf(Role.lancelotEvil);
+  return seat < 0 || seat == index ? null : seat;
+}
+
+/// How a seat is listed in someone's opening knowledge.
+String knownSeatLabel(int seat, String name, {int? lancelot}) =>
+    '${playerLabel(seat, name)}${seat == lancelot ? '（邪惡蘭斯洛特）' : ''}';
+
+/// Shown to evil players who know where the evil Lancelot sits.
+const lancelotAllyReminder = '翻出「轉換陣營」時，邪惡蘭斯洛特會改為正義陣營。';
+
+/// Display a seat and nickname consistently in game prompts.
+String playerLabel(int seat, String name) => '${seat + 1} 號 【$name】';
+
+class RoleInformation {
+  const RoleInformation(this.heading, this.reminder,
+      {this.listsPlayers = false});
+  final String heading, reminder;
+  final bool listsPlayers;
+}
+
+/// Shared wording for both the structured card view and plain-text knowledge.
+RoleInformation roleInformation(Role role,
+    {Set<Role>? configuredRoles, ExpansionSettings? expansions}) {
+  bool has(Role candidate) =>
+      configuredRoles == null || configuredRoles.contains(candidate);
+  if (role == Role.merlin) {
+    return RoleInformation('你看見的邪惡玩家', has(Role.mordred) ? '莫德雷德不會被你看見。' : '',
+        listsPlayers: true);
+  }
+  if (role == Role.percival) {
+    return has(Role.morgana)
+        ? const RoleInformation('梅林候選人', '你無法分辨梅林與莫甘娜。', listsPlayers: true)
+        : const RoleInformation('你看見的梅林', '請保護梅林，避免暴露他的身分。',
+            listsPlayers: true);
+  }
+  if (role == Role.lancelotGood) {
+    if (expansions?.lancelot == 2) {
+      return const RoleInformation(
+          '你沒有額外情報。', '你不知道另一位蘭斯洛特是誰。\n依公開的轉換牌換邊，按當前陣營出牌。');
+    }
+    return const RoleInformation(
+        '你沒有額外情報。', '你不知道另一位蘭斯洛特是誰。\n翻出「轉換陣營」時，你會改為邪惡陣營。');
+  }
+  if (role == Role.lancelotEvil) {
+    if (expansions?.lancelot == 2) {
+      return const RoleInformation(
+          '你屬於邪惡陣營。', '其他邪惡玩家認得你，但你看不到他們。\n依公開的轉換牌換邊，按當前陣營出牌。');
+    }
+    return const RoleInformation(
+        '你屬於邪惡陣營。', '其他邪惡玩家認得你，但你看不到他們。\n翻出「轉換陣營」時，你會改為正義陣營。');
+  }
+  if (role == Role.oberon) {
+    return const RoleInformation('你屬於邪惡陣營。', '你與其他邪惡玩家互不相認。');
+  }
+  if (role.isEvil) {
+    return RoleInformation('你的邪惡同伴', has(Role.oberon) ? '奧伯倫不會出現在此。' : '',
+        listsPlayers: true);
+  }
+  return const RoleInformation('你沒有額外情報。', '透過討論與投票，\n找出值得信任的隊友。');
+}
+
+String knowledgeText(Role role, List<int> visible, List<String> players,
+    {Set<Role>? configuredRoles,
+    ExpansionSettings? expansions,
+    int? lancelot}) {
+  final info = roleInformation(role,
+      configuredRoles: configuredRoles, expansions: expansions);
+  final names = visible
+      .map((i) => knownSeatLabel(i, players[i], lancelot: lancelot))
+      .join('、');
+  final heading = info.listsPlayers
+      ? '${info.heading}：${names.isEmpty ? '無' : names}。'
+      : info.heading;
+  final reminder = [
+    if (info.reminder.isNotEmpty) info.reminder,
+    if (lancelot != null) lancelotAllyReminder,
+  ].join('\n');
+  return reminder.isEmpty ? heading : '$heading\n$reminder';
 }
 
 class QuestResult {
-  QuestResult(List<int> team, this.fails, this.succeeded)
+  QuestResult(List<int> team, this.fails, this.succeeded,
+      {this.excaliburHolder, this.excaliburTarget})
       : team = List.unmodifiable(team);
   final List<int> team;
   final int fails;
   final bool succeeded;
+
+  /// Excalibur on this quest: who held it and whose card they flipped.
+  final int? excaliburHolder, excaliburTarget;
+}
+
+/// One use of the Lady of the Lake (public: everyone sees who was examined).
+class LadyCheck {
+  const LadyCheck(this.holder, this.target, this.quest);
+  final int holder, target, quest;
 }
 
 /// All secrets live on this device. Intended for trusted, pass-and-play games.
@@ -40,10 +180,14 @@ class AvalonGame {
   AvalonGame(Room room, {Random? random}) {
     if (!room.canStart) throw StateError('玩家或角色尚未準備完成');
     players = List.unmodifiable(room.players.map((p) => p.name));
+    discussion = room.discussion;
+    expansions = room.expansions;
     final rng = random ?? Random.secure();
-    final deck = room.specialRoles
-        .map((name) => Role.values.firstWhere((r) => r.label == name))
-        .toList();
+    final deck = [
+      ...room.specialRoles
+          .map((name) => Role.values.firstWhere((r) => r.label == name)),
+      if (expansions.lancelot > 0) ...[Role.lancelotGood, Role.lancelotEvil],
+    ];
     while (
         deck.where((r) => r.isEvil).length < Room.evilCount(players.length)) {
       deck.add(Role.minion);
@@ -54,11 +198,82 @@ class AvalonGame {
     deck.shuffle(rng);
     roles = List.unmodifiable(deck);
     leader = rng.nextInt(players.length);
+    if (expansions.lancelot > 0) {
+      // 5 "no change" and 2 "switch" loyalty cards
+      _loyaltyDeck.addAll(
+          [false, false, false, false, false, true, true]..shuffle(rng));
+      if (expansions.lancelot == 2) {
+        loyalty.setAll(0, _loyaltyDeck.take(5));
+        _loyaltyDeck.clear();
+      }
+    }
+    if (expansions.lady) {
+      // the Lady starts with the player on the first leader's right
+      ladyHolder = (leader - 1 + players.length) % players.length;
+      ladyPast.add(ladyHolder!);
+    }
+    _beginQuest();
+  }
+
+  late final ExpansionSettings expansions;
+
+  /// Lancelot loyalty card on each quest (null: none turned over).
+  final List<bool?> loyalty = List.filled(5, null);
+  final List<bool> _loyaltyDeck = [];
+
+  /// The Lancelots currently play for the other side.
+  bool lancelotSwitched = false;
+  int? ladyHolder;
+
+  /// Everyone who has held the Lady (they cannot be examined).
+  final List<int> ladyPast = [];
+  final List<LadyCheck> ladyChecks = [];
+
+  /// What the last Lady use showed (pass & play: shown to the holder).
+  bool? ladySawEvil;
+
+  /// Who holds Excalibur on the current team.
+  int? excaliburHolder;
+
+  /// Excalibur's last flip: whose card, and what it was before.
+  int? excaliburTarget;
+  bool? excaliburSawCard;
+
+  /// The side the player at [seat] plays for right now.
+  bool evilNow(int seat) =>
+      roles[seat].isEvil != (roles[seat].isLancelot && lancelotSwitched);
+
+  /// Variant 2: a Lancelot on the evil side may only play Fail.
+  bool mustFail(int seat) =>
+      expansions.lancelot == 2 && roles[seat].isLancelot && evilNow(seat);
+
+  /// A new quest starts: turn over a loyalty card when one is due.
+  void _beginQuest() {
+    final q = _history.length;
+    if (q > 4) return;
+    if (expansions.lancelot == 1 && q >= 2 && _loyaltyDeck.isNotEmpty) {
+      loyalty[q] = _loyaltyDeck.removeAt(0);
+    }
+    if (loyalty[q] == true) lancelotSwitched = !lancelotSwitched;
+  }
+
+  void _nextQuest() {
+    _nextLeader();
+    phase = GamePhase.team;
+    _beginQuest();
   }
 
   late final List<String> players;
   late final List<Role> roles;
   late int leader;
+  late final DiscussionSettings discussion;
+  final List<ProposalRecord> proposals = [];
+  int speechIndex = 0;
+  int speechVersion = 0;
+  int? speechDeadline;
+  int? get speaker => phase == GamePhase.discussion
+      ? (leader + 1 + speechIndex) % players.length
+      : null;
   GamePhase phase = GamePhase.identity;
   int actor = 0;
   int rejections = 0;
@@ -73,12 +288,7 @@ class AvalonGame {
   int get successes => _history.where((q) => q.succeeded).length;
   int get failures => _history.length - successes;
   int get questNumber => _history.length + 1;
-  int get requiredTeam => switch (players.length) {
-        5 => [2, 3, 2, 3, 3],
-        6 => [2, 3, 4, 3, 4],
-        7 => [2, 3, 3, 4, 4],
-        _ => [3, 4, 4, 5, 5],
-      }[min(_history.length, 4)];
+  int get requiredTeam => questTeamSize(players.length, _history.length);
   int get failsRequired => players.length >= 7 && questNumber == 4 ? 2 : 1;
   bool get teamApproved => _votes.where((v) => v).length > players.length / 2;
   int get questActor => _team[actor];
@@ -89,32 +299,11 @@ class AvalonGame {
     if (phase != expected) throw StateError('目前階段無法執行此操作');
   }
 
-  String knowledge(int index) {
-    final role = roles[index];
-    final visible = <int>[];
-    for (var i = 0; i < roles.length; i++) {
-      if (i == index) continue;
-      if (role == Role.merlin && roles[i].isEvil && roles[i] != Role.mordred) {
-        visible.add(i);
-      }
-      if (role == Role.percival &&
-          [Role.merlin, Role.morgana].contains(roles[i])) {
-        visible.add(i);
-      }
-      if (role.isEvil &&
-          role != Role.oberon &&
-          roles[i].isEvil &&
-          roles[i] != Role.oberon) {
-        visible.add(i);
-      }
-    }
-    final names = visible.map((i) => '${i + 1} 號 ${players[i]}').join('、');
-    if (role == Role.merlin) return '你看見的邪惡玩家：$names。莫德雷德不會被你看見。';
-    if (role == Role.percival) return '梅林候選人：$names。若有莫甘娜，你無法分辨兩者。';
-    if (role == Role.oberon) return '你屬於邪惡陣營，但你與其他邪惡玩家互不相認。';
-    if (role.isEvil) return '你的邪惡同伴：${names.isEmpty ? '無' : names}。奧伯倫不會出現在此。';
-    return '你沒有額外情報。透過討論與投票，找出值得信任的隊友。';
-  }
+  String knowledge(int index) =>
+      knowledgeText(roles[index], visibleSeats(roles, index), players,
+          configuredRoles: roles.toSet(),
+          expansions: expansions,
+          lancelot: knownLancelot(roles, index));
 
   void confirmIdentity() {
     _require(GamePhase.identity);
@@ -125,19 +314,71 @@ class AvalonGame {
     }
   }
 
-  void proposeTeam(Iterable<int> selected) {
+  void proposeTeam(Iterable<int> selected, {int? now, int? excalibur}) {
     _require(GamePhase.team);
     final members = selected.toSet().toList()..sort();
     if (members.length != requiredTeam ||
         members.any((i) => i < 0 || i >= players.length)) {
       throw ArgumentError('隊伍人數不正確');
     }
+    if (expansions.excalibur &&
+        (excalibur == null ||
+            !members.contains(excalibur) ||
+            excalibur == leader)) {
+      throw ArgumentError('請把王者之劍交給隊長以外的一名隊員');
+    }
+    excaliburHolder = expansions.excalibur ? excalibur : null;
     _team
       ..clear()
       ..addAll(members);
     _votes.clear();
     actor = 0;
-    phase = GamePhase.vote;
+    speechIndex = 0;
+    speechVersion++;
+    phase = discussion.enabled ? GamePhase.discussion : GamePhase.vote;
+    speechDeadline = discussion.enabled
+        ? (now ?? DateTime.now().millisecondsSinceEpoch) +
+            discussion.speechSeconds * 1000
+        : null;
+  }
+
+  void endSpeech({int? seat, int? now, required int expectedVersion}) {
+    if (speechVersion != expectedVersion ||
+        ![GamePhase.discussion, GamePhase.freeDiscussion].contains(phase)) {
+      return;
+    }
+    final time = now ?? DateTime.now().millisecondsSinceEpoch;
+    if (phase == GamePhase.freeDiscussion) {
+      if (time < speechDeadline!) throw StateError('自由討論尚未結束');
+      speechVersion++;
+      phase = GamePhase.vote;
+      speechDeadline = null;
+      return;
+    }
+    if (time < speechDeadline! && seat != null && seat != speaker) {
+      throw StateError('只有目前發言者可以過麥');
+    }
+    speechVersion++;
+    speechIndex++;
+    if (speechIndex < players.length) {
+      speechDeadline = time + discussion.speechSeconds * 1000;
+    } else if (discussion.freeSeconds > 0) {
+      phase = GamePhase.freeDiscussion;
+      speechDeadline = time + discussion.freeSeconds * 1000;
+    } else {
+      phase = GamePhase.vote;
+      speechDeadline = null;
+    }
+  }
+
+  void recordVotes(List<bool> ballots) {
+    _require(GamePhase.vote);
+    if (ballots.length != players.length || actor != 0) {
+      throw ArgumentError('請完整登記每位玩家的票型');
+    }
+    for (final approve in List<bool>.of(ballots)) {
+      vote(approve);
+    }
   }
 
   void vote(bool approve) {
@@ -147,6 +388,12 @@ class AvalonGame {
     if (actor == players.length) {
       actor = 0;
       phase = GamePhase.voteResult;
+      proposals.add(ProposalRecord(
+          quest: questNumber,
+          attempt: rejections + 1,
+          leader: leader,
+          team: _team,
+          votes: _votes));
     }
   }
 
@@ -169,16 +416,69 @@ class AvalonGame {
 
   void playQuest(bool success) {
     _require(GamePhase.quest);
-    if (!success && !roles[questActor].isEvil) throw ArgumentError('正義玩家只能出成功');
+    if (!success && !evilNow(questActor)) throw ArgumentError('正義玩家只能出成功');
+    if (success && mustFail(questActor)) {
+      throw ArgumentError('邪惡方的蘭斯洛特必須出失敗');
+    }
     _cards.add(success);
     actor++;
     if (actor == _team.length) {
-      final fails = _cards.where((v) => !v).length;
-      final succeeded = fails < failsRequired;
-      _history.add(QuestResult(_team, fails, succeeded));
       actor = 0;
-      phase = GamePhase.questResult;
+      excaliburTarget = excaliburSawCard = null;
+      if (excaliburHolder != null) {
+        phase = GamePhase.excalibur;
+      } else {
+        _resolveQuest();
+      }
     }
+  }
+
+  void _resolveQuest() {
+    final fails = _cards.where((v) => !v).length;
+    final succeeded = fails < failsRequired;
+    _history.add(QuestResult(_team, fails, succeeded,
+        excaliburHolder: excaliburHolder, excaliburTarget: excaliburTarget));
+    phase = GamePhase.questResult;
+  }
+
+  /// Excalibur: flip one other team member's card ([target] null to pass).
+  void useExcalibur(int? target) {
+    _require(GamePhase.excalibur);
+    if (target == null) return _resolveQuest();
+    final index = _team.indexOf(target);
+    if (index < 0 || target == excaliburHolder) {
+      throw ArgumentError('請選擇另一名隊員');
+    }
+    excaliburTarget = target;
+    excaliburSawCard = _cards[index];
+    _cards[index] = !_cards[index];
+    phase = GamePhase.excaliburResult;
+  }
+
+  void continueExcalibur() {
+    _require(GamePhase.excaliburResult);
+    _resolveQuest();
+  }
+
+  /// Lady of the Lake: the holder examines one player's loyalty.
+  void useLady(int target) {
+    _require(GamePhase.lady);
+    if (target < 0 || target >= players.length) throw ArgumentError('請選擇玩家');
+    if (ladyPast.contains(target)) {
+      throw ArgumentError('持有過湖中女神的玩家不能被查驗');
+    }
+    ladyChecks.add(LadyCheck(ladyHolder!, target, _history.length));
+    ladySawEvil = evilNow(target);
+    phase = GamePhase.ladyResult;
+  }
+
+  /// The examined player receives the Lady; the next quest begins.
+  void continueLady() {
+    _require(GamePhase.ladyResult);
+    ladyHolder = ladyChecks.last.target;
+    ladyPast.add(ladyHolder!);
+    ladySawEvil = null;
+    _nextQuest();
   }
 
   void continueQuest() {
@@ -187,9 +487,11 @@ class AvalonGame {
       _finish('邪惡', '三次任務失敗，邪惡陣營獲勝。');
     } else if (successes == 3) {
       phase = GamePhase.assassination;
+    } else if (ladyHolder != null &&
+        const [2, 3, 4].contains(_history.length)) {
+      phase = GamePhase.lady;
     } else {
-      _nextLeader();
-      phase = GamePhase.team;
+      _nextQuest();
     }
   }
 
@@ -210,6 +512,7 @@ class AvalonGame {
   void _nextLeader() {
     leader = (leader + 1) % players.length;
     _team.clear();
+    excaliburHolder = null;
   }
 
   void _finish(String side, String reason) {
