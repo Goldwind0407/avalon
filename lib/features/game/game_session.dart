@@ -119,6 +119,9 @@ abstract class GameSession extends ChangeNotifier {
   int? get mySeat;
   bool get hasOwnSeat => mySeat != null;
   bool get isSolo => false;
+
+  /// Solo: a computer player's style, once it may be shown.
+  String? seatStyle(int seat) => null;
   bool get isOnline => hasOwnSeat && !isSolo;
   bool get hasPrivateInput => true;
   bool get tableAvailable => true;

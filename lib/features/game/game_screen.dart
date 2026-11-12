@@ -2175,7 +2175,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 offset: Offset(0, 6 * s),
                 child: Text(
                     '${i + 1}. ${game.players[i]}'
-                    '${(game.roleOf(i)?.isLancelot ?? false) && game.lancelotSwitched ? '（已換邊）' : ''}',
+                    '${(game.roleOf(i)?.isLancelot ?? false) && game.lancelotSwitched ? '（已換邊）' : ''}'
+                    '${game.seatStyle(i) == null ? '' : '・${game.seatStyle(i)}'}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _t(11, s, height: 1.2)),

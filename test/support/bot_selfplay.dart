@@ -5,6 +5,7 @@ import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
+import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 
 /// What the bots did over many all-bot games (base game, no speeches).
 /// Used to check that strategy changes keep play plausible.
@@ -49,8 +50,10 @@ SelfPlayStats selfPlay(int n, int games) {
       ..specialRoles.addAll([for (final r in rolePreset(n)!) r.label])
       ..expansions = const ExpansionSettings();
     final game = AvalonGame(room, random: rng);
+    final styles = BotStyle.deal(n, rng);
     final brains = [
-      for (var i = 0; i < n; i++) BotBrain(Random(rng.nextInt(1 << 30)))
+      for (var i = 0; i < n; i++)
+        BotBrain(Random(rng.nextInt(1 << 30)), style: styles[i])
     ];
     final own = [for (var i = 0; i < n; i++) <int, bool>{}];
     for (var i = 0; i < n; i++) {

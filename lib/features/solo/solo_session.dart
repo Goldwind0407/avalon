@@ -7,6 +7,7 @@ import '../game/game_session.dart';
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_observation.dart';
+import 'bot_style.dart';
 import 'dialogue/bot_contract.dart';
 
 /// Local referee + one private human view. Bots receive only value snapshots.
@@ -44,10 +45,11 @@ class SoloGameSession extends GameSession {
     _brains.clear();
     _facts.clear();
     _ownCards.clear();
+    final styles = BotStyle.deal(players.length, _random);
     for (var s = 0; s < players.length; s++) {
       final seed = _random.nextInt(1 << 30);
-      _brains[s] =
-          BotBrain(Random(seed), dialogueRandom: Random(seed ^ 0x5a17));
+      _brains[s] = BotBrain(Random(seed),
+          dialogueRandom: Random(seed ^ 0x5a17), style: styles[s]);
       _facts[s] = [];
       _ownCards[s] = {};
     }
@@ -108,7 +110,8 @@ class SoloGameSession extends GameSession {
       // An evil holder covers for an evil player and sometimes frames a
       // good one; they do not give their own side away.
       final lie = _rules.evilNow(owner) &&
-          _random.nextDouble() < (reveal.evil! ? .9 : .35);
+          _random.nextDouble() <
+              (reveal.evil! ? .9 : _brains[owner]!.style.frame);
       final claim = reveal.evil! != lie;
       _statements.add(DiscussionStatement(
           generation: generation,
@@ -377,6 +380,12 @@ class SoloGameSession extends GameSession {
 
   @override
   bool get isSolo => true;
+
+  /// How each computer player liked to play; shown once the game is over.
+  @override
+  String? seatStyle(int seat) => seat == mySeat || phase != GamePhase.finished
+      ? null
+      : _brains[seat]?.style.label;
   @override
   int? get mySeat => 0;
   @override

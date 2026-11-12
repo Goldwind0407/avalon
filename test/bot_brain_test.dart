@@ -5,6 +5,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
+import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 
 BotObservation view(
         {Role role = Role.loyal,
@@ -323,5 +324,119 @@ void main() {
               role: Role.merlin, visible: [1], team: [0, 1], rejects: rejects)),
           isFalse);
     }
+  });
+  group('styles', () {
+    int count(bool Function(BotBrain) act, BotStyle style) => [
+          for (var seed = 0; seed < 400; seed++)
+            if (act(BotBrain(Random(seed), style: style))) 1
+        ].length;
+
+    test('every computer player gets a style, as varied as possible', () {
+      final dealt = BotStyle.deal(9, Random(1));
+      expect(dealt, isNot(contains(BotStyle.balanced)));
+      expect(dealt.take(6).toSet(), hasLength(6));
+    });
+    test('cautious players approve less than impulsive ones', () {
+      // a team without this seat, after one failed quest by other players
+      final o = view(count: 7, team: [
+        1,
+        2,
+        3
+      ], history: [
+        QuestResult([4, 5], 1, false)
+      ]);
+      bool approves(BotBrain b) => b.vote(o);
+      var cautious = 0, impulsive = 0;
+      for (var rejects = 0; rejects < 4; rejects++) {
+        final v = view(
+            count: 7,
+            team: [1, 2, 3],
+            rejects: rejects,
+            history: [
+              QuestResult([4, 5], 1, false)
+            ]);
+        if (BotBrain(Random(1), style: BotStyle.cautious).vote(v)) cautious++;
+        if (BotBrain(Random(1), style: BotStyle.impulsive).vote(v)) {
+          impulsive++;
+        }
+      }
+      expect(impulsive, greaterThan(cautious));
+      expect(count(approves, BotStyle.cautious),
+          lessThanOrEqualTo(count(approves, BotStyle.impulsive)));
+    });
+    test('an actor hides and blends in more than an aggressive player', () {
+      final quest = view(role: Role.minion, evil: true, visible: [
+        5,
+        6
+      ], team: [
+        0,
+        1
+      ], history: [
+        QuestResult([1, 2], 0, true)
+      ]);
+      bool success(BotBrain b) => b.questCard(quest);
+      expect(count(success, BotStyle.actor),
+          greaterThan(count(success, BotStyle.aggressive) + 40));
+      final clean =
+          view(role: Role.minion, evil: true, visible: [5, 6], team: [1, 2]);
+      bool approves(BotBrain b) => b.vote(clean);
+      expect(count(approves, BotStyle.actor),
+          greaterThan(count(approves, BotStyle.aggressive) + 80));
+    });
+    test('Merlin sometimes votes like a servant, never when a loss is near',
+        () {
+      // seat 1 is evil to Merlin; an ordinary servant would let this pass
+      final o = view(role: Role.merlin, visible: [1], team: [0, 1]);
+      bool approves(BotBrain b) => b.vote(o);
+      expect(count(approves, BotStyle.actor), inInclusiveRange(40, 240));
+      expect(count(approves, BotStyle.balanced), 0);
+      final late = view(role: Role.merlin, visible: [
+        1
+      ], team: [
+        0,
+        1
+      ], history: [
+        QuestResult([2, 3], 1, false),
+        QuestResult([4, 5, 6], 1, false)
+      ]);
+      expect(count((b) => b.vote(late), BotStyle.actor), 0);
+    });
+    test('Percival follows the candidate he trusts as leader', () {
+      // candidate 1 has led a clean quest, candidate 2 a failed one
+      BotObservation led(int leader) => BotObservation(
+              seat: 0,
+              role: Role.percival,
+              evil: false,
+              count: 7,
+              leader: leader,
+              quest: 3,
+              rejections: 0,
+              failsRequired: 1,
+              expansions: const ExpansionSettings(),
+              switched: false,
+              visible: const [
+                1,
+                2
+              ],
+              team: const [
+                0,
+                3,
+                5
+              ],
+              history: [
+                QuestResult([1, 3], 0, true),
+                QuestResult([2, 6, 4], 1, false)
+              ],
+              proposals: const [],
+              ladyPast: const [],
+              facts: const [],
+              statements: const [],
+              ownCards: const {});
+      final brain = BotBrain(Random(1));
+      final p = brain.suspicion(led(1));
+      expect(p[1], lessThan(p[2]));
+      expect(brain.vote(led(1)), isTrue);
+      expect(brain.vote(led(2)), isFalse);
+    });
   });
 }
