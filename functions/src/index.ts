@@ -300,6 +300,7 @@ export const startGame = onCall((req) =>
           seat,
           role: state.roles[seat],
           visible: rules.visibleSeats(state.roles, seat),
+          lancelot: rules.knownLancelot(state.roles, seat),
           reveals: [],
           expireAt: expiry(),
         });

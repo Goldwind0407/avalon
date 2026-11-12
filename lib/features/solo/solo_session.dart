@@ -80,6 +80,7 @@ class SoloGameSession extends GameSession {
       expansions: expansions,
       switched: lancelotSwitched,
       visible: visibleSeats(_rules.roles, seat),
+      lancelotSeat: knownLancelot(_rules.roles, seat),
       team: team,
       history: history,
       proposals: proposalHistory,
@@ -461,6 +462,9 @@ class SoloGameSession extends GameSession {
   @override
   List<int> visiblePlayers(int seat) =>
       seat == mySeat ? _local.visiblePlayers(seat) : const [];
+  @override
+  int? knownLancelotSeat(int seat) =>
+      seat == mySeat ? _local.knownLancelotSeat(seat) : null;
   @override
   ExpansionSettings get expansions => _local.expansions;
   @override

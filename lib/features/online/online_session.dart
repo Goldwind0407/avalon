@@ -154,7 +154,7 @@ class OnlineGameSession extends GameSession {
           : '${role.label}・${role.isEvil ? '邪惡陣營' : '正義陣營'}\n${role.isEvil ? '讓任務失敗或找出梅林' : '完成三次任務，並保護梅林'}\n${knowledgeText(role, [
                 for (final i in card!['visible'] as List? ?? const [])
                   (i as num).toInt()
-              ], players, configuredRoles: configuredRoles, expansions: expansions)}';
+              ], players, configuredRoles: configuredRoles, expansions: expansions, lancelot: (card['lancelot'] as num?)?.toInt())}';
       final records = proposalHistory;
       _notebookSync = _notebookSync.then((_) async {
         if (_disposed || notebookScope != scope) return;
@@ -395,7 +395,16 @@ class OnlineGameSession extends GameSession {
     final card = _myCard;
     if (role == null || card == null) return '';
     return knowledgeText(role, visiblePlayers(seat), players,
-        configuredRoles: configuredRoles, expansions: expansions);
+        configuredRoles: configuredRoles,
+        expansions: expansions,
+        lancelot: knownLancelotSeat(seat));
+  }
+
+  @override
+  int? knownLancelotSeat(int seat) {
+    final card = _myCard;
+    if (seat != mySeat || card == null) return null;
+    return (card['lancelot'] as num?)?.toInt();
   }
 
   @override

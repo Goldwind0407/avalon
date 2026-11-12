@@ -169,6 +169,18 @@ export function visibleSeats(roles: readonly RoleKey[], seat: number): number[] 
   return visible;
 }
 
+/**
+ * The evil Lancelot among [seat]'s opening allies. Evil players (Oberon and
+ * Lancelot himself excepted) know which of them he is; Merlin sees him as
+ * evil but cannot tell. Null when there is none to point out.
+ */
+export function knownLancelot(roles: readonly RoleKey[], seat: number): number | null {
+  const role = roles[seat];
+  if (!isEvil(role) || role === 'oberon' || role === 'lancelotEvil') return null;
+  const lancelot = roles.indexOf('lancelotEvil');
+  return lancelot < 0 || lancelot === seat ? null : lancelot;
+}
+
 export class GameError extends Error {
   constructor(
     readonly code: 'failed-precondition' | 'permission-denied' | 'invalid-argument',

@@ -1548,6 +1548,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final info = roleInformation(role,
         configuredRoles: game.configuredRoles, expansions: game.expansions);
     final visible = game.visiblePlayers(actor);
+    final lancelot = game.knownLancelotSeat(actor);
+    final reminder = [
+      if (info.reminder.isNotEmpty) info.reminder,
+      if (lancelot != null) lancelotAllyReminder,
+    ].join('\n');
     return Container(
       key: const ValueKey('identityKnowledge'),
       width: width,
@@ -1581,16 +1586,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             child: FittedBox(
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
-                                child: Text(player(seat),
+                                child: Text(
+                                    knownSeatLabel(seat, game.players[seat],
+                                        lancelot: lancelot),
                                     maxLines: 1,
                                     softWrap: false,
                                     style: _t(13.5, s, height: 1.3))))),
                 ]),
             ],
-            if (info.reminder.isNotEmpty) ...[
+            if (reminder.isNotEmpty) ...[
               SizedBox(height: 8 * s),
-              Text(info.reminder,
-                  style: _t(13, s, color: const Color(0xFFD5CBB8))),
+              Text(reminder, style: _t(13, s, color: const Color(0xFFD5CBB8))),
             ],
           ]),
     );

@@ -597,4 +597,44 @@ void main() {
       expect(slips(BotDifficulty.novice), inInclusiveRange(5, 50));
     });
   });
+  test('after a switch evil drops only Lancelot and keeps working together',
+      () {
+    BotObservation evil({int? lancelot, int failsRequired = 2}) =>
+        BotObservation(
+            seat: 0,
+            role: Role.assassin,
+            evil: true,
+            count: 8,
+            leader: 0,
+            quest: 3,
+            rejections: 0,
+            failsRequired: failsRequired,
+            expansions: const ExpansionSettings(lancelot: 1),
+            switched: true,
+            visible: const [1, 2],
+            team: const [0, 1, 3, 4],
+            history: [
+              QuestResult([5, 6], 0, true),
+              QuestResult([5, 6, 7], 0, true)
+            ],
+            proposals: const [],
+            ladyPast: const [],
+            facts: const [],
+            statements: const [],
+            ownCards: const {},
+            loyalty: const [null, null, true, null, null],
+            lancelotSeat: lancelot);
+    final brain = BotBrain(Random(1));
+    final known = brain.suspicion(evil(lancelot: 2));
+    expect(known[1], 1);
+    expect(known[2], 0);
+    final unknown = brain.suspicion(evil());
+    expect(unknown[1], lessThan(1));
+    // the ally still on the team is a partner for the two Fails needed
+    for (var seed = 0; seed < 20; seed++) {
+      expect(BotBrain(Random(seed)).questCard(evil(lancelot: 2)), isFalse);
+    }
+    // a Lancelot seat that is not among the visible allies is refused
+    expect(() => evil(lancelot: 5), throwsArgumentError);
+  });
 }

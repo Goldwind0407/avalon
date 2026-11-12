@@ -68,6 +68,25 @@ List<int> visibleSeats(List<Role> roles, int index) {
   ];
 }
 
+/// The evil Lancelot among [index]'s opening allies. Evil players (Oberon
+/// and Lancelot himself excepted) know which of them he is; Merlin sees him
+/// as evil but cannot tell. Null when there is none to point out.
+int? knownLancelot(List<Role> roles, int index) {
+  final role = roles[index];
+  if (!role.isEvil || role == Role.oberon || role == Role.lancelotEvil) {
+    return null;
+  }
+  final seat = roles.indexOf(Role.lancelotEvil);
+  return seat < 0 || seat == index ? null : seat;
+}
+
+/// How a seat is listed in someone's opening knowledge.
+String knownSeatLabel(int seat, String name, {int? lancelot}) =>
+    '${playerLabel(seat, name)}${seat == lancelot ? '（邪惡蘭斯洛特）' : ''}';
+
+/// Shown to evil players who know where the evil Lancelot sits.
+const lancelotAllyReminder = '翻出「轉換陣營」時，邪惡蘭斯洛特會改為正義陣營。';
+
 /// Display a seat and nickname consistently in game prompts.
 String playerLabel(int seat, String name) => '${seat + 1} 號 【$name】';
 
@@ -120,14 +139,22 @@ RoleInformation roleInformation(Role role,
 }
 
 String knowledgeText(Role role, List<int> visible, List<String> players,
-    {Set<Role>? configuredRoles, ExpansionSettings? expansions}) {
+    {Set<Role>? configuredRoles,
+    ExpansionSettings? expansions,
+    int? lancelot}) {
   final info = roleInformation(role,
       configuredRoles: configuredRoles, expansions: expansions);
-  final names = visible.map((i) => playerLabel(i, players[i])).join('、');
+  final names = visible
+      .map((i) => knownSeatLabel(i, players[i], lancelot: lancelot))
+      .join('、');
   final heading = info.listsPlayers
       ? '${info.heading}：${names.isEmpty ? '無' : names}。'
       : info.heading;
-  return info.reminder.isEmpty ? heading : '$heading\n${info.reminder}';
+  final reminder = [
+    if (info.reminder.isNotEmpty) info.reminder,
+    if (lancelot != null) lancelotAllyReminder,
+  ].join('\n');
+  return reminder.isEmpty ? heading : '$heading\n$reminder';
 }
 
 class QuestResult {
@@ -274,7 +301,9 @@ class AvalonGame {
 
   String knowledge(int index) =>
       knowledgeText(roles[index], visibleSeats(roles, index), players,
-          configuredRoles: roles.toSet(), expansions: expansions);
+          configuredRoles: roles.toSet(),
+          expansions: expansions,
+          lancelot: knownLancelot(roles, index));
 
   void confirmIdentity() {
     _require(GamePhase.identity);

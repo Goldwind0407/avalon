@@ -36,7 +36,12 @@ class BotBrain {
                 o.role != Role.lancelotEvil));
     if (seesEvil) {
       for (final seat in o.visible) {
-        opening[seat] = o.switched && o.expansions.lancelot > 0 ? .65 : 1;
+        // Evil players know which ally is Lancelot: after a switch he is
+        // good and everyone else is still evil. Merlin cannot tell them
+        // apart, so a switch leaves each of them in doubt.
+        opening[seat] = o.lancelotSeat != null
+            ? (seat == o.lancelotSeat && o.switched ? 0 : 1)
+            : (o.switched && o.expansions.lancelot > 0 ? .65 : 1);
         privateBeliefs[seat] = opening[seat]!;
       }
     }
@@ -395,10 +400,14 @@ class BotBrain {
   /// view while it still holds, plus their own Lady and sword findings.
   Set<int> _knownAllies(BotObservation o) {
     final known = <int>{o.seat};
-    if ((!o.switched || o.expansions.lancelot == 0) &&
-        o.role != Role.oberon &&
-        o.role != Role.lancelotEvil) {
-      known.addAll(o.visible);
+    if (o.role != Role.oberon && o.role != Role.lancelotEvil) {
+      if (o.lancelotSeat != null) {
+        // only the Lancelot leaves when the sides switch
+        known.addAll(
+            o.visible.where((s) => !(o.switched && s == o.lancelotSeat)));
+      } else if (!o.switched || o.expansions.lancelot == 0) {
+        known.addAll(o.visible);
+      }
     }
     for (final fact in o.facts) {
       if (fact.switched != o.switched && o.expansions.lancelot > 0) continue;

@@ -6,7 +6,8 @@ import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 
 // Mirrored by functions/test/expansions.test.ts.
 
-Room room(int count, ExpansionSettings expansions, [Set<String> extras = const {}]) {
+Room room(int count, ExpansionSettings expansions,
+    [Set<String> extras = const {}]) {
   final r = Room(
       code: '123456',
       players: List.generate(
@@ -92,6 +93,21 @@ void main() {
         contains(evil));
     expect(visibleSeats(game.roles, evil), isEmpty);
     expect(visibleSeats(game.roles, good), isEmpty);
+    // evil knows which ally is Lancelot; Merlin and Lancelot himself do not
+    final assassin = game.roles.indexOf(Role.assassin);
+    final merlin = game.roles.indexOf(Role.merlin);
+    expect(knownLancelot(game.roles, assassin), evil);
+    expect(knownLancelot(game.roles, merlin), isNull);
+    expect(knownLancelot(game.roles, evil), isNull);
+    expect(knownLancelot(game.roles, good), isNull);
+    expect(game.knowledge(assassin), contains('（邪惡蘭斯洛特）'));
+    expect(game.knowledge(assassin), contains('邪惡蘭斯洛特會改為正義陣營'));
+    expect(game.knowledge(merlin), isNot(contains('蘭斯洛特')));
+    // without the expansion nobody is singled out
+    final plain = setup(const ExpansionSettings(), count: 8);
+    for (var s = 0; s < 8; s++) {
+      expect(knownLancelot(plain.roles, s), isNull);
+    }
   });
 
   test('variant 1: loyalty cards are turned over from the third quest', () {
@@ -160,8 +176,10 @@ void main() {
     expect(game.phase, GamePhase.team); // not after the first quest
     final assassin = game.roles.indexOf(Role.assassin);
     // second quest: play by hand to stop at the Lady
-    final team = [assassin, ...[0, 1, 2, 3].where((i) => i != assassin)]
-        .take(game.requiredTeam);
+    final team = [
+      assassin,
+      ...[0, 1, 2, 3].where((i) => i != assassin)
+    ].take(game.requiredTeam);
     game.proposeTeam(team);
     for (var i = 0; i < 7; i++) {
       game.vote(true);

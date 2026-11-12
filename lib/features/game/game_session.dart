@@ -141,6 +141,10 @@ abstract class GameSession extends ChangeNotifier {
 
   /// Public seat numbers this player is allowed to see in their private card.
   List<int> visiblePlayers(int seat) => const [];
+
+  /// Which of [seat]'s visible allies is the evil Lancelot, if this device
+  /// may know.
+  int? knownLancelotSeat(int seat) => null;
   Set<Role>? get configuredRoles => null;
 
   /// May this device press the shared "continue" buttons?
@@ -333,6 +337,8 @@ class LocalGameSession extends GameSession {
   Set<Role> get configuredRoles => _game.roles.toSet();
   @override
   List<int> visiblePlayers(int seat) => visibleSeats(_game.roles, seat);
+  @override
+  int? knownLancelotSeat(int seat) => knownLancelot(_game.roles, seat);
   @override
   bool get canAdvance => true;
   @override

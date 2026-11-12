@@ -51,6 +51,7 @@ class BotObservation {
     List<LadyCheck> ladyChecks = const [],
     this.excaliburHolder,
     this.plannedQuestSuccess,
+    this.lancelotSeat,
   })  : visible = List.unmodifiable(visible),
         team = List.unmodifiable(team),
         history = List.unmodifiable(history),
@@ -78,6 +79,7 @@ class BotObservation {
         !validTeam(this.team) ||
         !validTeam(this.visible) ||
         this.visible.contains(seat) ||
+        (lancelotSeat != null && !this.visible.contains(lancelotSeat)) ||
         this.history.any((q) => !validTeam(q.team))) {
       throw ArgumentError('Invalid observer seat or public player list');
     }
@@ -149,6 +151,9 @@ class BotObservation {
   final List<String> names;
   final List<LadyCheck> ladyChecks;
   final int? excaliburHolder;
+
+  /// Which visible ally is the evil Lancelot (evil players know this).
+  final int? lancelotSeat;
 
   /// Only this seat's committed card policy; no other seat's plan is projected.
   final bool? plannedQuestSuccess;

@@ -80,6 +80,13 @@ describe('expansions mirror expansion_test.dart', () => {
     assert.ok(r.visibleSeats(seven, 0).includes(LANCELOT_EVIL));
     assert.deepEqual(r.visibleSeats(seven, LANCELOT_EVIL), []);
     assert.deepEqual(r.visibleSeats(seven, LANCELOT_GOOD), []);
+    // evil knows which ally is Lancelot; Merlin and Lancelot himself do not
+    assert.equal(r.knownLancelot(seven, ASSASSIN), LANCELOT_EVIL);
+    assert.equal(r.knownLancelot(seven, 3), LANCELOT_EVIL);
+    assert.equal(r.knownLancelot(seven, 0), null);
+    assert.equal(r.knownLancelot(seven, LANCELOT_EVIL), null);
+    assert.equal(r.knownLancelot(seven, LANCELOT_GOOD), null);
+    assert.equal(r.knownLancelot(['merlin', 'assassin', 'loyal', 'minion', 'loyal'], 1), null);
   });
 
   test('variant 1: loyalty cards are turned over from the third quest', () => {
