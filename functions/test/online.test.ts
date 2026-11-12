@@ -23,7 +23,10 @@ import {
   httpsCallable,
 } from 'firebase/functions';
 
-const PROJECT = 'avalon-shadow-council';
+const CLOUD = process.env.AVALON_TARGET === 'cloud';
+// emulators:exec exports its project ID; keep local/CI data isolated from cloud.
+const PROJECT = CLOUD ? 'avalon-shadow-council'
+  : process.env.GCLOUD_PROJECT ?? 'demo-avalon-ci';
 
 interface Phone {
   app: FirebaseApp;
@@ -33,7 +36,6 @@ interface Phone {
   call: (name: string, data: Record<string, unknown>) => Promise<any>;
 }
 
-const CLOUD = process.env.AVALON_TARGET === 'cloud';
 // the web app's public config (lib/firebase_options.dart)
 const CLOUD_CONFIG = {
   apiKey: 'AIzaSyBX59ZuswRIrIvmhqdvd__44xl5MPyLR8A',

@@ -8,7 +8,7 @@ import { connectAuthEmulator, getAuth, signInAnonymously } from 'firebase/auth';
 import { connectFirestoreEmulator, doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 
-const PROJECT = 'avalon-shadow-council';
+const PROJECT = process.env.GCLOUD_PROJECT ?? 'demo-avalon-ci';
 async function phone(index: number) {
   const app = initializeApp({ apiKey: 'fake', projectId: PROJECT, appId: 'test' }, `lifecycle-${index}`);
   const auth = getAuth(app);
