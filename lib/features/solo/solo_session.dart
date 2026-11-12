@@ -4,6 +4,7 @@ import '../game/discussion_model.dart';
 import '../game/expansion_model.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
+import '../game/player_speech.dart';
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_difficulty.dart';
@@ -19,7 +20,7 @@ class SoloGameSession extends GameSession {
       {Random? random,
       this.difficulty = BotDifficulty.normal,
       this.botDelay = const Duration(milliseconds: 450),
-      this.speechDuration = const Duration(seconds: 5)})
+      this.speechDuration = const Duration(seconds: 7)})
       : _random = random ?? Random.secure(),
         _local = LocalGameSession(room, random: random) {
     _resetBots();
@@ -228,13 +229,23 @@ class SoloGameSession extends GameSession {
         _ => null,
       };
 
+  /// Long enough to read the speech: [speechDuration] at least, plus about a
+  /// fifth of a second per character past 25, up to twice as long.
+  Duration _readingTime(String? text) {
+    final extra = max(0, (text?.length ?? 0) - 25) * 200;
+    final base = speechDuration.inMilliseconds;
+    return Duration(milliseconds: min(base * 2, base + extra));
+  }
+
   void _schedule() {
     _botTimer?.cancel();
     if (_disposed || _paused) return;
     final actor = _botActor;
     if (actor == null || actor == mySeat) return;
     final deal = generation, version = speechVersion, stage = phase;
-    final delay = phase == GamePhase.discussion ? speechDuration : botDelay;
+    final delay = phase == GamePhase.discussion
+        ? _readingTime(_currentStatement)
+        : botDelay;
     _botTimer = Timer(delay, () async {
       if (_disposed ||
           _paused ||
@@ -374,6 +385,63 @@ class SoloGameSession extends GameSession {
         team: team,
         text: approve ? '我目前支持這次隊伍提案。' : '我對這隊有疑慮，想換個組合。'));
     await endSpeech(speechVersion);
+  }
+
+  @override
+  Future<void> say(PlayerSpeech speech) async {
+    _requireHuman(GamePhase.discussion);
+    final me = mySeat!;
+    final t = speech.target;
+    if (speech.needsTarget && (t == null || t == me || t >= players.length)) {
+      throw const GameMoveException('請選擇另一位玩家');
+    }
+    String who(int seat) => playerLabel(seat, players[seat]);
+    final typed = speech.text?.trim();
+    final text = typed != null && typed.isNotEmpty
+        ? typed
+        : switch (speech.kind) {
+            PlayerSpeechKind.support => '我支持這隊。',
+            PlayerSpeechKind.oppose => '這隊我想換人。',
+            PlayerSpeechKind.suspect => '我懷疑${who(t!)}。',
+            PlayerSpeechKind.trust => '我相信${who(t!)}是好人。',
+            PlayerSpeechKind.ask => '${who(t!)}，你怎麼看？說說你的理由。',
+            PlayerSpeechKind.claimGood => '我是好人，請相信我。',
+            PlayerSpeechKind.remark => '',
+          };
+    if (text.isEmpty) return;
+    _statements.add(DiscussionStatement(
+        generation: generation,
+        attempt: rejections + 1,
+        speaker: me,
+        quest: questNumber,
+        switched: lancelotSwitched,
+        team: team,
+        text: text,
+        supportsTeam: switch (speech.kind) {
+          PlayerSpeechKind.support => true,
+          PlayerSpeechKind.oppose => false,
+          _ => null,
+        },
+        intent: switch (speech.kind) {
+          PlayerSpeechKind.support => BotSpeechIntent.supportTeam.name,
+          PlayerSpeechKind.oppose => BotSpeechIntent.opposeTeam.name,
+          PlayerSpeechKind.suspect => BotSpeechIntent.accuse.name,
+          PlayerSpeechKind.trust => BotSpeechIntent.defendOther.name,
+          PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
+          PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
+          PlayerSpeechKind.remark => 'opinion',
+        },
+        target: switch (speech.kind) {
+          PlayerSpeechKind.claimGood => me,
+          _ => t,
+        },
+        position: switch (speech.kind) {
+          PlayerSpeechKind.suspect => DiscussionPosition.suspect,
+          PlayerSpeechKind.trust => DiscussionPosition.defend,
+          _ => null,
+        },
+        questionTo: speech.kind == PlayerSpeechKind.ask ? t : null));
+    notifyListeners();
   }
 
   @override

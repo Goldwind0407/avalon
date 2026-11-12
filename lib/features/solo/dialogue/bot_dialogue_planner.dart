@@ -46,6 +46,22 @@ class BotDialoguePlanner {
       BotObservation o, bool approve, double Function(List<int>) risk,
       {int? chosenTarget}) {
     final role = BotDialogueRole.forPlayer(o.role, o.evil);
+    // What others already said about this proposal: never repeat a line,
+    // and prefer a different kind of remark.
+    final round = [
+      for (final s in o.statements)
+        if (s.quest == o.quest &&
+            s.attempt == o.proposalId.attempt &&
+            s.speaker != o.seat)
+          s
+    ];
+    final saidLines = {for (final s in round) s.text};
+    final saidIntents = <String, int>{};
+    for (final s in round) {
+      if (s.intent != null) {
+        saidIntents.update(s.intent!, (v) => v + 1, ifAbsent: () => 1);
+      }
+    }
     final candidates = <(BotSpeechRule, BotDialogueContext, String, double)>[];
     for (final rule in catalog.rules) {
       if (rule.phase != o.phase ||
@@ -77,13 +93,17 @@ class BotDialoguePlanner {
       }
       final lines = [
         for (final template in rule.templates)
-          if (render(template, context.bindings) case final String text) text
+          if (render(template, context.bindings) case final String text)
+            if (!saidLines.any((said) => said.endsWith(text))) text
       ];
       if (lines.isEmpty) continue;
       final key =
           '${rule.intent.name}/${context.referenceQuest}/${context.target}';
-      final score =
-          rule.priority - memory.penalty(key) + random.nextDouble() * 8 - 4;
+      final score = rule.priority -
+          memory.penalty(key) -
+          12 * (saidIntents[rule.intent.name] ?? 0) +
+          random.nextDouble() * 8 -
+          4;
       candidates.add((rule, context, key, score));
     }
     if (candidates.isEmpty) {
@@ -102,7 +122,8 @@ class BotDialoguePlanner {
     final (rule, context, semanticKey, _) = candidates.first;
     final lines = [
       for (final t in rule.templates)
-        if (render(t, context.bindings) case final String text) (t, text)
+        if (render(t, context.bindings) case final String text)
+          if (!saidLines.any((said) => said.endsWith(text))) (t, text)
     ];
     final (template, text) = lines[random.nextInt(lines.length)];
     final trace = BotDialogueTrace(

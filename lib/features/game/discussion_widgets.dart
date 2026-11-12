@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import 'discussion_model.dart';
 import 'game_model.dart';
 import 'game_session.dart';
+import 'player_speech.dart';
 
 Future<DiscussionSettings?> editDiscussion(
         BuildContext context, DiscussionSettings initial) =>
@@ -188,7 +189,9 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                                 color: Colors.white)),
                         const SizedBox(height: 10),
                       ],
-                      if (game.isSolo && game.speaker == game.mySeat)
+                      if (game.isSolo && game.speaker == game.mySeat) ...[
+                        PlayerSpeechBar(game: game),
+                        const SizedBox(height: 6),
                         Wrap(spacing: 8, children: [
                           ActionChip(
                               key: const ValueKey('soloSupport'),
@@ -199,6 +202,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                               label: const Text('我想換人'),
                               onPressed: () => _express(false)),
                         ]),
+                      ],
                       Text(
                           free
                               ? '時間到後自動開始投票'
@@ -209,4 +213,153 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                           style: const TextStyle(color: AvalonTheme.muted)),
                     ])))));
   }
+}
+
+/// Solo: what the player can say on their turn before taking a side.
+/// Every line is public; computer players weigh it and may answer.
+class PlayerSpeechBar extends StatelessWidget {
+  const PlayerSpeechBar({super.key, required this.game});
+  final GameSession game;
+
+  Future<void> _say(BuildContext context, PlayerSpeech speech) async {
+    try {
+      await game.say(speech);
+    } on GameMoveException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  Future<int?> _pickSeat(BuildContext context, String title) => showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+            title: Text(title),
+            content: Wrap(spacing: 8, runSpacing: 8, children: [
+              for (var i = 0; i < game.players.length; i++)
+                if (i != game.mySeat)
+                  ActionChip(
+                      key: ValueKey('speechSeat$i'),
+                      label: Text(playerLabel(i, game.players[i])),
+                      onPressed: () => Navigator.pop(context, i)),
+            ]),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'))
+            ],
+          ));
+
+  Future<void> _aimed(
+      BuildContext context, PlayerSpeechKind kind, String title) async {
+    final seat = await _pickSeat(context, title);
+    if (seat != null && context.mounted) {
+      await _say(context, PlayerSpeech(kind, target: seat));
+    }
+  }
+
+  Future<void> _type(BuildContext context) async {
+    final text = await showDialog<String>(
+        context: context, builder: (_) => const _TypedSpeechDialog());
+    if (text == null || text.trim().isEmpty || !context.mounted) return;
+    await _say(
+        context, PlayerSpeech.parse(text, game.players, game.mySeat ?? -1));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mine = [
+      for (final s in game.statements)
+        if (s.speaker == game.mySeat &&
+            s.quest == game.questNumber &&
+            s.attempt == game.rejections + 1)
+          s.text
+    ];
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      if (mine.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text('你說：${mine.join('　')}',
+              key: const ValueKey('mySpeech'),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: AvalonTheme.gold)),
+        ),
+      Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          alignment: WrapAlignment.center,
+          children: [
+            ActionChip(
+                key: const ValueKey('speechSuspect'),
+                avatar: const Icon(Icons.gpp_maybe_outlined, size: 16),
+                label: const Text('懷疑…'),
+                onPressed: () =>
+                    _aimed(context, PlayerSpeechKind.suspect, '你懷疑誰？')),
+            ActionChip(
+                key: const ValueKey('speechTrust'),
+                avatar: const Icon(Icons.verified_user_outlined, size: 16),
+                label: const Text('相信…'),
+                onPressed: () =>
+                    _aimed(context, PlayerSpeechKind.trust, '你相信誰是好人？')),
+            ActionChip(
+                key: const ValueKey('speechAsk'),
+                avatar: const Icon(Icons.help_outline, size: 16),
+                label: const Text('問…'),
+                onPressed: () =>
+                    _aimed(context, PlayerSpeechKind.ask, '你想問誰？')),
+            ActionChip(
+                key: const ValueKey('speechClaimGood'),
+                label: const Text('我是好人'),
+                onPressed: () => _say(
+                    context, const PlayerSpeech(PlayerSpeechKind.claimGood))),
+            ActionChip(
+                key: const ValueKey('speechType'),
+                avatar: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('打字'),
+                onPressed: () => _type(context)),
+          ]),
+    ]);
+  }
+}
+
+class _TypedSpeechDialog extends StatefulWidget {
+  const _TypedSpeechDialog();
+  @override
+  State<_TypedSpeechDialog> createState() => _TypedSpeechDialogState();
+}
+
+class _TypedSpeechDialogState extends State<_TypedSpeechDialog> {
+  final controller = TextEditingController();
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('你想說什麼？'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              key: const ValueKey('speechText'),
+              controller: controller,
+              autofocus: true,
+              maxLength: 60,
+              decoration: const InputDecoration(hintText: '例如：我懷疑 3 號，他投了失敗的隊'),
+              onSubmitted: (v) => Navigator.pop(context, v)),
+          const Text('電腦看得懂：座位號碼或暱稱，加上「懷疑／壞人」「相信／好人」「為什麼？」「支持／反對」。',
+              style: TextStyle(fontSize: 11, color: AvalonTheme.muted)),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+              key: const ValueKey('speechSend'),
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('說出來')),
+        ],
+      );
 }

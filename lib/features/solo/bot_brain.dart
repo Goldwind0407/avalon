@@ -5,6 +5,7 @@ import '../lobby/room_model.dart';
 import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
+import 'bot_voice.dart';
 import 'dialogue/bot_dialogue_planner.dart';
 
 /// A deliberately modest, reproducible first opponent. All deductions come
@@ -118,6 +119,21 @@ class BotBrain {
       final trust = max(0.0, .5 - p[claim.speaker]) * difficulty.claimTrust;
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
     }
+    // Who doubts or vouches for whom: weak, weighted by how far this seat
+    // trusts the speaker. Framing a good player works on the gullible.
+    for (final statement in o.statements) {
+      final target = statement.target;
+      if (statement.position == null ||
+          target == null ||
+          statement.speaker == o.seat ||
+          target == statement.speaker ||
+          statement.generation != o.generation) {
+        continue;
+      }
+      final trust = max(0.0, .55 - p[statement.speaker]) * .2;
+      p[target] +=
+          statement.position == DiscussionPosition.suspect ? trust : -trust;
+    }
     for (final statement in o.statements) {
       if (statement.supportsTeam == null || statement.speaker == o.seat) {
         continue;
@@ -163,7 +179,7 @@ class BotBrain {
       if ((_unexplained(o, q) ?? 0) == 0) continue;
       for (var s = 0; s < o.count; s++) {
         if (s == o.seat || proposal.team.contains(s)) continue;
-        p[s] += (proposal.votes[s] ? .05 : -.04) * difficulty.voteEvidence;
+        p[s] += (proposal.votes[s] ? .08 : -.05) * difficulty.voteEvidence;
       }
     }
   }
@@ -331,7 +347,21 @@ class BotBrain {
     final p = suspicion(o);
     final risk = _risk(o, p, o.team);
     if (o.evil) {
-      if (risk > .45) return true;
+      if (risk > .45) {
+        // Backing every team an ally is on gives the whole side away. When
+        // an ally on it is already under suspicion, sometimes vote against
+        // it like a careful good player would, unless this quest matters.
+        final view = suspicion(o, asServant: true);
+        final exposed = o.team.any((s) =>
+            s != o.seat && _knownAllies(o).contains(s) && view[s] >= .55);
+        final critical = o.failures == 2 || o.successes == 2;
+        if (exposed &&
+            !critical &&
+            random.nextDouble() < .35 * difficulty.rolePlay * style.blend) {
+          return false;
+        }
+        return true;
+      }
       // A team that will not fail: go along with it early to blend in, fight
       // it when it would be good's winning quest.
       var blend = o.successes == 2
@@ -371,8 +401,10 @@ class BotBrain {
 
   bool _goodVote(BotObservation o, List<double> p) {
     final risk = _risk(o, p, o.team);
-    // Never wave through a player this seat is (nearly) sure is evil.
-    if (o.team.any((s) => s != o.seat && p[s] >= .9)) return false;
+    // Do not wave through a player this seat clearly doubts.
+    if (o.team.any((s) => s != o.seat && p[s] >= difficulty.doubt)) {
+      return false;
+    }
     // "Is this about as safe as the team I would send?" rather than a fixed
     // bar, so large teams are not rejected just for being large.
     final safest = [for (var s = 0; s < o.count; s++) s]
@@ -543,8 +575,29 @@ class BotBrain {
     return scored.first.$1;
   }
 
-  DiscussionStatement speech(BotObservation o, bool approve) =>
-      dialogue.speak(o, approve, (team) => teamRisk(o, team));
+  late final voice = BotVoice(dialogue.random, style, difficulty);
+
+  DiscussionStatement speech(BotObservation o, bool approve) {
+    // A question put to this seat in this round is answered first (the
+    // template catalogue knows how). Otherwise name names when the public
+    // record gives a reason to, or fall back on a catalogue line.
+    final asked = o.statements.any((s) =>
+        s.questionTo == o.seat &&
+        s.speaker != o.seat &&
+        s.quest == o.quest &&
+        s.attempt == o.proposalId.attempt &&
+        s.generation == o.generation &&
+        !o.statements.any((r) =>
+            r.speaker == o.seat && r.replyTo == o.statements.indexOf(s)));
+    final direct = asked
+        ? null
+        : voice.speak(o, approve, suspicion(o, asServant: true), suspicion(o),
+            o.evil ? _knownAllies(o) : const <int>{});
+    if (direct != null) return direct;
+    final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
+    final text = voice.flavor(s.text);
+    return text == s.text ? s : s.copyWithText(text);
+  }
 
   DiscussionStatement assassinationSpeech(BotObservation o, int target) {
     if (o.phase != GamePhase.assassination ||

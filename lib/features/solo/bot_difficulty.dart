@@ -9,6 +9,7 @@ enum BotDifficulty {
       rolePlay: 0,
       noise: 2.2,
       slip: .05,
+      doubt: .8,
       blend: .4,
       stacking: .15,
       assassinNoise: .7),
@@ -19,6 +20,7 @@ enum BotDifficulty {
       claimTrust: .6,
       rolePlay: 1.6,
       noise: .5,
+      doubt: .55,
       blend: 1.1,
       stacking: .6,
       assassinNoise: .2);
@@ -31,6 +33,7 @@ enum BotDifficulty {
       this.rolePlay = 1,
       this.noise = 1,
       this.slip = 0,
+      this.doubt = .62,
       this.blend = 1,
       this.stacking = .5,
       this.assassinNoise = .45});
@@ -52,6 +55,10 @@ enum BotDifficulty {
 
   /// Scales the randomness of team choices; chance that a good vote slips.
   final double noise, slip;
+
+  /// Good: a team with someone this suspicious on it is turned down (unless
+  /// the fifth proposal forces it through).
+  final double doubt;
 
   /// Evil: scales going along with clean teams; cost of each surplus ally
   /// on the team; randomness of the Assassin's pick.

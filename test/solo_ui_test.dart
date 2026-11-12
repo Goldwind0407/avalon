@@ -163,7 +163,8 @@ void main() {
     expect(session.speechVersion, version);
     expect(find.text('返回對局'), findsOneWidget);
     await tester.tap(find.text('返回對局'));
-    await advanceSolo(tester, 5500);
+    // a bot speech stays up 7-14 seconds depending on its length
+    await advanceSolo(tester, 15000);
     expect(session.speechVersion, greaterThan(version));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
