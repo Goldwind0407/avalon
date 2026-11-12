@@ -4,6 +4,7 @@ import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
+import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 
@@ -388,7 +389,18 @@ void main() {
       // seat 1 is evil to Merlin; an ordinary servant would let this pass
       final o = view(role: Role.merlin, visible: [1], team: [0, 1]);
       bool approves(BotBrain b) => b.vote(o);
-      expect(count(approves, BotStyle.actor), inInclusiveRange(40, 240));
+      // with nothing lost yet he mostly plays along; less after a failure
+      final early = count(approves, BotStyle.actor);
+      expect(early, inInclusiveRange(240, 380));
+      final wary = view(role: Role.merlin, visible: [
+        1
+      ], team: [
+        0,
+        1
+      ], history: [
+        QuestResult([2, 3], 1, false)
+      ]);
+      expect(count((b) => b.vote(wary), BotStyle.actor), lessThan(early - 60));
       expect(count(approves, BotStyle.balanced), 0);
       final late = view(role: Role.merlin, visible: [
         1
@@ -437,6 +449,152 @@ void main() {
       expect(p[1], lessThan(p[2]));
       expect(brain.vote(led(1)), isTrue);
       expect(brain.vote(led(2)), isFalse);
+    });
+  });
+  group('roles and levels', () {
+    ProposalRecord proposal(
+            int quest, int leader, List<int> team, List<bool> votes,
+            {int attempt = 1}) =>
+        ProposalRecord(
+            quest: quest,
+            attempt: attempt,
+            leader: leader,
+            team: team,
+            votes: votes);
+    BotObservation seen(Role role,
+            {bool evil = false,
+            List<int> visible = const [],
+            List<QuestResult> history = const [],
+            List<ProposalRecord> proposals = const [],
+            List<int> team = const [0, 1],
+            List<int> ladyPast = const [0],
+            int leader = 0,
+            GamePhase phase = GamePhase.discussion}) =>
+        BotObservation(
+            seat: 0,
+            role: role,
+            evil: evil,
+            count: 7,
+            leader: leader,
+            quest: history.length + 1,
+            rejections: 0,
+            failsRequired: 1,
+            expansions: const ExpansionSettings(),
+            switched: false,
+            visible: visible,
+            team: team,
+            history: history,
+            proposals: proposals,
+            ladyPast: ladyPast,
+            facts: const [],
+            statements: const [],
+            ownCards: const {},
+            phase: phase);
+
+    test('Percival: one candidate proven evil makes the other Merlin', () {
+      final p = BotBrain(Random(1)).suspicion(seen(Role.percival, visible: [
+        1,
+        2
+      ], history: [
+        QuestResult([0, 1], 1, false)
+      ]));
+      expect(p[1], 1);
+      expect(p[2], 0);
+    });
+    test('the Assassin counts himself as evil on a team, by level', () {
+      // seat 3 turned down two early teams with evil on them and led a clean
+      // one; seat 4 approved them
+      final votes = [true, true, true, false, true, true, true];
+      final o = seen(Role.assassin,
+          evil: true,
+          visible: [1],
+          phase: GamePhase.assassination,
+          history: [
+            QuestResult([3, 5], 0, true),
+            QuestResult([3, 5, 6], 0, true),
+            QuestResult([3, 4, 5], 0, true)
+          ],
+          proposals: [
+            proposal(1, 2, [0, 2], votes),
+            proposal(1, 3, [3, 5], List.filled(7, true), attempt: 2),
+            proposal(2, 4, [1, 4, 5], votes),
+            proposal(2, 5, [3, 5, 6], List.filled(7, true), attempt: 2),
+            proposal(3, 6, [3, 4, 5], List.filled(7, true)),
+          ]);
+      int hits(BotDifficulty level) => [
+            for (var seed = 0; seed < 300; seed++)
+              if (BotBrain(Random(seed), difficulty: level).assassinate(o) == 3)
+                1
+          ].length;
+      expect(
+          hits(BotDifficulty.expert), greaterThan(hits(BotDifficulty.normal)));
+      expect(
+          hits(BotDifficulty.normal), greaterThan(hits(BotDifficulty.novice)));
+      expect(hits(BotDifficulty.expert), greaterThan(270));
+    });
+    test('Morgana likes to lead the players the table already trusts', () {
+      // seats 4 and 5 came back from a clean first quest
+      final o = seen(Role.morgana, evil: true, visible: [
+        1,
+        2
+      ], history: [
+        QuestResult([4, 5], 0, true)
+      ]);
+      int trusted(BotDifficulty level) => [
+            for (var seed = 0; seed < 300; seed++)
+              if (BotBrain(Random(seed), difficulty: level)
+                  .chooseTeam(o, 2)
+                  .any([4, 5].contains))
+                1
+          ].length;
+      // a beginner picks a partner at random; posing as Merlin picks them
+      expect(trusted(BotDifficulty.normal),
+          greaterThan(trusted(BotDifficulty.novice) + 40));
+      for (var seed = 0; seed < 50; seed++) {
+        final team = BotBrain(Random(seed)).chooseTeam(o, 2);
+        expect(team, contains(0));
+        expect(team.any([1, 2].contains), isFalse);
+      }
+    });
+    test('an evil Lady holder hands her to an ally about half the time', () {
+      var ally = 0;
+      for (var seed = 0; seed < 300; seed++) {
+        final target = BotBrain(Random(seed))
+            .ladyTarget(seen(Role.minion, evil: true, visible: [1, 2]));
+        expect(target, isNot(0));
+        if ([1, 2].contains(target)) ally++;
+      }
+      expect(ally, inInclusiveRange(100, 200));
+      // Oberon knows no ally and simply looks for information
+      expect(BotBrain(Random(1)).ladyTarget(seen(Role.oberon, evil: true)),
+          isNot(0));
+    });
+    test('a beginner reasons less from a clean quest and may slip a vote', () {
+      final o = seen(Role.loyal, history: [
+        QuestResult([1, 2, 3], 0, true)
+      ]);
+      double gap(BotDifficulty level) {
+        final p = BotBrain(Random(1), difficulty: level).suspicion(o);
+        return p[4] - p[1];
+      }
+
+      expect(gap(BotDifficulty.novice), greaterThan(0));
+      expect(gap(BotDifficulty.novice), lessThan(gap(BotDifficulty.normal)));
+      expect(gap(BotDifficulty.normal), lessThan(gap(BotDifficulty.expert)));
+      // Merlin sees evil on the team: only a beginner ever lets it through
+      // by mistake (the balanced test style never disguises)
+      final dirty = seen(Role.merlin, visible: [
+        1
+      ], history: [
+        QuestResult([2, 3], 1, false),
+        QuestResult([4, 5, 6], 1, false)
+      ]);
+      int slips(BotDifficulty level) => [
+            for (var seed = 0; seed < 400; seed++)
+              if (BotBrain(Random(seed), difficulty: level).vote(dirty)) 1
+          ].length;
+      expect(slips(BotDifficulty.normal), 0);
+      expect(slips(BotDifficulty.novice), inInclusiveRange(5, 50));
     });
   });
 }

@@ -2,6 +2,7 @@ import 'dart:math';
 import '../game/game_model.dart';
 import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
+import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'dialogue/bot_dialogue_planner.dart';
@@ -10,10 +11,17 @@ import 'dialogue/bot_dialogue_planner.dart';
 /// from the supplied observation. Strategies may be wrong; moves remain legal.
 class BotBrain {
   BotBrain(this.random,
-      {Random? dialogueRandom, this.style = BotStyle.balanced})
+      {Random? dialogueRandom,
+      this.style = BotStyle.balanced,
+      this.difficulty = BotDifficulty.normal})
       : dialogue = BotDialoguePlanner(dialogueRandom ?? Random(0));
   final Random random;
   final BotStyle style;
+  final BotDifficulty difficulty;
+
+  /// How readily Merlin votes like a servant while no quest has failed
+  /// (times his style's disguise; halved after the first failed quest).
+  static const merlinCover = 3.0;
   final BotDialoguePlanner dialogue;
 
   /// With [asServant], what this seat would think without its opening role
@@ -90,17 +98,19 @@ class BotBrain {
       }
     }
     _voteEvidence(o, p);
-    // A claim is not a private fact. It is remembered for the whole game and
-    // trusted according to the observer's own current view of its author;
-    // claims from before a Lancelot switch are dropped.
+    // A claim is not a private fact. It is remembered for the whole game
+    // (a novice only minds the latest) and trusted according to the
+    // observer's own current view of its author; claims from before a
+    // Lancelot switch are dropped.
     for (final claim in o.statements) {
       if (claim.claimedEvil == null ||
           claim.target == null ||
           claim.speaker == o.seat ||
+          (!difficulty.remembersClaims && claim.quest != o.quest) ||
           (claim.switched != null && claim.switched != o.switched)) {
         continue;
       }
-      final trust = max(0.0, .5 - p[claim.speaker]) * .5;
+      final trust = max(0.0, .5 - p[claim.speaker]) * difficulty.claimTrust;
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
     }
     for (final statement in o.statements) {
@@ -148,7 +158,7 @@ class BotBrain {
       if ((_unexplained(o, q) ?? 0) == 0) continue;
       for (var s = 0; s < o.count; s++) {
         if (s == o.seat || proposal.team.contains(s)) continue;
-        p[s] += proposal.votes[s] ? .05 : -.04;
+        p[s] += (proposal.votes[s] ? .05 : -.04) * difficulty.voteEvidence;
       }
     }
   }
@@ -180,6 +190,9 @@ class BotBrain {
         q == 0 ? .6 : .8
       ));
     }
+    // Percival: exactly one of his two candidates is Morgana.
+    final pair =
+        o.role == Role.percival && o.visible.length == 2 ? o.visible : null;
     if (quests.isEmpty && mustBe.length == 1) return;
     final inEvil = List.filled(n, 0), weightEvil = List.filled(n, 0.0);
     var fits = 0, weight = 0.0;
@@ -188,6 +201,9 @@ class BotBrain {
       if (set.length == evils) {
         for (final e in mustBe.entries) {
           if (set.contains(e.key) != e.value) return;
+        }
+        if (pair != null && set.contains(pair[0]) == set.contains(pair[1])) {
+          return;
         }
         // How well this deal explains the cards seen. Evil players on one
         // team agree to show only as many Fails as needed, so a Fail says
@@ -222,7 +238,8 @@ class BotBrain {
         p[s] = inEvil[s] == 0 ? 0 : 1;
       } else if (!privateBeliefs.containsKey(s)) {
         // mostly the reasoned estimate, nudged by votes and claims
-        p[s] = .25 * p[s].clamp(0.0, 1.0) + .75 * weightEvil[s] / weight;
+        final r = difficulty.reasoning;
+        p[s] = (1 - r) * p[s].clamp(0.0, 1.0) + r * weightEvil[s] / weight;
       }
     }
   }
@@ -265,23 +282,38 @@ class BotBrain {
     collect([], 0);
     // Early on, Merlin sometimes sends the team an ordinary servant would,
     // so that his proposals are not always spotless.
+    final early = o.failures == 0 && o.successes < 2;
     final hide = o.role == Role.merlin &&
-        o.failures == 0 &&
-        o.successes < 2 &&
-        random.nextDouble() < style.disguise;
-    final p = suspicion(o, asServant: hide);
+        early &&
+        random.nextDouble() < style.disguise * difficulty.rolePlay;
     final allies = o.evil ? _knownAllies(o) : const <int>{};
+    // Morgana poses as Merlin: early on she may lead a team that looks
+    // spotless, herself and players nobody doubts, and keep her allies off.
+    final pose = o.role == Role.morgana &&
+        o.evil &&
+        early &&
+        o.quest <= 2 &&
+        random.nextDouble() < .6 * difficulty.rolePlay;
+    final p = suspicion(o, asServant: hide || pose);
+    if (pose) {
+      for (final s in allies) {
+        p[s] = s == o.seat ? 0 : 1;
+      }
+    }
+    // Mordred is the one evil player Merlin cannot warn against, so he
+    // pushes himself forward.
+    final selfBias = style.selfBias + (o.role == Role.mordred ? .1 : 0);
     final scored = [
       for (final team in candidates)
         (
           team,
-          (o.evil ? 1 : -1) * _risk(o, p, team) +
-              (team.contains(o.seat) ? style.selfBias : 0) +
+          (o.evil && !pose ? 1 : -1) * _risk(o, p, team) +
+              (team.contains(o.seat) ? selfBias : 0) +
               // An evil leader brings just enough saboteurs: every extra
               // ally on a failed quest is one more player exposed.
-              -.5 *
+              -difficulty.stacking *
                   max(0, team.where(allies.contains).length - o.failsRequired) +
-              random.nextDouble() * style.noise
+              random.nextDouble() * style.noise * difficulty.noise
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
@@ -303,17 +335,30 @@ class BotBrain {
               ? .55
               : .3;
       // Morgana wants Percival to take her for Merlin: she backs clean teams.
-      if (o.role == Role.morgana && o.successes < 2) blend += .2;
-      return random.nextDouble() < min(.9, blend * style.blend);
+      if (o.role == Role.morgana && o.successes < 2) {
+        blend += .2 * difficulty.rolePlay;
+      }
+      // Mordred can afford to look agreeable: Merlin does not see him.
+      if (o.role == Role.mordred && o.successes < 2) blend += .1;
+      return random.nextDouble() <
+          min(.9, blend * style.blend * difficulty.blend);
     }
-    final real = _goodVote(o, p);
+    var real = _goodVote(o, p);
+    // a beginner sometimes simply votes the other way
+    if (difficulty.slip > 0 && random.nextDouble() < difficulty.slip) {
+      real = !real;
+    }
     // Merlin who always votes by what he sees is found by the Assassin, so
     // now and then he votes like a servant who knows nothing. Not when one
     // more failed quest would lose the game.
-    if (o.role == Role.merlin && style.disguise > 0 && o.failures < 2) {
+    // The less is at stake, the more he can afford to play the servant.
+    final disguise = style.disguise *
+        difficulty.rolePlay *
+        (o.failures == 0 ? merlinCover : merlinCover / 2);
+    if (o.role == Role.merlin && disguise > 0 && o.failures < 2) {
       final cover = _goodVote(o, suspicion(o, asServant: true));
       // letting a doubtful team through is the costlier act: do it less
-      final chance = cover ? style.disguise * .8 : style.disguise * 1.3;
+      final chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
       if (cover != real && random.nextDouble() < chance) return cover;
     }
     return real;
@@ -338,7 +383,9 @@ class BotBrain {
       var sway = .3 * style.follow;
       // Percival backs the candidate he takes for Merlin, and doubts the
       // other one; it also makes him look as informed as Merlin.
-      if (o.role == Role.percival && o.visible.contains(o.leader)) sway += .5;
+      if (o.role == Role.percival && o.visible.contains(o.leader)) {
+        sway += .5 * difficulty.rolePlay;
+      }
       margin += (prior - p[o.leader]) * sway;
     }
     return risk <= best + margin + style.trusting;
@@ -382,7 +429,14 @@ class BotBrain {
     }
     if (o.failures == 2 || o.successes == 2) return false;
     var conceal = (o.quest == 1 ? .38 : .16) + style.conceal;
-    if (o.role == Role.morgana && o.quest <= 2) conceal += .15;
+    if (o.role == Role.morgana && o.quest <= 2) {
+      conceal += .15 * difficulty.rolePlay;
+    }
+    // On a pair, a Fail tells the partner exactly who played it.
+    if (o.team.length == 2) conceal += .1 * difficulty.rolePlay;
+    // Oberon and evil Lancelot have no ally who knows to cover for them or
+    // to fail in their place, so they hold back less.
+    if (o.role == Role.oberon || o.role == Role.lancelotEvil) conceal -= .08;
     final holder = o.excaliburHolder;
     if (holder != null && holder != o.seat && p[holder] <= .15) conceal += .2;
     return random.nextDouble() < conceal;
@@ -417,6 +471,18 @@ class BotBrain {
       for (var s = 0; s < o.count; s++)
         if (!o.ladyPast.contains(s)) s
     ];
+    if (o.evil) {
+      // An evil holder learns little. Half the time the Lady goes to an
+      // ally, who is then "cleared" and keeps her in evil hands; otherwise
+      // to a good player, who can be framed.
+      final allies = _knownAllies(o)..remove(o.seat);
+      if (allies.isNotEmpty) {
+        final wanted = random.nextBool();
+        final group =
+            choices.where((s) => allies.contains(s) == wanted).toList();
+        if (group.isNotEmpty) return group[random.nextInt(group.length)];
+      }
+    }
     double information(int s) =>
         1 -
         (p[s] - .5).abs() * 2 +
@@ -428,14 +494,37 @@ class BotBrain {
 
   int assassinate(BotObservation o) {
     final p = suspicion(o);
+    final evil = {o.seat, ...o.visible};
+    // Merlin gives himself away by acting on what only he can know. A
+    // beginner only notices who leads clean teams; most players also count
+    // votes that match where evil sat; an expert weighs them: turning down
+    // a team with evil on it early, before the table had a reason to, says
+    // most, agreeing with a clean team says little, and leading or waving
+    // through evil speaks against.
     double merlinScore(int seat) {
       var score = 1 - p[seat];
       for (final proposal in o.proposals) {
-        final containsKnownEvil = proposal.team.any(o.visible.contains);
-        if (proposal.leader == seat && !containsKnownEvil) score += .25;
-        if (proposal.votes[seat] != containsKnownEvil) score += .12;
+        if (proposal.attempt >= 5) continue; // everyone approves the fifth
+        final dirty = proposal.team.any(evil.contains);
+        final approved = proposal.votes[seat];
+        switch (difficulty) {
+          case BotDifficulty.novice:
+            if (proposal.leader == seat && !dirty) score += .25;
+          case BotDifficulty.normal:
+            if (proposal.leader == seat && !dirty) score += .25;
+            if (approved != dirty) score += .12;
+          case BotDifficulty.expert:
+            final early = proposal.quest <= 2 ? 1.3 : 1.0;
+            if (proposal.leader == seat) score += dirty ? -.3 : .2;
+            if (approved) {
+              score +=
+                  dirty ? (proposal.team.contains(seat) ? -.04 : -.12) : .05;
+            } else {
+              score += dirty ? .16 * early : -.08;
+            }
+        }
       }
-      return score + random.nextDouble() * .3;
+      return score + random.nextDouble() * difficulty.assassinNoise;
     }
 
     final scored = [

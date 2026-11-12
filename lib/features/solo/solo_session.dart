@@ -6,6 +6,7 @@ import '../game/game_model.dart';
 import '../game/game_session.dart';
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
+import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'dialogue/bot_contract.dart';
@@ -16,6 +17,7 @@ import 'dialogue/bot_contract.dart';
 class SoloGameSession extends GameSession {
   SoloGameSession(Room room,
       {Random? random,
+      this.difficulty = BotDifficulty.normal,
       this.botDelay = const Duration(milliseconds: 450),
       this.speechDuration = const Duration(seconds: 5)})
       : _random = random ?? Random.secure(),
@@ -27,6 +29,9 @@ class SoloGameSession extends GameSession {
   final LocalGameSession _local;
   final Random _random;
   final Duration botDelay, speechDuration;
+
+  /// How well every computer player reasons and acts in this game.
+  final BotDifficulty difficulty;
   Timer? _botTimer;
   bool _disposed = false, _paused = false;
   int? _pausedSpeechMillis;
@@ -49,7 +54,9 @@ class SoloGameSession extends GameSession {
     for (var s = 0; s < players.length; s++) {
       final seed = _random.nextInt(1 << 30);
       _brains[s] = BotBrain(Random(seed),
-          dialogueRandom: Random(seed ^ 0x5a17), style: styles[s]);
+          dialogueRandom: Random(seed ^ 0x5a17),
+          style: styles[s],
+          difficulty: difficulty);
       _facts[s] = [];
       _ownCards[s] = {};
     }

@@ -8,6 +8,7 @@ import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
+import '../solo/bot_difficulty.dart';
 
 class LocalPlayScreen extends StatefulWidget {
   const LocalPlayScreen({super.key, this.solo = false});
@@ -21,6 +22,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   int playerCount = 5;
   DiscussionSettings discussion = const DiscussionSettings();
   ExpansionSettings expansions = const ExpansionSettings();
+  BotDifficulty difficulty = BotDifficulty.normal;
   final names = List.generate(10, (i) => '玩家${i + 1}');
   final roles = <String>{'梅林', '刺客', '派西維爾', '莫甘娜'};
   @override
@@ -113,6 +115,46 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AvalonTheme.gold)),
+                if (widget.solo) ...[
+                  const SizedBox(width: 10),
+                  PopupMenuButton<BotDifficulty>(
+                    key: const ValueKey('botDifficulty'),
+                    tooltip: '電腦難度',
+                    initialValue: difficulty,
+                    onSelected: (value) => setState(() => difficulty = value),
+                    itemBuilder: (_) => [
+                      for (final level in BotDifficulty.values)
+                        PopupMenuItem(
+                          key: ValueKey('botDifficulty_${level.name}'),
+                          value: level,
+                          child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(level.label),
+                                Text(level.description,
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AvalonTheme.muted)),
+                              ]),
+                        ),
+                    ],
+                    child: Container(
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                          color: AvalonTheme.raised,
+                          borderRadius: BorderRadius.circular(9)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text('難度：${difficulty.label}',
+                            style: const TextStyle(
+                                fontSize: 12, color: AvalonTheme.gold)),
+                        const Icon(Icons.arrow_drop_down,
+                            size: 18, color: AvalonTheme.muted),
+                      ]),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 IconButton(
                     tooltip: '發言設定',
@@ -382,7 +424,9 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                 context,
                                 MaterialPageRoute(
                                     builder: (_) => widget.solo
-                                        ? GameScreen.solo(room: configuration)
+                                        ? GameScreen.solo(
+                                            room: configuration,
+                                            difficulty: difficulty)
                                         : GameScreen(room: configuration)))
                             : null,
                         icon: const Icon(Icons.play_arrow),

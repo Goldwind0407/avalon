@@ -4,6 +4,7 @@ import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
+import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 
@@ -39,7 +40,13 @@ class SelfPlayStats {
  lone useless Fail on two-Fail quests $uselessLoneFails | good unsure about the partner on a failed pair ${_pc(certainMissed, certainCases)} of $certainCases''';
 }
 
-SelfPlayStats selfPlay(int n, int games) {
+/// [good] and [evil] set the level of the seats dealt to each side, so one
+/// side's skill can be measured against the other's. [roles] replaces the
+/// recommended special roles for [n] players.
+SelfPlayStats selfPlay(int n, int games,
+    {BotDifficulty good = BotDifficulty.normal,
+    BotDifficulty evil = BotDifficulty.normal,
+    Set<Role>? roles}) {
   final stats = SelfPlayStats(n, games);
   for (var g = 0; g < games; g++) {
     final rng = Random(g * 31 + n);
@@ -47,13 +54,14 @@ SelfPlayStats selfPlay(int n, int games) {
         code: '',
         players: List.generate(
             n, (i) => Player(id: '$i', name: 'P$i', isReady: true)))
-      ..specialRoles.addAll([for (final r in rolePreset(n)!) r.label])
+      ..specialRoles.addAll([for (final r in roles ?? rolePreset(n)!) r.label])
       ..expansions = const ExpansionSettings();
     final game = AvalonGame(room, random: rng);
     final styles = BotStyle.deal(n, rng);
     final brains = [
       for (var i = 0; i < n; i++)
-        BotBrain(Random(rng.nextInt(1 << 30)), style: styles[i])
+        BotBrain(Random(rng.nextInt(1 << 30)),
+            style: styles[i], difficulty: game.roles[i].isEvil ? evil : good)
     ];
     final own = [for (var i = 0; i < n; i++) <int, bool>{}];
     for (var i = 0; i < n; i++) {
@@ -79,7 +87,7 @@ SelfPlayStats selfPlay(int n, int games) {
         statements: const [],
         ownCards: own[s],
         phase: phase);
-    bool evil(int s) => game.roles[s].isEvil;
+    bool isEvil(int s) => game.roles[s].isEvil;
     final merlin = game.roles.indexOf(Role.merlin);
     var guard = 0;
     while (game.phase != GamePhase.finished) {
@@ -89,15 +97,15 @@ SelfPlayStats selfPlay(int n, int games) {
           final l = game.leader;
           final team =
               brains[l].chooseTeam(see(l, GamePhase.team), game.requiredTeam);
-          if (evil(l)) {
+          if (isEvil(l)) {
             stats.evilLeads++;
-            if (team.where(evil).length >= 2) stats.evilLeadsStacked++;
+            if (team.where(isEvil).length >= 2) stats.evilLeadsStacked++;
           }
           game.proposeTeam(team);
         case GamePhase.vote:
-          final dirty = game.team.any(evil);
+          final dirty = game.team.any(isEvil);
           final seen =
-              game.team.any((s) => evil(s) && game.roles[s] != Role.mordred);
+              game.team.any((s) => isEvil(s) && game.roles[s] != Role.mordred);
           final votes = [
             for (var s = 0; s < n; s++) brains[s].vote(see(s, GamePhase.vote))
           ];
@@ -107,7 +115,7 @@ SelfPlayStats selfPlay(int n, int games) {
           if (game.rejections == 4) {
             stats.hammers++;
             if ([for (var s = 0; s < n; s++) s]
-                .any((s) => evil(s) && !votes[s])) {
+                .any((s) => isEvil(s) && !votes[s])) {
               stats.hammerEvilRejects++;
             }
           } else {
@@ -115,7 +123,7 @@ SelfPlayStats selfPlay(int n, int games) {
             if (votes[merlin] == !seen) stats.merlinTellingVotes++;
             if (!dirty) {
               for (var s = 0; s < n; s++) {
-                if (!evil(s)) continue;
+                if (!isEvil(s)) continue;
                 stats.evilVotesOnClean++;
                 if (votes[s]) stats.evilApprovesClean++;
               }
@@ -142,7 +150,7 @@ SelfPlayStats selfPlay(int n, int games) {
           game.continueQuest();
           // a good player on a failed pair knows the partner is evil
           if (team.length == 2 && fails == 1 && game.phase == GamePhase.team) {
-            for (final s in team.where((s) => !evil(s))) {
+            for (final s in team.where((s) => !isEvil(s))) {
               stats.certainCases++;
               final partner = team.firstWhere((x) => x != s);
               if (brains[s].suspicion(see(s, GamePhase.team))[partner] < .95) {

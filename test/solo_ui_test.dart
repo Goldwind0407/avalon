@@ -169,4 +169,31 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     session.dispose();
   });
+
+  testWidgets('solo setup lets the player choose the computer level',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final size in [const Size(667, 320), const Size(932, 430)]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(MaterialApp(
+          theme: AvalonTheme.dark,
+          home: LocalPlayScreen(key: UniqueKey(), solo: true)));
+      await tester.pumpAndSettle();
+      expect(find.text('難度：一般'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: '$size');
+      await tester.tap(find.byKey(const ValueKey('botDifficulty')));
+      await tester.pumpAndSettle();
+      expect(find.text('新手'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('botDifficulty_expert')));
+      await tester.pumpAndSettle();
+      expect(find.text('難度：高手'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: '$size');
+    }
+    // pass & play has no computer players, so no level to choose
+    await tester.pumpWidget(MaterialApp(
+        theme: AvalonTheme.dark, home: LocalPlayScreen(key: UniqueKey())));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('botDifficulty')), findsNothing);
+  });
 }

@@ -23,6 +23,7 @@ import '../online/voice/voice_controller.dart';
 import '../online/voice/voice_controls.dart';
 import '../notebook/notebook_screen.dart';
 import '../rules/rules_screen.dart';
+import '../solo/bot_difficulty.dart';
 import '../solo/solo_session.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
@@ -39,9 +40,13 @@ class GameScreen extends StatefulWidget {
   const GameScreen({super.key, required Room this.room})
       : session = null,
         voice = null,
-        solo = false;
+        solo = false,
+        difficulty = BotDifficulty.normal;
 
-  const GameScreen.solo({super.key, required Room this.room})
+  const GameScreen.solo(
+      {super.key,
+      required Room this.room,
+      this.difficulty = BotDifficulty.normal})
       : session = null,
         voice = null,
         solo = true;
@@ -50,12 +55,16 @@ class GameScreen extends StatefulWidget {
   const GameScreen.online(
       {super.key, required GameSession this.session, this.voice})
       : room = null,
-        solo = false;
+        solo = false,
+        difficulty = BotDifficulty.normal;
 
   final Room? room;
   final GameSession? session;
   final VoiceController? voice;
   final bool solo;
+
+  /// Solo: the level of the computer players.
+  final BotDifficulty difficulty;
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -119,7 +128,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     super.initState();
     game = widget.session ??
         (widget.solo
-            ? SoloGameSession(widget.room!)
+            ? SoloGameSession(widget.room!, difficulty: widget.difficulty)
             : LocalGameSession(widget.room!));
     final n = game.players.length;
     List<GlobalKey> keys() => List.generate(n, (_) => GlobalKey());
