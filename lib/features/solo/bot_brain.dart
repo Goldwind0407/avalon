@@ -81,17 +81,18 @@ class BotBrain {
         }
       }
     }
-    // A claim is not a private fact. Trust it only weakly, according to the
-    // observer's own current view of its author, and discount old alignments.
+    _voteEvidence(o, p);
+    // A claim is not a private fact. It is remembered for the whole game and
+    // trusted according to the observer's own current view of its author;
+    // claims from before a Lancelot switch are dropped.
     for (final claim in o.statements) {
       if (claim.claimedEvil == null ||
           claim.target == null ||
           claim.speaker == o.seat ||
-          claim.quest != o.quest ||
           (claim.switched != null && claim.switched != o.switched)) {
         continue;
       }
-      final trust = max(0.0, .5 - p[claim.speaker]) * .2;
+      final trust = max(0.0, .5 - p[claim.speaker]) * .5;
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
     }
     for (final statement in o.statements) {
@@ -107,7 +108,115 @@ class BotBrain {
       p[entry.key] = entry.value;
     }
     p[o.seat] = o.evil ? 1 : 0;
+    _deduce(o, p, privateBeliefs);
     return [for (final value in p) value.clamp(0.0, 1.0)];
+  }
+
+  /// Fail cards on quest number [index] + 1 that this player cannot explain
+  /// with a sword flip or their own card; null when the quest proves nothing
+  /// now (the Lancelots have changed sides since).
+  int? _unexplained(BotObservation o, int index) {
+    final result = o.history[index];
+    final switchedThen =
+        o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
+    if (o.expansions.lancelot > 0 && switchedThen != o.switched) return null;
+    var fails = result.fails - (result.excaliburTarget == null ? 0 : 1);
+    if (o.ownCards[index + 1] == false && result.excaliburTarget != o.seat) {
+      fails--;
+    }
+    return max(0, fails);
+  }
+
+  /// Who voted for the team that then failed is the table's main public clue:
+  /// approving it from outside is a little suspicious, rejecting it a little
+  /// reassuring. The forced fifth proposal says nothing.
+  void _voteEvidence(BotObservation o, List<double> p) {
+    for (var q = 0; q < o.history.length; q++) {
+      final approved =
+          o.proposals.where((r) => r.quest == q + 1 && r.approved).toList();
+      if (approved.isEmpty || approved.last.attempt >= 5) continue;
+      final proposal = approved.last;
+      if (o.history[q].excaliburTarget != null) continue;
+      if ((_unexplained(o, q) ?? 0) == 0) continue;
+      for (var s = 0; s < o.count; s++) {
+        if (s == o.seat || proposal.team.contains(s)) continue;
+        p[s] += proposal.votes[s] ? .05 : -.04;
+      }
+    }
+  }
+
+  /// The logic every player does at the table: go through every way the evil
+  /// seats could be dealt that fits what this player knows for certain and the
+  /// Fail cards seen. A seat that is evil in all of them is evil; a seat that
+  /// is evil in none is good; the others move towards how often they are.
+  void _deduce(
+      BotObservation o, List<double> p, Map<int, double> privateBeliefs) {
+    final n = o.count, evils = Room.evilCount(n);
+    final mustBe = <int, bool>{
+      for (final e in privateBeliefs.entries)
+        if (e.value == 0 || e.value == 1) e.key: e.value == 1,
+      o.seat: o.evil,
+    };
+    // (other team members, Fail cards they played, how readily evil fails)
+    final quests = <(List<int>, int, double)>[];
+    for (var q = 0; q < o.history.length; q++) {
+      final fails = _unexplained(o, q);
+      if (fails == null || o.history[q].excaliburTarget != null) continue;
+      quests.add((
+        [
+          for (final s in o.history[q].team)
+            if (s != o.seat) s
+        ],
+        fails,
+        // evil players hide more often on the first quest
+        q == 0 ? .6 : .8
+      ));
+    }
+    if (quests.isEmpty && mustBe.length == 1) return;
+    final inEvil = List.filled(n, 0), weightEvil = List.filled(n, 0.0);
+    var fits = 0, weight = 0.0;
+    final set = <int>[];
+    void walk(int from) {
+      if (set.length == evils) {
+        for (final e in mustBe.entries) {
+          if (set.contains(e.key) != e.value) return;
+        }
+        // How well this deal explains the cards seen. Evil players on one
+        // team agree to show only as many Fails as needed, so a Fail says
+        // "at least that many" and no more; a clean quest speaks against
+        // every evil player who would have had to hold back.
+        var likelihood = 1.0;
+        for (final (team, fails, f) in quests) {
+          final k = team.where(set.contains).length;
+          if (k < fails) return;
+          if (fails == 0) likelihood *= pow(1 - f, k);
+        }
+        fits++;
+        weight += likelihood;
+        for (final s in set) {
+          inEvil[s]++;
+          weightEvil[s] += likelihood;
+        }
+        return;
+      }
+      for (var s = from; s <= n - (evils - set.length); s++) {
+        set.add(s);
+        walk(s + 1);
+        set.removeLast();
+      }
+    }
+
+    walk(0);
+    if (fits == 0) return; // contradictory clues: keep the soft estimate
+    for (var s = 0; s < n; s++) {
+      if (s == o.seat) continue;
+      if (inEvil[s] == 0 || inEvil[s] == fits) {
+        p[s] = inEvil[s] == 0 ? 0 : 1;
+      } else if (!privateBeliefs.containsKey(s)) {
+        // mostly the reasoned estimate, nudged by votes and claims
+        p[s] = .25 * p[s].clamp(0.0, 1.0) + .75 * weightEvil[s] / weight;
+      }
+    }
   }
 
   /// Independent estimates are a heuristic, not calibrated probabilities.
@@ -147,12 +256,17 @@ class BotBrain {
 
     collect([], 0);
     final p = suspicion(o);
+    final allies = o.evil ? _knownAllies(o) : const <int>{};
     final scored = [
       for (final team in candidates)
         (
           team,
           (o.evil ? 1 : -1) * _risk(o, p, team) +
               (team.contains(o.seat) ? .08 : 0) +
+              // An evil leader brings just enough saboteurs: every extra
+              // ally on a failed quest is one more player exposed.
+              -.5 *
+                  max(0, team.where(allies.contains).length - o.failsRequired) +
               random.nextDouble() * .06
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
@@ -160,40 +274,76 @@ class BotBrain {
   }
 
   bool vote(BotObservation o) {
-    if (o.rejections == 4) return !o.evil;
-    final risk = teamRisk(o, o.team);
-    if (o.evil) return risk > .45 || random.nextDouble() < .12;
-    final threshold = (o.failures == 2 ? .48 : .65) + o.rejections * .035;
-    return risk <= threshold;
+    // The fifth proposal passes whatever a minority does (a tie or less is
+    // needed to reject), and votes are public: rejecting only exposes evil.
+    if (o.rejections == 4) return true;
+    final p = suspicion(o);
+    final risk = _risk(o, p, o.team);
+    if (o.evil) {
+      if (risk > .45) return true;
+      // A team that will not fail: go along with it early to blend in, fight
+      // it when it would be good's winning quest.
+      final blend = o.successes == 2
+          ? .1
+          : o.quest <= 2
+              ? .55
+              : .3;
+      return random.nextDouble() < blend;
+    }
+    // Never wave through a player this seat is (nearly) sure is evil.
+    if (o.team.any((s) => s != o.seat && p[s] >= .9)) return false;
+    // "Is this about as safe as the team I would send?" rather than a fixed
+    // bar, so large teams are not rejected just for being large.
+    final safest = [for (var s = 0; s < o.count; s++) s]
+      ..sort((a, b) => p[a].compareTo(p[b]));
+    final best = _risk(o, p, safest.take(o.team.length).toList());
+    var margin = o.failures == 2
+        ? .05 + .03 * o.rejections
+        : (o.history.isEmpty ? .3 : .1) + .04 * o.rejections;
+    // People go along with a leader they have come to trust, and look
+    // harder at the team of one they doubt.
+    final prior = Room.evilCount(o.count) / o.count;
+    if (o.leader != o.seat) margin += (prior - p[o.leader]) * .3;
+    return risk <= best + margin;
+  }
+
+  /// Seats this (evil) player knows are on their side right now: the opening
+  /// view while it still holds, plus their own Lady and sword findings.
+  Set<int> _knownAllies(BotObservation o) {
+    final known = <int>{o.seat};
+    if ((!o.switched || o.expansions.lancelot == 0) &&
+        o.role != Role.oberon &&
+        o.role != Role.lancelotEvil) {
+      known.addAll(o.visible);
+    }
+    for (final fact in o.facts) {
+      if (fact.switched != o.switched && o.expansions.lancelot > 0) continue;
+      if (fact.evil == true || fact.originalCard == false) {
+        known.add(fact.target);
+      } else if (fact.evil == false) {
+        known.remove(fact.target);
+      }
+    }
+    return known;
   }
 
   bool questCard(BotObservation o) {
     if (!o.evil) return true;
     if (o.mustFail) return false;
     final p = suspicion(o);
-    final knownAllies = <int>{o.seat};
-    if ((!o.switched || o.expansions.lancelot == 0) &&
-        o.role != Role.oberon &&
-        o.role != Role.lancelotEvil) {
-      knownAllies.addAll(o.visible);
-    }
-    for (final fact in o.facts) {
-      if (fact.switched != o.switched && o.expansions.lancelot > 0) continue;
-      if (fact.evil == true || fact.originalCard == false) {
-        knownAllies.add(fact.target);
-      } else if (fact.evil == false) {
-        knownAllies.remove(fact.target);
-      }
-    }
+    final knownAllies = _knownAllies(o);
     final allies = o.team.where(knownAllies.contains).toList()..sort();
     if (allies.length >= max(2, o.failsRequired)) {
       // A shared seat-order convention needs no secret communication. Every
       // designated saboteur commits; surplus allies conceal themselves.
       return !allies.take(o.failsRequired).contains(o.seat);
     }
-    if (o.failures == 2 || o.successes == 2 || o.failsRequired == 2) {
-      return false;
+    if (o.failsRequired == 2) {
+      // One Fail alone changes nothing and gives this seat away. Only play
+      // it when someone else on the team may well add the second one.
+      return !o.team.any((s) => !knownAllies.contains(s) && p[s] >= .5);
     }
+    if (o.failures == 2 || o.successes == 2) return false;
     var conceal = o.quest == 1 ? .38 : .16;
     final holder = o.excaliburHolder;
     if (holder != null && holder != o.seat && p[holder] <= .15) conceal += .2;

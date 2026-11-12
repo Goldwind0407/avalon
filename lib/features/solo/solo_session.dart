@@ -105,7 +105,10 @@ class SoloGameSession extends GameSession {
         originalCard: reveal.card));
     if (phase == GamePhase.ladyResult && owner != mySeat) {
       // The public statement may be a lie. Only this holder's fact is true.
-      final lie = _rules.evilNow(owner) && _random.nextDouble() < .45;
+      // An evil holder covers for an evil player and sometimes frames a
+      // good one; they do not give their own side away.
+      final lie = _rules.evilNow(owner) &&
+          _random.nextDouble() < (reveal.evil! ? .9 : .35);
       final claim = reveal.evil! != lie;
       _statements.add(DiscussionStatement(
           generation: generation,

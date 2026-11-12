@@ -189,7 +189,11 @@ void main() {
     ], ownCards: {
       1: false
     }));
-    expect(ownFail[1], brain.suspicion(view(role: Role.minion, evil: true))[1]);
+    // the partner's Success is no proof of anything, and never raises doubt
+    expect(
+        ownFail[1],
+        lessThanOrEqualTo(
+            brain.suspicion(view(role: Role.minion, evil: true))[1]));
   });
   test('Lady evidence ages across a switch; another player claim is not a fact',
       () {
@@ -222,8 +226,9 @@ void main() {
   test('fifth rejection pressure and double-Fail risk are considered', () {
     final brain = BotBrain(Random(2));
     expect(brain.vote(view(rejects: 4)), isTrue);
+    // a minority cannot stop the fifth proposal; rejecting only exposes evil
     expect(
-        brain.vote(view(rejects: 4, role: Role.assassin, evil: true)), isFalse);
+        brain.vote(view(rejects: 4, role: Role.assassin, evil: true)), isTrue);
     expect(brain.teamRisk(view(failsRequired: 2), [1, 2, 3]),
         lessThan(brain.teamRisk(view(), [1, 2, 3])));
   });
@@ -247,5 +252,76 @@ void main() {
     final b = view(visible: [1, 2], role: Role.merlin);
     expect(BotBrain(Random(44)).chooseTeam(a, 3),
         BotBrain(Random(44)).chooseTeam(b, 3));
+  });
+  test('a good player on a failed pair knows the partner is evil', () {
+    final brain = BotBrain(Random(1));
+    final p = brain.suspicion(view(count: 5, history: [
+      QuestResult([0, 1], 1, false)
+    ], ownCards: {
+      1: true
+    }));
+    expect(p[1], 1);
+    // one evil seat is left among the other three
+    expect(p[2], closeTo(1 / 3, .1));
+    // an outsider only knows one of the pair is evil
+    final outside = brain.suspicion(view(count: 5, seat: 4, history: [
+      QuestResult([0, 1], 1, false)
+    ]));
+    expect(outside[0], greaterThan(.5));
+    expect(outside[0], lessThan(1));
+    expect(outside[0], outside[1]);
+    // once every evil seat is known, everyone else is cleared
+    final solved = brain.suspicion(view(count: 5, history: [
+      QuestResult([0, 1], 1, false),
+      QuestResult([0, 2], 1, false)
+    ], ownCards: {
+      1: true,
+      2: true
+    }));
+    expect([solved[1], solved[2], solved[3], solved[4]], [1, 1, 0, 0]);
+  });
+  test('a clean quest makes its members more trusted', () {
+    final brain = BotBrain(Random(1));
+    final p = brain.suspicion(view(history: [
+      QuestResult([1, 2, 3], 0, true)
+    ]));
+    expect(p[1], lessThan(p[4]));
+  });
+  test('an evil leader does not stack the team with allies', () {
+    for (var seed = 0; seed < 30; seed++) {
+      final team = BotBrain(Random(seed)).chooseTeam(
+          view(role: Role.assassin, evil: true, visible: [1, 2]), 3);
+      expect(team.where([0, 1, 2].contains).length, 1, reason: '$team');
+    }
+  });
+  test('a lone Fail is not wasted on a quest that needs two', () {
+    for (var seed = 0; seed < 30; seed++) {
+      // every ally is known and none is on the team: nobody adds a second
+      expect(
+          BotBrain(Random(seed)).questCard(view(
+              role: Role.assassin,
+              evil: true,
+              visible: [5, 6],
+              team: [0, 1, 2, 3],
+              failsRequired: 2)),
+          isTrue);
+    }
+  });
+  test('evil sometimes goes along with a clean team; good refuses known evil',
+      () {
+    var approvals = 0;
+    for (var seed = 0; seed < 200; seed++) {
+      if (BotBrain(Random(seed)).vote(view(
+          role: Role.assassin, evil: true, visible: [5, 6], team: [1, 2]))) {
+        approvals++;
+      }
+    }
+    expect(approvals, inInclusiveRange(60, 160));
+    for (var rejects = 0; rejects < 4; rejects++) {
+      expect(
+          BotBrain(Random(1)).vote(view(
+              role: Role.merlin, visible: [1], team: [0, 1], rejects: rejects)),
+          isFalse);
+    }
   });
 }
