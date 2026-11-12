@@ -3,16 +3,60 @@ import '../game/game_model.dart';
 import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
 import 'bot_observation.dart';
+import 'dialogue/bot_dialogue_planner.dart';
 
 /// A deliberately modest, reproducible first opponent. All deductions come
 /// from the supplied observation. Strategies may be wrong; moves remain legal.
 class BotBrain {
-  BotBrain(this.random);
+  BotBrain(this.random, {Random? dialogueRandom})
+      : dialogue = BotDialoguePlanner(dialogueRandom ?? Random(0));
   final Random random;
+  final BotDialoguePlanner dialogue;
 
   List<double> suspicion(BotObservation o) {
-    final p = List.filled(o.count, Room.evilCount(o.count) / o.count);
-    final privateBeliefs = <int, double>{};
+    final opening = <int, double>{o.seat: o.evil ? 1 : 0};
+    final privateBeliefs = <int, double>{...opening};
+    final seesEvil = o.role == Role.merlin ||
+        (o.role.isEvil && o.role != Role.oberon && o.role != Role.lancelotEvil);
+    if (seesEvil) {
+      for (final seat in o.visible) {
+        opening[seat] = o.switched && o.expansions.lancelot > 0 ? .65 : 1;
+        privateBeliefs[seat] = opening[seat]!;
+      }
+    }
+    if (o.role == Role.percival) {
+      // The pair contains one Merlin and one Morgana, never a Lancelot.
+      for (final seat in o.visible) {
+        opening[seat] = o.visible.length == 1 ? 0 : .5;
+        if (o.visible.length == 1) privateBeliefs[seat] = 0;
+      }
+    }
+    final facts = [...o.facts]..sort((a, b) => a.quest.compareTo(b.quest));
+    for (final fact in facts) {
+      final knownEvil = fact.evil ?? (fact.originalCard == false ? true : null);
+      if (knownEvil == null) continue;
+      final canBeLancelot =
+          !(o.role == Role.percival && o.visible.contains(fact.target));
+      final uncertain = o.expansions.lancelot > 0 &&
+          fact.switched != o.switched &&
+          canBeLancelot;
+      final estimate =
+          knownEvil ? (uncertain ? .65 : 1.0) : (uncertain ? .35 : 0.0);
+      // An old uncertain clue must not dilute a current definite clue.
+      if (uncertain && [0.0, 1.0].contains(privateBeliefs[fact.target])) {
+        continue;
+      }
+      opening[fact.target] = estimate;
+      privateBeliefs[fact.target] = estimate;
+    }
+    final unknown = o.count - opening.length;
+    final remaining =
+        Room.evilCount(o.count) - opening.values.fold(0.0, (a, b) => a + b);
+    final prior = unknown == 0 ? 0.0 : (remaining / unknown).clamp(0.0, 1.0);
+    final p = List.filled(o.count, prior);
+    for (final entry in opening.entries) {
+      p[entry.key] = entry.value;
+    }
     for (var q = 0; q < o.history.length; q++) {
       final result = o.history[q];
       final switchedThen =
@@ -36,31 +80,6 @@ class BotBrain {
           p[seat] -= ageWeight * .025;
         }
       }
-    }
-    final seesEvil = o.role == Role.merlin ||
-        (o.role.isEvil && o.role != Role.oberon && o.role != Role.lancelotEvil);
-    if (seesEvil) {
-      for (final seat in o.visible) {
-        // An initially evil teammate may be a now-switched Lancelot.
-        p[seat] = o.switched && o.expansions.lancelot > 0 ? .65 : .99;
-        privateBeliefs[seat] = p[seat];
-      }
-    }
-    if (o.role == Role.percival) {
-      // Either candidate can be Morgana; never label one as Merlin here.
-      for (final seat in o.visible) {
-        p[seat] = o.visible.length == 1 ? .01 : .5;
-        if (o.visible.length == 1) privateBeliefs[seat] = p[seat];
-      }
-    }
-    for (final fact in o.facts) {
-      final knownEvil = fact.evil ?? (fact.originalCard == false ? true : null);
-      if (knownEvil == null) continue;
-      final uncertain =
-          o.expansions.lancelot > 0 && fact.switched != o.switched;
-      p[fact.target] =
-          knownEvil ? (uncertain ? .65 : .99) : (uncertain ? .35 : .01);
-      privateBeliefs[fact.target] = p[fact.target];
     }
     // A claim is not a private fact. Trust it only weakly, according to the
     // observer's own current view of its author, and discount old alignments.
@@ -93,19 +112,25 @@ class BotBrain {
 
   /// Independent estimates are a heuristic, not calibrated probabilities.
   double teamRisk(BotObservation o, List<int> team) {
-    return _risk(suspicion(o), team, o.failsRequired);
+    return _risk(o, suspicion(o), team);
   }
 
-  double _risk(List<double> p, List<int> team, int requiredFails) {
+  double _risk(BotObservation o, List<double> p, List<int> team,
+      {int? flipped}) {
     final counts = List.filled(team.length + 1, 0.0)..[0] = 1;
     var size = 0;
     for (final seat in team) {
-      final fail = p[seat] * .85;
+      var fail = p[seat] * .85;
+      if (seat == o.seat && o.mustFail) fail = 1;
+      if (seat == o.seat && o.ownCards.containsKey(o.quest)) {
+        fail = o.ownCards[o.quest]! ? 0 : 1;
+      }
+      if (seat == flipped) fail = 1 - fail;
       for (var k = ++size; k >= 0; k--) {
         counts[k] = counts[k] * (1 - fail) + (k > 0 ? counts[k - 1] * fail : 0);
       }
     }
-    return counts.skip(requiredFails).fold(0.0, (a, b) => a + b);
+    return counts.skip(o.failsRequired).fold(0.0, (a, b) => a + b);
   }
 
   List<int> chooseTeam(BotObservation o, int size) {
@@ -126,7 +151,7 @@ class BotBrain {
       for (final team in candidates)
         (
           team,
-          (o.evil ? 1 : -1) * _risk(p, team, o.failsRequired) +
+          (o.evil ? 1 : -1) * _risk(o, p, team) +
               (team.contains(o.seat) ? .08 : 0) +
               random.nextDouble() * .06
         )
@@ -145,14 +170,34 @@ class BotBrain {
   bool questCard(BotObservation o) {
     if (!o.evil) return true;
     if (o.mustFail) return false;
-    if (o.failures == 2 || o.successes == 2) return false;
     final p = suspicion(o);
-    final allies = o.team.where((s) => p[s] >= .95).toList()..sort();
-    if (allies.length > o.failsRequired &&
-        allies.indexOf(o.seat) >= o.failsRequired) {
-      return true;
+    final knownAllies = <int>{o.seat};
+    if ((!o.switched || o.expansions.lancelot == 0) &&
+        o.role != Role.oberon &&
+        o.role != Role.lancelotEvil) {
+      knownAllies.addAll(o.visible);
     }
-    return random.nextDouble() < (o.quest == 1 ? .22 : .08);
+    for (final fact in o.facts) {
+      if (fact.switched != o.switched && o.expansions.lancelot > 0) continue;
+      if (fact.evil == true || fact.originalCard == false) {
+        knownAllies.add(fact.target);
+      } else if (fact.evil == false) {
+        knownAllies.remove(fact.target);
+      }
+    }
+    final allies = o.team.where(knownAllies.contains).toList()..sort();
+    if (allies.length >= max(2, o.failsRequired)) {
+      // A shared seat-order convention needs no secret communication. Every
+      // designated saboteur commits; surplus allies conceal themselves.
+      return !allies.take(o.failsRequired).contains(o.seat);
+    }
+    if (o.failures == 2 || o.successes == 2 || o.failsRequired == 2) {
+      return false;
+    }
+    var conceal = o.quest == 1 ? .38 : .16;
+    final holder = o.excaliburHolder;
+    if (holder != null && holder != o.seat && p[holder] <= .15) conceal += .2;
+    return random.nextDouble() < conceal;
   }
 
   int swordHolder(BotObservation o, List<int> team) {
@@ -164,10 +209,18 @@ class BotBrain {
 
   int? swordTarget(BotObservation o) {
     final p = suspicion(o);
-    final choices = o.team.where((s) => s != o.seat).toList()
-      ..sort((a, b) => o.evil ? p[a].compareTo(p[b]) : p[b].compareTo(p[a]));
-    final target = choices.first;
-    return o.evil || p[target] >= .62 ? target : null;
+    final baseline = _risk(o, p, o.team);
+    var bestGain = .000001;
+    int? target;
+    for (final seat in o.team.where((s) => s != o.seat)) {
+      final flipped = _risk(o, p, o.team, flipped: seat);
+      final gain = o.evil ? flipped - baseline : baseline - flipped;
+      if (gain > bestGain) {
+        bestGain = gain;
+        target = seat;
+      }
+    }
+    return target;
   }
 
   int ladyTarget(BotObservation o) {
@@ -204,28 +257,19 @@ class BotBrain {
     return scored.first.$1;
   }
 
-  DiscussionStatement speech(BotObservation o, bool approve) {
-    final failed = o.history.indexWhere((q) => q.fails > 0);
-    final variants = approve
-        ? [
-            '我傾向讓這隊試一次，投票結果出來後再一起看。',
-            '目前這個組合我可以接受，我會投贊成。',
-            '先支持這次提案，成功也不代表隊上每個人都能完全信任。'
-          ]
-        : ['我對這隊還有疑慮，這次會投反對，想再換個組合。', '這份隊伍名單我還不太放心，我會投反對。', '我希望換人看看，這次先不支持。'];
-    var text = variants[random.nextInt(variants.length)];
-    if (o.rejections == 4 && approve) {
-      text = '已經連續四次否決了，再否決就輸，我會先讓任務出發。';
-    } else if (failed >= 0) {
-      final q = o.history[failed];
-      text = '第 ${failed + 1} 次遠征有 ${q.fails} 張失敗牌，'
-          '${q.excaliburTarget != null ? '但那次也用了王者之劍，要一起考慮。' : '還不能只靠這次就認定是哪一個人出的。'}$text';
+  DiscussionStatement speech(BotObservation o, bool approve) =>
+      dialogue.speak(o, approve, (team) => teamRisk(o, team));
+
+  DiscussionStatement assassinationSpeech(BotObservation o, int target) {
+    if (o.phase != GamePhase.assassination ||
+        o.role != Role.assassin ||
+        target < 0 ||
+        target >= o.count ||
+        target == o.seat) {
+      throw ArgumentError(
+          'Assassination declaration needs an authorized committed target');
     }
-    return DiscussionStatement(
-        speaker: o.seat,
-        quest: o.quest,
-        text: text,
-        supportsTeam: approve,
-        team: o.team);
+    return dialogue.speak(o, false, (team) => teamRisk(o, team),
+        chosenTarget: target);
   }
 }

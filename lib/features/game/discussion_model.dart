@@ -1,4 +1,8 @@
 /// Public speech. A claimed alignment is an assertion, not verified knowledge.
+enum DiscussionPosition { suspect, defend }
+
+enum DiscussionCertainty { tentative, certain, permanent }
+
 class DiscussionStatement {
   DiscussionStatement(
       {required this.speaker,
@@ -8,14 +12,39 @@ class DiscussionStatement {
       this.claimedEvil,
       this.switched,
       this.supportsTeam,
+      this.generation,
+      this.attempt,
+      this.intent,
+      this.questionTo,
+      this.replyTo,
+      this.position,
+      this.certainty = DiscussionCertainty.tentative,
+      this.claimedOriginalSuccess,
+      this.originalCardQuest,
+      this.quotedFrom,
+      this.claimsOpeningKnowledge = false,
+      List<String> evidenceIds = const [],
       List<int> team = const []})
-      : team = List.unmodifiable(team);
+      : team = List.unmodifiable(team),
+        evidenceIds = List.unmodifiable(evidenceIds);
   final int speaker, quest;
   final String text;
   final int? target;
   final bool? claimedEvil;
   final bool? switched, supportsTeam;
   final List<int> team;
+  final int? generation, attempt, questionTo, replyTo;
+
+  /// Public semantic intent, never the private strategy/role-specific rule ID.
+  final String? intent;
+  final List<String> evidenceIds;
+  final DiscussionPosition? position;
+  final DiscussionCertainty certainty;
+
+  /// Public assertions, never another player's verified private card.
+  final bool? claimedOriginalSuccess;
+  final int? originalCardQuest, quotedFrom;
+  final bool claimsOpeningKnowledge;
 }
 
 class DiscussionSettings {

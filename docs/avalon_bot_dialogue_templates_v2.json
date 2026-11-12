@@ -1,0 +1,1918 @@
+{
+  "version": "2.1-draft",
+  "generated_date": "2026-11-12",
+  "base_files": [
+    "solo_bot_rules.md",
+    "avalon_solo_bot_v2_spec.md"
+  ],
+  "warning": "trigger/prerequisites are human-readable predicates, require Dart mapping before runtime; no cheating or hidden-state access",
+  "roles": {
+    "loyal_servant": {
+      "name": "亞瑟忠臣",
+      "alignment": "正義",
+      "objective": "依公開紀錄找出可疑人，說明推理不假裝擁有私人情報"
+    },
+    "merlin": {
+      "name": "梅林",
+      "alignment": "正義",
+      "objective": "引導組隊但不暴露只有梅林知道的線索"
+    },
+    "percival": {
+      "name": "派西維爾",
+      "alignment": "正義",
+      "objective": "保護梅林，不洩漏候選人席位與對應關係"
+    },
+    "evil_minion": {
+      "name": "普通邪惡／爪牙",
+      "alignment": "邪惡",
+      "objective": "建立可信度、引導失敗隊伍、必要時掩護隊友"
+    },
+    "assassin": {
+      "name": "刺客",
+      "alignment": "邪惡",
+      "objective": "引導隊伍失敗並從公開行為推測梅林"
+    },
+    "morgana": {
+      "name": "莫甘娜",
+      "alignment": "邪惡",
+      "objective": "藉由貌似洞悉局勢的發言誤導派西維爾和一般正義"
+    },
+    "mordred": {
+      "name": "莫德雷德",
+      "alignment": "邪惡",
+      "objective": "利用梅林開局不識別的優勢隱蔽滲透"
+    },
+    "oberon": {
+      "name": "奧伯倫",
+      "alignment": "邪惡",
+      "objective": "獨立破壞，不假定認識其他邪惡隊友"
+    },
+    "lancelot_good": {
+      "name": "目前為正義的蘭斯洛特",
+      "alignment": "正義",
+      "objective": "依目前陣營判斷，尊重轉換時序與不揭露自身角色"
+    },
+    "lancelot_evil": {
+      "name": "目前為邪惡的蘭斯洛特",
+      "alignment": "邪惡",
+      "objective": "依目前陣營誤導，遵守變體二強制失敗與情報限制"
+    }
+  },
+  "entries": [
+    {
+      "id": "G01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "首次任務，沒有有效私人可公開證據",
+      "intent": "uncertain",
+      "priority": 42,
+      "prerequisites": [],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "現在公開資訊還少，我想先看這隊的投票結果。",
+        "第一場先別把任何人直接當成好人或壞人，我會看組隊理由。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "決定投贊成，且隊伍比上一提案風險更低",
+      "intent": "support_team",
+      "priority": 62,
+      "prerequisites": [
+        "cachedVote=approve",
+        "teamComparisonAvailable"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "跟上一隊相比，這個組合我比較能接受，我會贊成。",
+        "這隊至少有調整到我擔心的地方，我願意讓它試一次。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G03",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "決定投贊成，但資訊不足",
+      "intent": "cautious_support",
+      "priority": 45,
+      "prerequisites": [
+        "cachedVote=approve"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我沒有把握這隊完全安全，但現階段可以試一次。",
+        "我先支持這隊，之後再用任務結果更新判斷。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G04",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "決定投反對，隊中有可引用的公開疑點",
+      "intent": "oppose_team",
+      "priority": 72,
+      "prerequisites": [
+        "cachedVote=reject",
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我反對的原因是【目標】在第【輪次】次遠征後仍有疑點。",
+        "我擔心這隊的【目標】；先解釋第【輪次】次任務的問題吧。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G05",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "決定投反對，缺乏可公開引用的證據",
+      "intent": "oppose_soft",
+      "priority": 42,
+      "prerequisites": [
+        "cachedVote=reject"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這個組合我不太放心，我希望再看一隊。",
+        "現在我還不願意押這組，先換人試試。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G06",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "連續否決四次；正義已快取贊成票",
+      "intent": "fifth_vote_good",
+      "priority": 100,
+      "prerequisites": [
+        "rejections=4",
+        "cachedVote=approve",
+        "alignment=good"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "已經否決四次，再否決就輸，這票我會贊成。",
+        "第五次提案不能再否決了，先讓任務出發。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G07",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "連續否決四次；邪惡已快取反對票",
+      "intent": "fifth_vote_evil_deception",
+      "priority": 95,
+      "prerequisites": [
+        "rejections=4",
+        "cachedVote=reject",
+        "alignment=evil"
+      ],
+      "claim_policy": "intentional_opinion_bluff",
+      "templates": [
+        "我還是覺得這份隊伍有問題，這票我不支持。",
+        "就算局勢緊迫，我也無法認同這個組合。"
+      ],
+      "notes": "避免以明顯作弊語氣提及否決即可讓邪惡獲勝"
+    },
+    {
+      "id": "G08",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人是隊長；沿用部分上一場成功隊員",
+      "intent": "leader_reuse",
+      "priority": 60,
+      "prerequisites": [
+        "isLeader",
+        "previousQuestExists",
+        "reusedMemberExists"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "上一場的結果值得參考，所以我留下【沿用隊員】，其餘位置再觀察。",
+        "我保留上一場部分人選，因為目前沒有足夠證據把他們全部換掉。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G09",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人是隊長；前次失敗後大幅換人",
+      "intent": "leader_reset",
+      "priority": 63,
+      "prerequisites": [
+        "isLeader",
+        "previousQuestFailed",
+        "teamChangedSubstantially"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "上一隊有問題，這次我先換掉多數成員，改看新的組合。",
+        "上一場的結果讓我不放心，我要換個方向測試。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G10",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "新隊伍只替換一位隊員",
+      "intent": "single_swap_question",
+      "priority": 74,
+      "prerequisites": [
+        "oneSeatChanged",
+        "publicOldAndNew"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這隊只把【舊隊員】換成【新隊員】，我想聽聽原因。",
+        "只動了一個位置，隊長能說說這樣換的理由嗎？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G11",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人曾參與失敗遠征，但不能證明是哪個人出失敗",
+      "intent": "defend_failed_quest",
+      "priority": 72,
+      "prerequisites": [
+        "selfWasOnFailQuest",
+        "publicQuestReference"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我知道那次任務失敗會讓我被懷疑，但不能只靠結果認定某一個人。",
+        "第【輪次】次任務的失敗值得追查，但每位隊員都得分開看證據。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G12",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人是正義且私下確定自己原始牌成功、未被翻轉",
+      "intent": "defend_private_success",
+      "priority": 78,
+      "prerequisites": [
+        "alignment=good",
+        "selfQuestOriginal=success",
+        "ownCardNotFlipped"
+      ],
+      "claim_policy": "private_truth_claim",
+      "templates": [
+        "我當時出的確實是成功牌，但我知道這只是我的說法。",
+        "我能保證自己交的是成功牌，至於其他人的牌，我沒有看到。"
+      ],
+      "notes": "對外僅是主張，不能直接被其他 BOT 當成公認事實"
+    },
+    {
+      "id": "G13",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "邪惡發言者需要替失敗任務辯護",
+      "intent": "defend_evil_bluff",
+      "priority": 68,
+      "prerequisites": [
+        "alignment=evil",
+        "selfWasOnFailQuest"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我知道失敗隊伍會被懷疑，但請別跳過其他隊員的可能性。",
+        "把問題全部推給我很容易，可是這次結果並沒有指出哪張牌是誰出的。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G14",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "遠征成功但有失敗牌，未受王者之劍特殊推理覆蓋",
+      "intent": "success_with_fail",
+      "priority": 82,
+      "prerequisites": [
+        "questCompleted",
+        "publicFailCount>0",
+        "publicQuestReference"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "任務雖然成功，卻有【失敗張數】張失敗牌，不能因此直接洗白整隊。",
+        "這場沒有判失敗，不代表隊上全都安全；失敗牌數還是要記。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G15",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "遠征成功、零失敗牌",
+      "intent": "clean_quest",
+      "priority": 51,
+      "prerequisites": [
+        "questCompleted",
+        "publicFailCount=0"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這隊暫時加分，但出成功牌不一定代表好人。",
+        "沒有失敗牌是好消息，不過我還不會認定全員清白。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G16",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "某玩家投票立場與前次相似提案不同",
+      "intent": "vote_contradiction",
+      "priority": 70,
+      "prerequisites": [
+        "publicVoteHistory",
+        "similarProposal",
+        "publicTargetVoteChanged"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "【目標】上次支持類似組合，這次卻反對，是哪個新線索改變你的想法？",
+        "你兩次投票不一樣，我想知道中間發生了什麼變化。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G17",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "有人剛剛點名質問自己",
+      "intent": "reply_question",
+      "priority": 85,
+      "prerequisites": [
+        "publicDirectQuestionToSelf",
+        "publicEventReferenceOptional"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我願意解釋，但先把你指的那一輪說清楚。",
+        "如果你指的是第【輪次】次提案，我當時在意的是隊伍組合。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G18",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "他人公開指控【目標】但公開證據不足",
+      "intent": "defend_other",
+      "priority": 53,
+      "prerequisites": [
+        "publicAccusationExists"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "現在就鎖定【目標】太早了，我想再看別的證據。",
+        "有懷疑可以，但目前這些資訊還不足以斷定是【目標】。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G19",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "前次公開意見已被新證據削弱",
+      "intent": "reassess",
+      "priority": 66,
+      "prerequisites": [
+        "speechMemory",
+        "publicNewContraryEvidence"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我先前對【目標】的判斷可能太快了，這場我要重看。",
+        "新的任務結果跟我的預測不太一樣，我願意修正。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G20",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "同一證據最近已被重複引用兩次",
+      "intent": "avoid_repeat",
+      "priority": 39,
+      "prerequisites": [
+        "speechMemory",
+        "recentSemanticRepeat"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "那件事大家都提過了，我想先看這份新提案有什麼差別。",
+        "我們一直繞在同一個疑點上，先討論這次換了哪些人吧。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G21",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "有人要求直接保證某人好壞",
+      "intent": "hedge_claim",
+      "priority": 62,
+      "prerequisites": [
+        "publicDirectQuestionAboutTarget"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我只能說目前比較傾向信任他，還不到保證的程度。",
+        "在沒有更直接的證據前，我不會把猜測說成確定。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G22",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "任務接近勝負關鍵",
+      "intent": "endgame_focus",
+      "priority": 75,
+      "prerequisites": [
+        "goodQuestWins=2 or evilQuestWins=2"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這一隊可能直接決定勝負，我希望先把人選理由講清楚。",
+        "現在不能只靠感覺投票，誰有紀錄支持這個選法？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G23",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "之前承諾的立場與實際公開投票不同，且刻意說謊",
+      "intent": "explain_vote_flip",
+      "priority": 73,
+      "prerequisites": [
+        "speechMemory",
+        "claimVoteMismatch",
+        "bluffWasExplicitlyPlanned"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我當時說的是初步傾向，投票前我重新看了隊伍。",
+        "我承認我後來改變立場，下次會更明確說清楚。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "G24",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "隊長選到與其上一場相同的可疑組合",
+      "intent": "leader_repeat_failed",
+      "priority": 70,
+      "prerequisites": [
+        "publicPriorQuestReference",
+        "teamOverlapHigh"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "第【輪次】次遠征用過很接近的隊伍，我希望這次給出不同理由。",
+        "之前這個組合留下疑點，隊長為什麼還想再試？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS01",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "開局沒有私人角色情報",
+      "intent": "ordinary_uncertainty",
+      "priority": 65,
+      "prerequisites": [],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我目前只能靠提案和投票看人，先別太早下結論。",
+        "我沒有能直接確認的身分資訊，只能從每次行動慢慢比對。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS02",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "連續兩次失敗隊伍有同一玩家",
+      "intent": "focus_overlap",
+      "priority": 72,
+      "prerequisites": [
+        "publicRepeatedFailOverlap"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "【目標】出現在兩次有失敗牌的隊伍裡，這個交集我想查。",
+        "兩次失敗都跟【目標】有重疊，我希望下一隊先換掉他看看。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS03",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "上一個支持的隊伍失敗",
+      "intent": "admit_error",
+      "priority": 67,
+      "prerequisites": [
+        "publicOwnPriorApprove",
+        "previousQuestFailed"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "上一隊是我支持的，但結果證明我至少看錯了一部分。",
+        "我上次判斷不夠好，這回會降低對那組人的信任。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS04",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "玩家表現得過度確定",
+      "intent": "challenge_certainty",
+      "priority": 60,
+      "prerequisites": [
+        "publicStrongUnsupportedClaim"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你怎麼能在第一場就那麼肯定【目標】有問題？",
+        "我想知道你這個結論依據什麼公開資訊。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS05",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "自己隊長且隊伍有新人",
+      "intent": "leader_probe",
+      "priority": 56,
+      "prerequisites": [
+        "isLeader",
+        "newMemberAdded"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這隊我留了【舊隊員】，加入【新隊員】來比較。",
+        "我想用不同組合取得更多資訊，不是只相信固定幾個人。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLS06",
+      "role": "loyal_servant",
+      "phase": "discussion",
+      "trigger": "有玩家替被指控者辯護",
+      "intent": "evaluate_endorsement",
+      "priority": 62,
+      "prerequisites": [
+        "publicEndorsementEvent"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "【辯護者】替【目標】說話的理由是什麼？我想聽具體紀錄。",
+        "幫人說話沒問題，但能不能先指出哪件事支持你的判斷？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME01",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "已知邪惡在隊上，但公開證據不足",
+      "intent": "hidden_avoidance",
+      "priority": 81,
+      "prerequisites": [
+        "privateKnownEvilOnTeam",
+        "noSafePublicEvidence"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我比較想換一個組合，現在這份名單我還沒有信心。",
+        "先不談誰一定有問題，我想讓隊伍多一點不同選擇。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME02",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "已知邪惡在隊上且有公開證據",
+      "intent": "evidence_led_reject",
+      "priority": 88,
+      "prerequisites": [
+        "privateKnownEvilOnTeam",
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我對【目標】有疑慮，主要還是第【輪次】次提案的投票。",
+        "我反對不是憑直覺，先看看【目標】那次選隊的紀錄。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME03",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "安全隊伍被質疑但不願過度保證",
+      "intent": "soft_support",
+      "priority": 70,
+      "prerequisites": [
+        "privateEstimatedSafeTeam",
+        "cachedVote=approve"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "這隊沒有明顯比其他組合更糟的地方，我會先支持。",
+        "以目前公開紀錄看，我覺得這隊值得試，但不保證結果。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME04",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "別人已根據公開紀錄正確指出邪惡",
+      "intent": "second_accuser",
+      "priority": 65,
+      "prerequisites": [
+        "anotherPlayerPublicAccusation",
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你提的第【輪次】次紀錄我也注意到了，可以再追這條線。",
+        "我同意先檢查【目標】的公開選隊行為，但先不要把話說死。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME05",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "被質疑為何總是反對某人",
+      "intent": "merlin_camouflage",
+      "priority": 85,
+      "prerequisites": [
+        "publicQuestionToSelf",
+        "privateKnownEvilTargeted"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我對這組人的搭配不放心，不是說我已經知道誰的身分。",
+        "我只是比較不同的隊伍，不代表我能直接確認誰是邪惡。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME06",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "新資訊與自己原先掌握的邪惡清單不一致",
+      "intent": "merlin_uncertainty_exception",
+      "priority": 56,
+      "prerequisites": [
+        "publicEvidenceConflict",
+        "privateIdentityExceptionsPossible"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我也可能看錯誰最值得懷疑，這次先回到公開紀錄。",
+        "我們先不要把單一成功任務當作保證，還得考慮有人藏牌。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RME07",
+      "role": "merlin",
+      "phase": "discussion",
+      "trigger": "己方兩勝且刺客威脅仍在",
+      "intent": "merlin_endgame_cover",
+      "priority": 71,
+      "prerequisites": [
+        "goodQuestWins=2",
+        "assassinThreatRelevant"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "現在先把任務做好，大家都別急著把某一個人封成全場最懂的人。",
+        "這局每個人的推理都在進步，沒必要只聽一個人。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RPC01",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "同時看見兩名候選梅林但不知對應",
+      "intent": "hide_candidates",
+      "priority": 68,
+      "prerequisites": [
+        "privateMerlinCandidateCount=2"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我會用公開紀錄判斷，不想只憑某個人的自信表現。",
+        "有些人的判斷看起來很準，但我更在意他有沒有說得出理由。"
+      ],
+      "notes": "台詞不得帶入兩名候選人的席位"
+    },
+    {
+      "id": "RPC02",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "某候選人被大幅度質疑",
+      "intent": "candidate_cover",
+      "priority": 67,
+      "prerequisites": [
+        "privateCandidateAccused",
+        "publicAccusationExists"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "現在直接斷定【目標】有問題，對推理沒有幫助。",
+        "先談他的投票與選隊紀錄，別只看語氣。"
+      ],
+      "notes": "只引用公開質疑，避免保護特定候選過度固定"
+    },
+    {
+      "id": "RPC03",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "兩名候選同隊；自己沒有公開理由指名",
+      "intent": "silent_split",
+      "priority": 70,
+      "prerequisites": [
+        "privateBothCandidatesOnTeam"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "這隊的資訊價值不高，我希望試試能比較不同人的組合。",
+        "我想先換些隊員，觀察每組人的實際任務結果。"
+      ],
+      "notes": "禁止說「候選人A與B同隊」"
+    },
+    {
+      "id": "RPC04",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "公開有人宣稱自己具有秘密身分線索",
+      "intent": "challenge_role_claim",
+      "priority": 59,
+      "prerequisites": [
+        "publicSecretKnowledgeClaim"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "現在先別比誰講得像知道內情，拿出可驗證的紀錄吧。",
+        "即使有人看起來很有把握，我還是想用任務結果驗證。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RPC05",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "刺客可能會利用誰過度保護某人",
+      "intent": "cover_discussion",
+      "priority": 56,
+      "prerequisites": [
+        "publicOnePersonDominatesDiscussion"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "大家都提出自己的推理會比較好，不必只盯一個人的分析。",
+        "先比較幾位玩家的理由，別讓討論被單一說法帶著走。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RPC06",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "看見一位梅林候選（無莫甘娜）",
+      "intent": "single_candidate_protection",
+      "priority": 60,
+      "prerequisites": [
+        "privateMerlinCandidateCount=1"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我想先談隊伍的公開表現，其他猜身分的話沒有幫助。",
+        "就目前的證據，討論投票比猜誰特別有情報更實際。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RPC07",
+      "role": "percival",
+      "phase": "discussion",
+      "trigger": "兩位候選出現公開矛盾",
+      "intent": "indirect_compare",
+      "priority": 62,
+      "prerequisites": [
+        "privateMerlinCandidateCount=2",
+        "publicCandidateClaimContradiction"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "有人的前後判斷不一樣，先把對應的遠征整理清楚。",
+        "我比較在意這些發言對不對得上公開結果。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "REV01",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "前期選擇藏牌以建立信任",
+      "intent": "build_cover",
+      "priority": 60,
+      "prerequisites": [
+        "evilPolicy=hide",
+        "onProposedTeam"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "這場先看結果吧，出一張成功牌也只是開始。",
+        "我希望這次任務能幫大家建立一點有用的紀錄。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "REV02",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "隊中有已知邪惡同伴，需合力誤導",
+      "intent": "cover_ally",
+      "priority": 63,
+      "prerequisites": [
+        "privateKnownAllyAccused",
+        "publicAccusationExists"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "【目標】的理由不算完全沒道理，我想先聽完再決定。",
+        "我不想現在就把【目標】打死，至少還有其他可能。"
+      ],
+      "notes": "不能經常無條件替同伴背書"
+    },
+    {
+      "id": "REV03",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "自己在失敗隊伍，需要轉移焦點",
+      "intent": "redirect_blame",
+      "priority": 75,
+      "prerequisites": [
+        "selfWasOnFailQuest",
+        "publicOtherTeammateExists"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "那次隊伍不只我一個人，為什麼只問我？",
+        "你要追失敗牌可以，但也要把【其他隊員】一起放進分析。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "REV04",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "真人過度集中質疑一人",
+      "intent": "amplify_doubt",
+      "priority": 68,
+      "prerequisites": [
+        "publicTargetAccused",
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "【目標】的確有值得問的地方，不如先請他解釋上一票。",
+        "大家不是沒理由懷疑【目標】，先聽他的組隊想法。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "REV05",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "同伴過度引起注意",
+      "intent": "limited_distance",
+      "priority": 60,
+      "prerequisites": [
+        "privateKnownAllyOverexposed",
+        "publicDifferentVoteOrClaim"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我跟【目標】這次的判斷不一樣，這隊我不會直接跟。",
+        "即使有人跟我立場接近，我也會看每個人的行動。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "REV06",
+      "role": "evil_minion",
+      "phase": "discussion",
+      "trigger": "邪惡兩勝之後，任務決勝",
+      "intent": "pressure_last_quest",
+      "priority": 65,
+      "prerequisites": [
+        "evilQuestWins=2"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "這隊可能直接決定整場，先別只看上一輪誰說話大聲。",
+        "在這種局勢下，我想優先看隊伍能不能真的做成事。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RAS01",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "有人在缺少公開證據時精準反對他人",
+      "intent": "merlin_probe",
+      "priority": 72,
+      "prerequisites": [
+        "publicStrongUnsupportedClaim",
+        "suspectedMerlinTarget"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "【目標】你怎麼這麼肯定？能不能分享你用的是哪一場紀錄？",
+        "你對某些人的判斷一直很準，我想聽你的推理過程。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RAS02",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "有人多次提前避開已知邪惡",
+      "intent": "probe_predictive",
+      "priority": 69,
+      "prerequisites": [
+        "privateKnownEvilPattern",
+        "publicTeamSelectionPattern"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "你幾次換隊都很果斷，可以說說每次排人的理由嗎？",
+        "我想知道【目標】的判斷是看紀錄，還是有其他推論。"
+      ],
+      "notes": "不得說出「你每次都避開已知邪惡」"
+    },
+    {
+      "id": "RAS03",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "某人公開替他人提供資訊支持",
+      "intent": "test_leader",
+      "priority": 54,
+      "prerequisites": [
+        "publicPlayerInfluential"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "你這次最信任誰？為什麼？",
+        "如果只留一位隊員，你會選哪一位？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RAS04",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "有人正確指控自己已知邪惡同伴",
+      "intent": "challenge_source",
+      "priority": 67,
+      "prerequisites": [
+        "privateKnownAllyAccused",
+        "publicAccusationExists"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "你說【目標】有問題，可以指出具體的提案或投票嗎？",
+        "這個結論太快了吧，能不能把推理過程展開？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RAS05",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "公開有人被當作全場推理領袖",
+      "intent": "shift_attention",
+      "priority": 59,
+      "prerequisites": [
+        "publicInfluencerTarget"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "不用把所有判斷都交給【目標】一個人，我們可以各自投票。",
+        "他講得有道理，但不代表他一定知道每個人的身分。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RAS06",
+      "role": "assassin",
+      "phase": "assassination",
+      "trigger": "進入刺殺階段且規則允許公開刺殺宣言",
+      "intent": "assassination_declaration",
+      "priority": 100,
+      "prerequisites": [
+        "phase=assassination",
+        "assassinAuthorized"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我最後選擇【目標】號。",
+        "我的刺殺目標是【目標】號。"
+      ],
+      "notes": "只說公開已決定的目標；刺客選擇必須在私有決策完成"
+    },
+    {
+      "id": "RAS07",
+      "role": "assassin",
+      "phase": "discussion",
+      "trigger": "候選梅林過多且公開證據不足",
+      "intent": "probe_without_claim",
+      "priority": 51,
+      "prerequisites": [
+        "phase=discussion",
+        "candidateMerlinUncertain"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "大家先把各自最懷疑的人講出來，我想比較理由。",
+        "我還沒辦法下結論，誰能說出這次組隊的最大風險？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG01",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "開局資訊有限，想建立觀察敏銳形象",
+      "intent": "pseudo_insight",
+      "priority": 70,
+      "prerequisites": [
+        "phase=discussion"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我對這隊有一些疑慮，但想先看隊長怎麼解釋。",
+        "我比較在意剛才的投票分布，這裡可能會有線索。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG02",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "公開兩位玩家意見相反",
+      "intent": "false_direction",
+      "priority": 72,
+      "prerequisites": [
+        "publicClaimContradiction"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "這兩個說法很難同時成立，我想先看【目標】的版本。",
+        "我覺得矛盾點不是在任務結果，而是兩人的解釋。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG03",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "有人追問自己為什麼這麼確定",
+      "intent": "evade_source",
+      "priority": 75,
+      "prerequisites": [
+        "publicQuestionToSelf"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我不是確定，我是把幾次提案放在一起看。",
+        "沒有什麼神奇答案，我只是覺得這個人的行為不太一致。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG04",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "公開有人強力支持某玩家，想製造另一解釋",
+      "intent": "compete_with_guide",
+      "priority": 62,
+      "prerequisites": [
+        "publicInfluencerTarget"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "大家不要只聽同一個人的推理，我有不同解讀。",
+        "同一場任務可以有不只一種解釋，先比較選人動機吧。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG05",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "被指控為製造混亂",
+      "intent": "defend_morgana",
+      "priority": 75,
+      "prerequisites": [
+        "publicAccusationAgainstSelf"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我提出另一種可能，不代表我在亂帶風向。",
+        "如果我的假設有問題，請拿公開紀錄來反駁。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMG06",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "派西維爾是否在場未知，無法指定其身分",
+      "intent": "non_targeted_illusion",
+      "priority": 66,
+      "prerequisites": [
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我不想直接指誰是壞人，但這份提案有一個地方不對勁。",
+        "現在我偏向先排除【目標】，理由是他上一場的公開選隊。"
+      ],
+      "notes": "莫甘娜不能預設知道派西維爾席位"
+    },
+    {
+      "id": "RMG07",
+      "role": "morgana",
+      "phase": "discussion",
+      "trigger": "邪惡可受益於某人過度自信",
+      "intent": "soft_trap",
+      "priority": 63,
+      "prerequisites": [
+        "publicConfidentClaimTarget"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "如果你那麼有把握，不如下一次由你提出可以驗證的隊伍。",
+        "你的判斷很明確，那可以說說失敗後要怎麼更新嗎？"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD01",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "尚未受到公開質疑，維持隱蔽",
+      "intent": "low_profile",
+      "priority": 62,
+      "prerequisites": [],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我想先看每一場的結果，不急著認定誰的身分。",
+        "目前隊伍能不能成功，比誰說話最有氣勢重要。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD02",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "自身加入可信隊伍，有機會藏牌",
+      "intent": "build_reputation",
+      "priority": 68,
+      "prerequisites": [
+        "onProposedTeam"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我願意接受這次測試，之後大家再看實際結果。",
+        "先讓任務說話吧，現在過度猜測沒有幫助。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD03",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "有人公開把自己列為低風險",
+      "intent": "avoid_overplay",
+      "priority": 58,
+      "prerequisites": [
+        "publicSelfEndorsed"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "謝謝信任，不過我也只是按照公開資訊判斷。",
+        "我不覺得誰現在能保證清白，連我也一樣要接受檢查。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD04",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "自己遭到無公開證據的懷疑",
+      "intent": "defend_hidden",
+      "priority": 75,
+      "prerequisites": [
+        "publicAccusationAgainstSelf"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "要懷疑我沒關係，但請指出哪場任務能支持這個說法。",
+        "如果只是覺得我太安靜，這不足以證明什麼。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD05",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "已知同隊有邪惡盟友且需要保護自己",
+      "intent": "avoid_double_exposure",
+      "priority": 65,
+      "prerequisites": [
+        "privateKnownAllyOnTeam",
+        "publicTeamOverlapHigh"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "這隊如果要沿用，就得先說清楚上一輪留下的疑點。",
+        "我不會因為有熟悉的人選就直接支持，還是要比較風險。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RMD06",
+      "role": "mordred",
+      "phase": "discussion",
+      "trigger": "進入關鍵遠征需要爭取入隊",
+      "intent": "late_entry",
+      "priority": 70,
+      "prerequisites": [
+        "goodQuestWins=2 or evilQuestWins=2"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我知道這次很重要，如果隊長需要不同人選，我可以接受檢驗。",
+        "現在最重要的是組出能通過的隊伍，不必完全照搬上一輪。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "ROB01",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "開局沒有邪惡隊友名單",
+      "intent": "blind_chaos",
+      "priority": 64,
+      "prerequisites": [],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "現在我對大家的判斷都還有限，先比較投票吧。",
+        "第一場不要把任何人綁死，我想看看誰願意承擔風險。"
+      ],
+      "notes": "奧伯倫不能以確定隊友為前提生成發言"
+    },
+    {
+      "id": "ROB02",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "隊伍中可能還有其他邪惡，但無從確認",
+      "intent": "independent_sabotage",
+      "priority": 59,
+      "prerequisites": [
+        "candidateTeamHasUnknownMembers"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "這隊可能會給我們一些答案，我先看組隊理由。",
+        "現在最缺的是能區分不同玩家的任務結果。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "ROB03",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "曾參加失敗遠征後遭指控",
+      "intent": "oberon_defense",
+      "priority": 74,
+      "prerequisites": [
+        "publicAccusationAgainstSelf",
+        "selfWasOnFailQuest"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "那隊有其他隊員，先不要只盯我一個。",
+        "我承認那次結果不好，但任務牌沒有寫是誰出的。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "ROB04",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "公開有人替自己背書但自己不知其身分",
+      "intent": "uncertain_ally",
+      "priority": 60,
+      "prerequisites": [
+        "publicSelfEndorsed"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你願意支持我可以，但我也想知道理由。",
+        "你替我說話我有聽到，但我還是會用公開紀錄判斷。"
+      ],
+      "notes": "不能因此當作邪惡同伴認證"
+    },
+    {
+      "id": "ROB05",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "公開另一位邪惡不確定，誤傷隊友可能發生",
+      "intent": "independent_accusation",
+      "priority": 63,
+      "prerequisites": [
+        "publicEvidenceForTarget"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "【目標】的選隊有點奇怪，我想先聽解釋。",
+        "我對【目標】的投票模式有疑問，不會因為他人支持就放過。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "ROB06",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "湖中女神結果／能力可能依變體特殊處理",
+      "intent": "lady_variant_caution",
+      "priority": 69,
+      "prerequisites": [
+        "ladyPublicClaimExists"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "女神的宣稱我們先記下，但別忽略特殊角色可能造成的例外。",
+        "這個查驗結果很重要，我想先確認它適用的是哪一次遠征前的狀態。"
+      ],
+      "notes": "實際查驗對奧伯倫如何顯示，以 game_model.dart 現行規則為準"
+    },
+    {
+      "id": "ROB07",
+      "role": "oberon",
+      "phase": "discussion",
+      "trigger": "有可公開依據可反對隊伍",
+      "intent": "blind_veto",
+      "priority": 68,
+      "prerequisites": [
+        "cachedVote=reject"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我對這隊的重疊人選有疑慮，這次先不支持。",
+        "我想換掉幾個人，不是說我知道誰一定有問題。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG01",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "公開出現蘭斯洛特轉換事件",
+      "intent": "switch_reassess_good",
+      "priority": 82,
+      "prerequisites": [
+        "publicLancelotSwitchEvent"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "轉換既然發生了，之前的陣營判斷得重新對照時間。",
+        "這時候不能把第一場的情報直接套到下一場。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG02",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "先前查驗結果在轉換前",
+      "intent": "old_inspection_qualify",
+      "priority": 68,
+      "prerequisites": [
+        "publicOrSelfLadyHistory",
+        "publicSwitchAfterInspection"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我只會把那次查驗當成當時的線索，不會無條件延用。",
+        "查驗當下的結果有用，但現在局勢已經變了。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG03",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "本人現在為正義且參加遠征",
+      "intent": "current_good_commit",
+      "priority": 62,
+      "prerequisites": [
+        "currentAlignment=good",
+        "onProposedTeam"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我會用這次任務的結果回應大家的疑慮。",
+        "這次先把任務做完，再檢查哪些判斷需要調整。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG04",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "別人要求把一位玩家永久定性",
+      "intent": "reject_static_alignment",
+      "priority": 73,
+      "prerequisites": [
+        "publicLancelotModeEnabled",
+        "publicPermanentAlignmentClaim"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "有人可能因轉換而改變陣營，現在直接說永遠可信太早了。",
+        "先把任務發生的時間對清楚，再來評估這個人。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG05",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "轉換後被人以舊紀錄指控",
+      "intent": "respond_old_history",
+      "priority": 74,
+      "prerequisites": [
+        "publicAccusationAgainstSelf",
+        "publicSwitchAfterReferencedQuest"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你提的是轉換前的紀錄，我覺得要和現在分開看。",
+        "舊任務有參考價值，但不能忽略中間發生的轉換。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLG06",
+      "role": "lancelot_good",
+      "phase": "discussion",
+      "trigger": "當前兩敗需審慎決勝",
+      "intent": "critical_good_lance",
+      "priority": 78,
+      "prerequisites": [
+        "evilQuestWins=2",
+        "publicLancelotModeEnabled"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "現在先看當前陣營的可能性，不能只照舊帳選隊。",
+        "這一場很重要，我不想因為過期的資訊選錯人。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE01",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "公開發生轉換且本人目前邪惡",
+      "intent": "switch_confusion",
+      "priority": 72,
+      "prerequisites": [
+        "publicLancelotSwitchEvent",
+        "currentAlignment=evil"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "轉換之後很多舊判斷會失準，我建議先重新排隊伍。",
+        "不能再只看早期的查驗，現在每一場都要重新比對。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE02",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "變體二本人強制出失敗牌，不適合透露身分",
+      "intent": "hide_must_fail",
+      "priority": 67,
+      "prerequisites": [
+        "mustFail=true",
+        "currentAlignment=evil"
+      ],
+      "claim_policy": "private_strategy_public_claim",
+      "templates": [
+        "我想先看隊長的組隊方式，這場的結果會很關鍵。",
+        "這次隊伍讓我有些疑問，但我先聽其他人怎麼看。"
+      ],
+      "notes": "絕不可公開提及自己必須出失敗"
+    },
+    {
+      "id": "RLE03",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "前後立場不同且公開有人質疑",
+      "intent": "explain_shift_without_reveal",
+      "priority": 75,
+      "prerequisites": [
+        "publicChallengeOwnPriorPosition",
+        "publicSwitchEvent"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我承認前後判斷有變，但中間確實出現了新局勢。",
+        "之前的看法不一定適合現在的隊伍，我會重新評估。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE04",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "不知道其他邪惡隊友",
+      "intent": "no_ally_knowledge",
+      "priority": 62,
+      "prerequisites": [
+        "noPrivateEvilTeammateList"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "我沒辦法直接確認別人的身分，只能看他們的選隊。",
+        "我想先看誰在這個階段堅持用過去的情報。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE05",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "轉換造成舊查驗失效，可用於誤導",
+      "intent": "exploit_history_ambiguity",
+      "priority": 73,
+      "prerequisites": [
+        "publicPastInspection",
+        "publicSwitchAfterInspection"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "之前的查驗可能已經過時，先別只憑那張資訊定人。",
+        "局勢變了，我希望大家不要把最早的結論當成永久答案。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE06",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "自己在失敗任務後被指控",
+      "intent": "deflect_lancelot_fail",
+      "priority": 78,
+      "prerequisites": [
+        "publicAccusationAgainstSelf",
+        "selfWasOnFailQuest"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "這場結果應該看整隊，不能只因為轉換就把我當成答案。",
+        "我知道這個時間點很敏感，但失敗牌一樣沒有寫名字。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "RLE07",
+      "role": "lancelot_evil",
+      "phase": "discussion",
+      "trigger": "當前為邪惡且隊伍提案因公開蘭斯洛特爭議受阻",
+      "intent": "switch_conflict_pressure",
+      "priority": 68,
+      "prerequisites": [
+        "currentAlignment=evil",
+        "publicLancelotDebate",
+        "proposalUnderDiscussion"
+      ],
+      "claim_policy": "strategic_opinion_bluff",
+      "templates": [
+        "現在一直猜誰轉換很難驗證，我更想看這隊具體怎麼選人。",
+        "轉換帶來不確定性，但不能因此完全停止組隊。"
+      ],
+      "notes": "一旦目前陣營改為正義，此角色規則集合整組停用，改用 lancelot_good"
+    },
+    {
+      "id": "XLD01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人持有女神且查驗到正義，決定誠實公開",
+      "intent": "lady_true_good",
+      "priority": 92,
+      "prerequisites": [
+        "selfLadyInspected",
+        "inspectedValue=good",
+        "publicClaimMode=truth"
+      ],
+      "claim_policy": "private_truth_claim",
+      "templates": [
+        "我查驗【目標】號時，結果顯示為正義陣營。",
+        "我這次查到的是正義，但這只代表查驗當時的結果。"
+      ],
+      "notes": "如奧伯倫等變體有特殊顯示，使用規則引擎提供的觀測值，不擅自替換為真實陣營"
+    },
+    {
+      "id": "XLD02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人持有女神且查驗到邪惡，決定誠實公開",
+      "intent": "lady_true_evil",
+      "priority": 94,
+      "prerequisites": [
+        "selfLadyInspected",
+        "inspectedValue=evil",
+        "publicClaimMode=truth"
+      ],
+      "claim_policy": "private_truth_claim",
+      "templates": [
+        "我查驗【目標】號的結果顯示邪惡，大家可以把這點列入考慮。",
+        "我查到的結果是邪惡，但我知道這是我單方面的宣稱。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XLD03",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人持有女神且是邪惡，已選擇對結果說謊",
+      "intent": "lady_lie",
+      "priority": 92,
+      "prerequisites": [
+        "selfLadyInspected",
+        "alignment=evil",
+        "publicClaimMode=lie"
+      ],
+      "claim_policy": "explicit_private_claim_lie",
+      "templates": [
+        "這次我查到【目標】號是【宣稱陣營】。",
+        "我選擇公開結果：【目標】號顯示【宣稱陣營】。"
+      ],
+      "notes": "不可擅自假造未持有女神或未曾查驗的事件"
+    },
+    {
+      "id": "XLD04",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "有人對相同對象、可比較時間點的女神結果宣稱相反",
+      "intent": "lady_conflict",
+      "priority": 90,
+      "prerequisites": [
+        "publicSameTargetContradictoryClaims",
+        "sameRelevantSwitchStateOrTimeQualified"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "同一個人的查驗說法出現兩種版本，先把時間點釐清。",
+        "【宣稱者】和先前的說法互相矛盾，我想知道中間有沒有轉換。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XLD05",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "有人只憑別人的女神宣稱就絕對背書",
+      "intent": "lady_claim_caution",
+      "priority": 70,
+      "prerequisites": [
+        "publicLadyEndorsementExists"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "女神結果值得參考，但那仍然是持有者告訴我們的說法。",
+        "如果只靠一次口頭查驗就完全信任【目標】，我覺得太快。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XSW01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "公開使用王者之劍但不知道原始牌",
+      "intent": "sword_public_uncertainty",
+      "priority": 86,
+      "prerequisites": [
+        "publicSwordUsed",
+        "selfNotPrivatelySawTargetOriginal"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這次有翻劍，公開失敗牌數不能直接當成原本出牌的結果。",
+        "我們知道有人被翻牌，但不知道那張原本是成功還是失敗。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XSW02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人是持劍者，翻牌後親自看到原始失敗牌，選擇公開",
+      "intent": "sword_private_fail",
+      "priority": 88,
+      "prerequisites": [
+        "selfWasSwordHolder",
+        "selfSawOriginalCard=fail",
+        "publicDisclosureChosen"
+      ],
+      "claim_policy": "private_truth_claim",
+      "templates": [
+        "我翻到【目標】的原始牌是失敗，但這是我現在的公開宣稱。",
+        "我有看到被翻轉前那張是失敗牌，請大家把這點列入推理。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XSW03",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "本人是持劍者，翻牌後親自看到原始成功牌，選擇公開",
+      "intent": "sword_private_success",
+      "priority": 88,
+      "prerequisites": [
+        "selfWasSwordHolder",
+        "selfSawOriginalCard=success",
+        "publicDisclosureChosen"
+      ],
+      "claim_policy": "private_truth_claim",
+      "templates": [
+        "我看到那張原本是成功牌，翻牌改變了最後結果。",
+        "【目標】原先出的牌是成功，這一點是我親眼看到的。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XSW04",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "自己未使用劍，卻有人聲稱看到原始牌",
+      "intent": "sword_source_check",
+      "priority": 91,
+      "prerequisites": [
+        "publicSwordOriginalClaim",
+        "claimantNotSwordHolder"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "只有使用劍的人知道原始牌，你這個說法的來源是哪裡？",
+        "你剛才說看過原始牌，可以說清楚你是何時看到的嗎？"
+      ],
+      "notes": "需先確認發言者是否只是引用其他人的轉述，不能機械判定作弊"
+    },
+    {
+      "id": "XLC01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "蘭斯洛特擴充公開轉換資訊",
+      "intent": "lancelot_public_reset",
+      "priority": 83,
+      "prerequisites": [
+        "publicLancelotSwitchEvent"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "發生轉換之後，大家的舊推論得重新檢查適用時間。",
+        "這次公開轉換很重要，但它並沒有直接告訴我們誰是蘭斯洛特。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XLC02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "湖中女神查驗在蘭斯洛特轉換前",
+      "intent": "lancelot_lady_age",
+      "priority": 72,
+      "prerequisites": [
+        "publicLadyClaim",
+        "switchOccurredAfterClaim"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "那是轉換前查到的陣營，現在不能完全照搬。",
+        "我們應該分開看當時查驗與目前的隊伍。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XQT01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "第四遠征需要兩張失敗但公開只出現一張",
+      "intent": "double_fail_threshold",
+      "priority": 91,
+      "prerequisites": [
+        "questFailThreshold=2",
+        "publicFailCount=1"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "這場只出了一張失敗，所以任務成功；但這張牌仍然是重要線索。",
+        "成功是因為門檻要兩張失敗，不能因此認定隊上沒邪惡。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XQT02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "多人任務失敗且無法歸因單一玩家",
+      "intent": "shared_failure",
+      "priority": 70,
+      "prerequisites": [
+        "publicFailCount>0",
+        "ambiguousFailAttribution"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "我們知道隊伍裡出現了失敗牌，但還不能指向唯一的人。",
+        "隊伍裡有好幾個可能的人選，先交叉比對前後遠征。"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "XVR01",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "某人替可疑玩家強烈背書，但該可疑性仍屬軟證據",
+      "intent": "endorsement_soft",
+      "priority": 76,
+      "prerequisites": [
+        "publicEndorsementExists",
+        "newContraryEvidence"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你之前替【目標】背書，現在有新線索，我想聽你怎麼重新評估。",
+        "【辯護者】你當時支持【目標】的理由還成立嗎？"
+      ],
+      "notes": "不可因目標分數>85 就強迫把辯護者設為80"
+    },
+    {
+      "id": "XVR02",
+      "role": "all",
+      "phase": "discussion",
+      "trigger": "有人說自己看到私人情報卻欠缺合法查驗途徑",
+      "intent": "illegal_claim_probe",
+      "priority": 81,
+      "prerequisites": [
+        "publicClaimWithoutPublicBasis"
+      ],
+      "claim_policy": "public_grounded",
+      "templates": [
+        "你提到的情報是從哪個公開事件得來的？",
+        "這件事目前大家都看不到，你能說明你為何會這樣推測嗎？"
+      ],
+      "notes": "玩家可以虛張聲勢，BOT 只能提出質疑，不能直接判定作弊"
+    }
+  ]
+}

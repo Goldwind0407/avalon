@@ -9,6 +9,8 @@ import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
 BotObservation view(
         {Role role = Role.loyal,
         bool evil = false,
+        int seat = 0,
+        int count = 7,
         int rejects = 0,
         int failsRequired = 1,
         bool switched = false,
@@ -20,10 +22,10 @@ BotObservation view(
         List<DiscussionStatement> statements = const [],
         List<int> team = const [0, 1]}) =>
     BotObservation(
-        seat: 0,
+        seat: seat,
         role: role,
         evil: evil,
-        count: 7,
+        count: count,
         leader: 0,
         quest: history.length + 1,
         rejections: rejects,
@@ -40,6 +42,103 @@ BotObservation view(
         ownCards: ownCards);
 
 void main() {
+  test('unknown-seat prior deducts self and authorized known seats', () {
+    final brain = BotBrain(Random(1));
+    expect(brain.suspicion(view(count: 5))[1], .5);
+    expect(
+        brain.suspicion(view(count: 5, role: Role.minion, evil: true))[1], .25);
+    final merlin =
+        brain.suspicion(view(count: 5, role: Role.merlin, visible: [1]));
+    expect(merlin[1], 1);
+    expect(merlin[2], closeTo(1 / 3, .000001));
+  });
+  test(
+      'designated known allies supply both required Fail cards without random hiding',
+      () {
+    for (var seed = 0; seed < 40; seed++) {
+      final brain = BotBrain(Random(seed));
+      expect(
+          brain.questCard(view(
+              role: Role.assassin,
+              evil: true,
+              visible: [1],
+              team: [0, 1, 2],
+              failsRequired: 2)),
+          isFalse);
+      expect(
+          brain.questCard(view(
+              seat: 1,
+              role: Role.minion,
+              evil: true,
+              visible: [0],
+              team: [0, 1, 2],
+              failsRequired: 2)),
+          isFalse);
+      expect(
+          brain.questCard(view(
+              seat: 2,
+              role: Role.minion,
+              evil: true,
+              visible: [0, 1],
+              team: [0, 1, 2],
+              failsRequired: 2)),
+          isTrue);
+    }
+  });
+  test(
+      'sword compares result utility, can decline, and accounts for own submitted card',
+      () {
+    final brain = BotBrain(Random(1));
+    expect(brain.swordTarget(view(role: Role.merlin, visible: [1])), 1);
+    expect(brain.swordTarget(view(role: Role.minion, evil: true, visible: [1])),
+        isNull);
+    expect(
+        brain.swordTarget(view(
+            role: Role.merlin,
+            visible: [1],
+            failsRequired: 2,
+            ownCards: {1: true})),
+        isNull);
+    expect(
+        brain.swordTarget(view(
+            role: Role.minion,
+            evil: true,
+            failsRequired: 2,
+            ownCards: {1: false})),
+        1);
+  });
+  test(
+      'forced Fail by own Lancelot is a constraint in risk, not an 85 percent guess',
+      () {
+    final brain = BotBrain(Random(1));
+    final o = view(
+        role: Role.lancelotGood,
+        evil: true,
+        switched: true,
+        expansions: const ExpansionSettings(lancelot: 2));
+    expect(brain.teamRisk(o, o.team), 1);
+  });
+  test(
+      'fixed Percival candidates do not lose private Lady certainty on a Lancelot switch',
+      () {
+    final brain = BotBrain(Random(1));
+    expect(
+        brain.suspicion(view(
+            role: Role.percival,
+            visible: [1, 2],
+            switched: true,
+            expansions: const ExpansionSettings(lancelot: 1),
+            facts: [
+              BotFact(
+                  owner: 0,
+                  generation: 0,
+                  quest: 1,
+                  target: 1,
+                  switched: false,
+                  evil: false)
+            ]))[1],
+        0);
+  });
   test('legal cards follow current allegiance and forced-Fail Lancelot variant',
       () {
     final brain = BotBrain(Random(1));
@@ -90,13 +189,19 @@ void main() {
     ], ownCards: {
       1: false
     }));
-    expect(ownFail[1], base);
+    expect(ownFail[1], brain.suspicion(view(role: Role.minion, evil: true))[1]);
   });
   test('Lady evidence ages across a switch; another player claim is not a fact',
       () {
     final brain = BotBrain(Random(1));
-    final fact = BotFact(quest: 1, target: 2, switched: false, evil: false);
-    expect(brain.suspicion(view(facts: [fact]))[2], .01);
+    final fact = BotFact(
+        owner: 0,
+        generation: 0,
+        quest: 1,
+        target: 2,
+        switched: false,
+        evil: false);
+    expect(brain.suspicion(view(facts: [fact]))[2], 0);
     expect(
         brain.suspicion(view(
             facts: [fact],

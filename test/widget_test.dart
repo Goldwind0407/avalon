@@ -14,6 +14,8 @@ void main() {
     expect(find.text('AVALON'), findsOneWidget);
     await tester.tap(find.text('一機遊玩'));
     await tester.pumpAndSettle();
+    expect(tester.widget<LocalPlayScreen>(find.byType(LocalPlayScreen)).solo,
+        isFalse);
     expect(find.text('建立私人房間'), findsNothing);
     expect(find.text('返回本機房間'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('playerName0')));
@@ -31,7 +33,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('橫向首頁只顯示標題和兩個模式按鈕，不需要捲動', (tester) async {
+  testWidgets('橫向首頁顯示三個遊玩模式，不需要捲動', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.padding =
         const FakeViewPadding(left: 59, right: 59, bottom: 21);
@@ -47,6 +49,7 @@ void main() {
       expect(find.text('AVALON'), findsOneWidget);
       expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
       expect(find.text('多機遊玩').hitTestable(), findsOneWidget);
+      expect(find.text('跟電腦遊玩（測試中）').hitTestable(), findsOneWidget);
       expect(find.byType(Scrollable), findsNothing);
       expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
@@ -75,8 +78,8 @@ void main() {
       }
     }
 
-    await tester.pumpWidget(MaterialApp(
-        theme: AvalonTheme.dark, home: const LocalPlayScreen()));
+    await tester.pumpWidget(
+        MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('開始遊戲'));
     // the role cards are dealt to every seat before the first hand-off

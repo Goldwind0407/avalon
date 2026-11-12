@@ -108,7 +108,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         const BoxConstraints.tightFor(width: 36, height: 36),
                     padding: EdgeInsets.zero),
                 const SizedBox(width: 8),
-                Text(widget.solo ? '單人練習' : '一機遊玩',
+                Text(widget.solo ? '跟電腦遊玩' : '一機遊玩',
                     style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,

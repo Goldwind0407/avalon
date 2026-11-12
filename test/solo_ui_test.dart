@@ -99,6 +99,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<LocalPlayScreen>(find.byType(LocalPlayScreen)).solo,
           isTrue);
+      expect(find.text('跟電腦遊玩'), findsOneWidget);
       for (var count = 5; count <= 10; count++) {
         await tester.tap(find.byKey(ValueKey('playerCount$count')));
         await tester.pumpAndSettle();

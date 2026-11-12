@@ -7,6 +7,7 @@ import '../game/game_session.dart';
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_observation.dart';
+import 'dialogue/bot_contract.dart';
 
 /// Local referee + one private human view. Bots receive only value snapshots.
 /// Result screens wait for the human so animations and public evidence can be
@@ -33,6 +34,7 @@ class SoloGameSession extends GameSession {
   final _ownCards = <int, Map<int, bool>>{};
   final _statements = <DiscussionStatement>[];
   final _plannedVotes = <int, bool>{};
+  final _plannedCards = <int, bool>{};
   String? _proposalKey, _speechKey, _currentStatement;
   String? _revealKey;
   Future<void> _saving = Future.value();
@@ -43,12 +45,15 @@ class SoloGameSession extends GameSession {
     _facts.clear();
     _ownCards.clear();
     for (var s = 0; s < players.length; s++) {
-      _brains[s] = BotBrain(Random(_random.nextInt(1 << 30)));
+      final seed = _random.nextInt(1 << 30);
+      _brains[s] =
+          BotBrain(Random(seed), dialogueRandom: Random(seed ^ 0x5a17));
       _facts[s] = [];
       _ownCards[s] = {};
     }
     _statements.clear();
     _plannedVotes.clear();
+    _plannedCards.clear();
     _proposalKey = _speechKey = _currentStatement = _revealKey = null;
   }
 
@@ -73,7 +78,14 @@ class SoloGameSession extends GameSession {
       facts: _facts[seat]!,
       statements: _statements,
       ownCards: _ownCards[seat]!,
-      loyalty: loyalty);
+      loyalty: loyalty,
+      generation: generation,
+      phase: phase,
+      configuredRoles: configuredRoles,
+      names: players,
+      ladyChecks: ladyChecks,
+      excaliburHolder: excaliburHolder,
+      plannedQuestSuccess: _plannedCards[seat]);
 
   void _rememberReveal() {
     final reveal = _local.latestReveal;
@@ -84,6 +96,8 @@ class SoloGameSession extends GameSession {
     if (_revealKey == key) return;
     _revealKey = key;
     _facts[owner]!.add(BotFact(
+        owner: owner,
+        generation: generation,
         quest: reveal.quest,
         target: reveal.target,
         switched: lancelotSwitched,
@@ -94,12 +108,22 @@ class SoloGameSession extends GameSession {
       final lie = _rules.evilNow(owner) && _random.nextDouble() < .45;
       final claim = reveal.evil! != lie;
       _statements.add(DiscussionStatement(
+          generation: generation,
+          attempt: rejections + 1,
           speaker: owner,
           quest: questNumber,
           target: reveal.target,
           claimedEvil: claim,
           switched: lancelotSwitched,
-          text: '我用湖中女神查驗了 ${reveal.target + 1} 號，'
+          intent: BotSpeechIntent.interpretLady.name,
+          certainty: DiscussionCertainty.certain,
+          evidenceIds: [
+            BotEvidenceId(generation, BotEvidenceKind.ladyUse,
+                    'q${reveal.quest}/$owner/${reveal.target}')
+                .id
+          ],
+          text:
+              '我用湖中女神查驗了 ${playerLabel(reveal.target, players[reveal.target])}，'
               '我宣稱他當時是${claim ? '邪惡' : '正義'}陣營。'));
     }
   }
@@ -110,11 +134,28 @@ class SoloGameSession extends GameSession {
   void _changed() {
     if (_disposed) return;
     _rememberReveal();
-    final proposal =
-        '$generation/${history.length}/$rejections/${team.join(',')}';
-    if (_proposalKey != proposal) {
+    final planning = [
+      GamePhase.discussion,
+      GamePhase.freeDiscussion,
+      GamePhase.vote
+    ].contains(phase);
+    final proposal = planning
+        ? '${_observe(0).proposalId.id}/$leader/${team.join(',')}'
+        : null;
+    if (proposal != null && _proposalKey != proposal) {
       _proposalKey = proposal;
       _plannedVotes.clear();
+      _plannedCards.clear();
+      // Freeze every BOT's plan before the first speech. Each plan uses only
+      // that seat's projection; another BOT's speech cannot expose its ballot.
+      for (var seat = 1; seat < players.length; seat++) {
+        _plannedVote(seat);
+      }
+      // Commit only each participant's own card policy. Speaking about hiding
+      // must not randomly change the card once the proposal is approved.
+      for (final seat in team.where((s) => s != mySeat)) {
+        _plannedCards[seat] = _brains[seat]!.questCard(_observe(seat));
+      }
     }
     final speech = '$generation/$speechVersion';
     if (phase == GamePhase.discussion && speaker != mySeat) {
@@ -204,7 +245,7 @@ class SoloGameSession extends GameSession {
         case GamePhase.vote:
           await _local.vote(actor, _plannedVote(actor));
         case GamePhase.quest:
-          final card = brain.questCard(view);
+          final card = _plannedCards[actor] ?? brain.questCard(view);
           _ownCards[actor]![questNumber] = card;
           await _local.playQuest(actor, card);
         case GamePhase.lady:
@@ -216,7 +257,13 @@ class SoloGameSession extends GameSession {
         case GamePhase.excaliburResult:
           await _local.continueExcalibur();
         case GamePhase.assassination:
-          await _local.assassinate(brain.assassinate(view));
+          final target = brain.assassinate(view);
+          final announcement = brain.assassinationSpeech(view, target);
+          await _local.assassinate(target);
+          if (!_disposed && generation == deal) {
+            _statements.add(announcement);
+            notifyListeners();
+          }
         default:
           break;
       }
@@ -301,9 +348,15 @@ class SoloGameSession extends GameSession {
   Future<void> expressOpinion(bool approve) async {
     _requireHuman(GamePhase.discussion);
     _statements.add(DiscussionStatement(
+        generation: generation,
+        attempt: rejections + 1,
         speaker: mySeat!,
         quest: questNumber,
         supportsTeam: approve,
+        switched: lancelotSwitched,
+        intent: approve
+            ? BotSpeechIntent.supportTeam.name
+            : BotSpeechIntent.opposeTeam.name,
         team: team,
         text: approve ? '我目前支持這次隊伍提案。' : '我對這隊有疑慮，想換個組合。'));
     await endSpeech(speechVersion);

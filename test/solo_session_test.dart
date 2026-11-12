@@ -76,6 +76,8 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   final visited = <GamePhase>{};
   final rolesSeen = <Role>{};
+  final positionsSeen = <DiscussionPosition>{};
+  var responses = 0, declaredAssassinations = 0;
   var games = 0;
   for (var count = 5; count <= 10; count++) {
     test(
@@ -98,7 +100,9 @@ void main() {
                 final rng = Random(seed + 1000);
                 var steps = 0;
                 rolesSeen.add(session.roleOf(0)!);
-                while (session.phase != GamePhase.finished && steps++ < 500) {
+                // Ten seats can legally exceed 500 actions after several
+                // rejected proposals; bound the full five-quest game instead.
+                while (session.phase != GamePhase.finished && steps++ < 2000) {
                   visited.add(session.phase);
                   for (var s = 1; s < count; s++) {
                     expect(session.roleOf(s), isNull,
@@ -108,6 +112,18 @@ void main() {
                   }
                   if (session.phase == GamePhase.vote) {
                     expect(session.votes, isEmpty);
+                  }
+                  if (session.phase == GamePhase.voteResult) {
+                    final p = session.proposalHistory.last;
+                    for (final speech in session.statements.where((s) =>
+                        s.speaker != 0 &&
+                        s.supportsTeam != null &&
+                        s.quest == p.quest &&
+                        s.attempt == p.attempt)) {
+                      expect(speech.supportsTeam, p.votes[speech.speaker],
+                          reason:
+                              'The first speech and actual vote share one frozen plan');
+                    }
                   }
                   if (session.hasPrivateInput ||
                       [GamePhase.voteResult, GamePhase.questResult]
@@ -122,6 +138,23 @@ void main() {
                     reason:
                         '$count seats / lady=$lady sword=$sword lancelot=$lancelot seed=$seed');
                 expect(session.winner, isNotNull);
+                for (final speech in session.statements) {
+                  if (speech.position != null) {
+                    positionsSeen.add(speech.position!);
+                  }
+                  if (speech.replyTo != null) responses++;
+                  if (speech.intent == 'assassinate') {
+                    declaredAssassinations++;
+                    expect(speech.target, session.assassinTarget);
+                    expect(session.roleOf(speech.speaker), Role.assassin);
+                  }
+                  expect(speech.generation, session.generation);
+                  expect(speech.text, isNot(contains('{{')));
+                  expect(
+                      speech.evidenceIds.every(
+                          (id) => id.startsWith('g${session.generation}/')),
+                      isTrue);
+                }
                 expect(session.history.length, lessThanOrEqualTo(5));
                 expect(
                     session.statements
@@ -183,6 +216,9 @@ void main() {
   test('simulation exercises all playable stages and special human identities',
       () {
     expect(games, 674);
+    expect(positionsSeen, containsAll(DiscussionPosition.values));
+    expect(responses, greaterThan(0));
+    expect(declaredAssassinations, greaterThan(0));
     expect(
         visited,
         containsAll(GamePhase.values.where(

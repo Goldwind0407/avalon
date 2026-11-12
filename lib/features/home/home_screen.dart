@@ -80,7 +80,7 @@ class HomeScreen extends StatelessWidget {
                                         const LocalPlayScreen(solo: true)));
                           },
                           icon: const Icon(Icons.smart_toy_outlined),
-                          label: const Text('單人練習・電腦對手'),
+                          label: const Text('跟電腦遊玩（測試中）'),
                         ),
                         const SizedBox(height: 4),
                         TextButton.icon(
