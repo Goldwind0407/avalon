@@ -62,6 +62,15 @@ void humanMove(SoloGameSession session, Random rng) {
   }
 }
 
+class ClockedSoloSession extends SoloGameSession {
+  ClockedSoloSession()
+      : super(soloRoom(5, const ExpansionSettings()),
+            random: Random(3), botDelay: const Duration(milliseconds: 1));
+  int clock = DateTime.now().millisecondsSinceEpoch;
+  @override
+  int get nowMillis => clock;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -229,5 +238,29 @@ void main() {
     expect(() => session.vote(1, true), throwsA(isA<Exception>()));
     expect(session.latestReveal, isNull);
     session.dispose();
+  });
+
+  test('long reading pauses preserve the remaining speech time', () {
+    fakeAsync((time) {
+      final session = ClockedSoloSession();
+      session.confirmIdentity(0);
+      time.elapse(const Duration(milliseconds: 5));
+      if (session.phase == GamePhase.team) session.proposeTeam([0, 1]);
+      expect(session.phase, GamePhase.discussion);
+      final deadline = session.speechDeadline!;
+      final version = session.speechVersion;
+      session.pauseAutomation(true);
+      session.clock += 90000;
+      // Repeated lifecycle/dialog notifications must not overwrite the pause.
+      session.pauseAutomation(true);
+      time.elapse(const Duration(seconds: 90));
+      expect(session.speechVersion, version);
+      session.pauseAutomation(false);
+      expect(session.speechDeadline, deadline + 90000);
+      session.pauseAutomation(false);
+      expect(session.speechDeadline, deadline + 90000);
+      session.dispose();
+      time.flushMicrotasks();
+    });
   });
 }

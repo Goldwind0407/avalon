@@ -27,6 +27,7 @@ class SoloGameSession extends GameSession {
   final Duration botDelay, speechDuration;
   Timer? _botTimer;
   bool _disposed = false, _paused = false;
+  int? _pausedSpeechMillis;
   final _brains = <int, BotBrain>{};
   final _facts = <int, List<BotFact>>{};
   final _ownCards = <int, Map<int, bool>>{};
@@ -143,10 +144,22 @@ class SoloGameSession extends GameSession {
   /// Used by the table while a rulebook, notebook, or exit dialog is open.
   @override
   void pauseAutomation(bool paused) {
+    if (_disposed || _paused == paused) return;
+    if (paused && discussing && speechDeadline != null) {
+      _pausedSpeechMillis = max(0, speechDeadline! - nowMillis);
+    } else if (!paused) {
+      if (discussing && _pausedSpeechMillis != null) {
+        _rules.speechDeadline = nowMillis + _pausedSpeechMillis!;
+      }
+      _pausedSpeechMillis = null;
+    }
     _paused = paused;
     _botTimer?.cancel();
     _local.refreshSpeechTimer(active: !paused);
-    if (!paused) _schedule();
+    if (!paused) {
+      _schedule();
+      notifyListeners();
+    }
   }
 
   int? get _botActor => switch (phase) {
