@@ -44,7 +44,8 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       VoiceController(
         createTransport: () => WebRtcVoiceTransport(
             uid: widget.uid,
-            signaling: FirestoreVoiceSignaling(widget.code),
+            signaling: FirestoreVoiceSignaling(widget.code,
+                now: () => session.nowMillis, clockReady: session.clockReady),
             // Direct voice is the default: no TURN credentials/function call.
             // A future relay trial must be enabled explicitly when building.
             iceServers: const bool.fromEnvironment('VOICE_ENABLE_TURN')
@@ -112,6 +113,10 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         session.error != null ||
         (room != null && room.seatOf(widget.uid) < 0)) {
       voice.leave();
+      if (_tableOpen && _route != null) {
+        Navigator.of(context).popUntil((r) => r == _route);
+      }
+      return;
     }
     if (room == null || session.leaving) return;
     // someone left mid-game: the game is over, everyone comes back here
@@ -527,13 +532,17 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       (Role.merlin, '正義・固定', true),
       (Role.assassin, '邪惡・固定', true),
       for (final r in optionalRoles) (r, r.isEvil ? '邪惡' : '正義', false),
+      if (room.expansions.lancelot > 0) ...[
+        (Role.lancelotGood, '正義・擴充固定', true),
+        (Role.lancelotEvil, '邪惡・擴充固定', true),
+      ],
     ];
     return GoldPanel(
       padding: const EdgeInsets.all(10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SectionLabel(host ? '角色配置' : '角色配置（房主設定）'),
         const SizedBox(height: 8),
-        for (var row = 0; row < 3; row++)
+        for (var row = 0; row < options.length ~/ 2; row++)
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(top: row == 0 ? 0 : 5),
@@ -566,23 +575,30 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                                   const EdgeInsets.symmetric(horizontal: 8),
                               child: Row(children: [
                                 Expanded(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(role.label,
-                                          style: TextStyle(
-                                              fontSize: 13,
-                                              color: active
-                                                  ? AvalonTheme.gold
-                                                  : Colors.white)),
-                                      Text(side,
-                                          style: const TextStyle(
-                                              fontSize: 10,
-                                              color: AvalonTheme.muted)),
-                                    ],
-                                  ),
+                                  child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              alignment: Alignment.centerLeft,
+                                              child: Text(role.label,
+                                                  style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: active
+                                                          ? AvalonTheme.gold
+                                                          : Colors.white))),
+                                          Text(side,
+                                              style: const TextStyle(
+                                                  fontSize: 10,
+                                                  color: AvalonTheme.muted)),
+                                        ],
+                                      )),
                                 ),
                                 Icon(
                                     active

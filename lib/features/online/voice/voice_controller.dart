@@ -61,8 +61,9 @@ class VoiceController extends ChangeNotifier {
       (transport as VoiceFloorTransport).setAllowedSpeakers(_allowedSpeakers);
     }
     if (!microphoneAllowed) {
+      final needsMute = microphone || microphoneBusy;
       microphone = false;
-      if (transport != null) unawaited(_forceMute(transport));
+      if (transport != null && needsMute) unawaited(_forceMute(transport));
     }
     _notify();
   }

@@ -8,6 +8,7 @@ import '../../core/theme.dart';
 import '../../core/game_sounds.dart';
 import '../../core/sound_controls.dart';
 import 'game_sound_events.dart';
+import 'local_vote_panel.dart';
 import '../lobby/room_model.dart';
 import '../table/card_reveal.dart';
 import '../table/components.dart';
@@ -76,6 +77,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   late final List<GlobalKey> _plateKeys, _crownKeys, _shieldKeys, _voteKeys;
   late final List<int> _bumps;
   final _timers = <Timer>[];
+  int _animationEpoch = 0;
+  bool _tableWasUnavailable = false;
   double _s = 1;
 
   /// Role cards are being dealt; the first hand-off waits for it.
@@ -118,6 +121,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _resetStaging() {
+    _dealing = false;
     _interlude = _crownFlying = _assassinShown = false;
     _committing = _hiding = false;
     _voteLanding.clear();
@@ -135,6 +139,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Sets the table for the game as it is now: a fresh deal, or (online,
   /// after rejoining) a game that is already under way.
   void _startTable() {
+    _invalidateAnimations();
     _resetStaging();
     if (game.phase == GamePhase.identity && game.confirmedSeats.isEmpty) {
       _deal();
@@ -151,6 +156,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ...List.filled(q.team.length - q.fails, true),
         ...List.filled(q.fails, false)
       ]..shuffle(_rng));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    final scale = min((size.height - padding.vertical) / 390,
+            (size.width - padding.horizontal) / 800)
+        .clamp(.72, 2.2);
+    for (final asset in [Assets.voteApprove, Assets.voteReject]) {
+      unawaited(precacheImage(
+          ResizeImage(AssetImage(asset),
+              width: decodeWidth(context, 26 * scale)),
+          context));
+    }
+  }
 
   @override
   void dispose() {
@@ -172,12 +193,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _after(Duration delay, VoidCallback fn) {
+    final epoch = _animationEpoch;
     late final Timer timer;
     timer = Timer(delay, () {
       _timers.remove(timer);
-      if (mounted) fn();
+      if (mounted && epoch == _animationEpoch && game.tableAvailable) fn();
     });
     _timers.add(timer);
+  }
+
+  void _invalidateAnimations() {
+    ++_animationEpoch;
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    _timers.clear();
+    _flights.currentState?.clear();
   }
 
   /// Deals one face-down role card from the deck to every seat.
@@ -228,6 +259,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// (straight away on this phone; after the server answers online).
   Future<void> act(FutureOr<void> Function() move,
       {bool interlude = false, bool keepRevealed = false}) async {
+    if (!game.tableAvailable) return;
     HapticFeedback.mediumImpact();
     setState(() {
       if (!keepRevealed) revealed = false;
@@ -262,6 +294,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Plays what changed on the table since the last update.
   void _onSessionChanged() {
     if (!mounted) return;
+    if (!game.tableAvailable) {
+      _tableWasUnavailable = true;
+      _invalidateAnimations();
+      setState(() {});
+      return;
+    }
     final old = _last, now = _Snap.of(game);
     _last = now;
     if (old.phase != now.phase) {
@@ -270,9 +308,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (cue != null) GameSounds.instance.play(cue);
     }
     setState(() {
-      if (now.generation != old.generation) {
+      if (_tableWasUnavailable ||
+          now.generation != old.generation ||
+          (now.phase == old.phase &&
+              (now.historyLength != old.historyLength ||
+                  now.rejections != old.rejections))) {
+        _tableWasUnavailable = false;
         _startTable();
         return;
+      }
+      if (now.phase != old.phase) {
+        choice = null;
+        selected.clear();
+        _hiding = _committing = false;
       }
       if (now.phase != GamePhase.voteResult) _revealedVotes.clear();
       if (now.phase == GamePhase.questResult &&
@@ -309,9 +357,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   /// The crown is carried from the old leader to the new one.
   void _passCrown(int from, int to) {
+    final epoch = _animationEpoch;
     _crownFlying = true;
     void land() {
-      if (!mounted) return;
+      if (!mounted || epoch != _animationEpoch || !game.tableAvailable) return;
       GameSounds.instance.play(GameSound.token);
       HapticFeedback.lightImpact();
       setState(() {
@@ -321,6 +370,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || epoch != _animationEpoch || !game.tableAvailable) return;
       final a = rectOf(_crownKeys[from]), b = rectOf(_crownKeys[to]);
       final layer = _flights.currentState;
       if (!mounted || a == null || b == null || layer == null) return land();
@@ -338,6 +388,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   /// The leader hands a shield to (or takes it back from) a seat.
   void _toggleSeat(int i) {
+    final epoch = _animationEpoch;
     GameSounds.instance.play(GameSound.tap);
     HapticFeedback.selectionClick();
     if (selected.contains(i)) {
@@ -352,7 +403,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _shieldLanding.add(i);
     });
     void land() {
-      if (!mounted || !_shieldLanding.contains(i)) return;
+      if (!mounted ||
+          epoch != _animationEpoch ||
+          !game.tableAvailable ||
+          !_shieldLanding.contains(i)) {
+        return;
+      }
       GameSounds.instance.play(GameSound.token);
       HapticFeedback.lightImpact();
       setState(() {
@@ -362,6 +418,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || epoch != _animationEpoch || !game.tableAvailable) return;
       final from = rectOf(_plateKeys[game.leader]);
       final to = rectOf(_shieldKeys[i]);
       final layer = _flights.currentState;
@@ -391,20 +448,30 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     HapticFeedback.selectionClick();
     // remember the pick now: act() clears `choice` before the move is sent
     final picked = choice!;
+    final turn = _turnKey, epoch = _animationEpoch;
     final cardKey = _choiceKeys[picked]!;
     setState(() => _committing = true);
     _after(_ms(430), () {
+      if (turn != _turnKey) {
+        setState(() => _committing = false);
+        return;
+      }
       final from = rectOf(cardKey);
       onLaunch();
       act(() => action(picked), interlude: true);
       void land() {
-        if (!mounted) return;
+        if (!mounted || epoch != _animationEpoch || !game.tableAvailable) {
+          return;
+        }
         GameSounds.instance.play(GameSound.seal);
         HapticFeedback.lightImpact();
         setState(onLand);
       }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || epoch != _animationEpoch || !game.tableAvailable) {
+          return;
+        }
         final to = rectOf(target);
         final layer = _flights.currentState;
         if (!mounted || from == null || to == null || layer == null) {
@@ -491,7 +558,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         context,
         switch (game.phase) {
           GamePhase.lady || GamePhase.ladyResult => RulesTopic.lady,
-          GamePhase.excalibur || GamePhase.excaliburResult =>
+          GamePhase.excalibur ||
+          GamePhase.excaliburResult =>
             RulesTopic.excalibur,
           GamePhase.assassination => RulesTopic.round,
           GamePhase.identity => RulesTopic.roles,
@@ -552,6 +620,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Seats lit up on the table: the team being picked, the player the phone
   /// goes to, or (online) everyone the table is still waiting for.
   bool _highlightSeat(int i) {
+    if (!game.isOnline && game.phase == GamePhase.vote) return false;
     if (game.discussing) return game.speaker == i;
     if (game.phase == GamePhase.team) return selected.contains(i);
     if (_expansionActor != null) return i == _expansionActor;
@@ -591,101 +660,110 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         },
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: AmbientMotion(child: WoodTable(
-            child: SafeArea(
-              child: LayoutBuilder(builder: (context, c) {
-                final s =
-                    min(c.maxHeight / 390, c.maxWidth / 800).clamp(.72, 2.2);
-                _s = s;
-                final secret = _secretVisible;
-                final questShow =
-                    game.phase == GamePhase.questResult && !_interlude;
-                final endShow = game.phase == GamePhase.finished && !_interlude;
-                final note = _announcement;
-                return Shaker(
-                  key: _shaker,
-                  child: Stack(children: [
-                    Positioned.fill(
-                        child: AmbientMotionScope(
-                      enabled: AmbientMotionScope.of(context) &&
-                          !secret &&
-                          !questShow &&
-                          !endShow,
-                      child: RepaintBoundary(child: _table(s)),
-                    )),
-                    Positioned.fill(child: RepaintBoundary(child: _props(s))),
-                    Positioned.fill(
-                        child: AmbientMotionScope(
-                      enabled: AmbientMotionScope.of(context) &&
-                          !secret &&
-                          !questShow &&
-                          !endShow,
-                      child:
-                          const Particles(kind: ParticleKind.dust, count: 26),
-                    )),
-                    if (note != null)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Announcement(
-                              key: ValueKey(_announceId),
-                              title: note.$1,
-                              subtitle: note.$2,
-                              delay: _ms(note.$3),
-                              scale: s),
-                        ),
-                      ),
-                    Positioned.fill(
-                      child: BlurScrim(
-                          visible: questShow,
-                          sigma: 8,
-                          dim: .58,
-                          child: questShow ? _questReveal(s, c) : null),
-                    ),
-                    Positioned.fill(
-                      child: BlurScrim(
-                          visible: endShow,
-                          sigma: 8,
-                          dim: .66,
-                          child: endShow ? _ending(s, c) : null),
-                    ),
-                    Positioned.fill(
-                      child: BlurScrim(
-                          visible: secret,
-                          child: secret ? _privateLayer(s, c) : null),
-                    ),
-                    Positioned.fill(child: FlightLayer(key: _flights)),
-                    if (secret || questShow || endShow)
-                      const Positioned(
-                          top: 6,
-                          left: 6,
-                          child: Material(
-                              color: AvalonTheme.surface,
-                              borderRadius:
-                                  BorderRadius.all(Radius.circular(12)),
-                              child: SoundSettingsButton())),
-                    // Keep mute/leave reachable even over a private card or
-                    // public reveal scrim; these controls contain no secrets.
-                    if (game.isOnline && widget.voice != null)
-                      Positioned(
-                          top: 6,
-                          right: 6,
-                          child: Material(
-                            color: AvalonTheme.surface.withValues(alpha: .94),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 6),
-                                child:
-                                    VoiceControls(voice: widget.voice!, names: {
-                                  for (var i = 0; i < game.players.length; i++)
-                                    game.playerIds[i]: game.players[i],
-                                })),
+          body: !game.tableAvailable
+              ? const Center(child: Text('對局已結束或連線中斷，正在返回房間…'))
+              : AmbientMotion(child: WoodTable(
+                  child: SafeArea(
+                    child: LayoutBuilder(builder: (context, c) {
+                      final s = min(c.maxHeight / 390, c.maxWidth / 800)
+                          .clamp(.72, 2.2);
+                      _s = s;
+                      final secret = _secretVisible;
+                      final questShow =
+                          game.phase == GamePhase.questResult && !_interlude;
+                      final endShow =
+                          game.phase == GamePhase.finished && !_interlude;
+                      final note = _announcement;
+                      return Shaker(
+                        key: _shaker,
+                        child: Stack(children: [
+                          Positioned.fill(
+                              child: AmbientMotionScope(
+                            enabled: AmbientMotionScope.of(context) &&
+                                !secret &&
+                                !questShow &&
+                                !endShow,
+                            child: RepaintBoundary(child: _table(s)),
                           )),
-                  ]),
-                );
-              }),
-            ),
-          )),
+                          Positioned.fill(
+                              child: RepaintBoundary(child: _props(s))),
+                          Positioned.fill(
+                              child: AmbientMotionScope(
+                            enabled: AmbientMotionScope.of(context) &&
+                                !secret &&
+                                !questShow &&
+                                !endShow,
+                            child: const Particles(
+                                kind: ParticleKind.dust, count: 26),
+                          )),
+                          if (note != null)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Announcement(
+                                    key: ValueKey(_announceId),
+                                    title: note.$1,
+                                    subtitle: note.$2,
+                                    delay: _ms(note.$3),
+                                    scale: s),
+                              ),
+                            ),
+                          Positioned.fill(
+                            child: BlurScrim(
+                                visible: questShow,
+                                sigma: 8,
+                                dim: .58,
+                                child: questShow ? _questReveal(s, c) : null),
+                          ),
+                          Positioned.fill(
+                            child: BlurScrim(
+                                visible: endShow,
+                                sigma: 8,
+                                dim: .66,
+                                child: endShow ? _ending(s, c) : null),
+                          ),
+                          Positioned.fill(
+                            child: BlurScrim(
+                                visible: secret,
+                                child: secret ? _privateLayer(s, c) : null),
+                          ),
+                          Positioned.fill(child: FlightLayer(key: _flights)),
+                          if (secret || questShow || endShow)
+                            const Positioned(
+                                top: 6,
+                                left: 6,
+                                child: Material(
+                                    color: AvalonTheme.surface,
+                                    borderRadius:
+                                        BorderRadius.all(Radius.circular(12)),
+                                    child: SoundSettingsButton())),
+                          // Keep mute/leave reachable even over a private card or
+                          // public reveal scrim; these controls contain no secrets.
+                          if (game.isOnline && widget.voice != null)
+                            Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Material(
+                                  color: AvalonTheme.surface
+                                      .withValues(alpha: .94),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6),
+                                      child: VoiceControls(
+                                          voice: widget.voice!,
+                                          names: {
+                                            for (var i = 0;
+                                                i < game.players.length;
+                                                i++)
+                                              game.playerIds[i]:
+                                                  game.players[i],
+                                          })),
+                                )),
+                        ]),
+                      );
+                    }),
+                  ),
+                )),
         ),
       );
 
@@ -802,8 +880,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         : switch (phase) {
             GamePhase.vote =>
               game.votedSeats.contains(i) ? SeatVote.hidden : SeatVote.none,
-            GamePhase.voteResult =>
-              game.votes[i] ? SeatVote.approve : SeatVote.reject,
+            GamePhase.voteResult => _voteLanding.isNotEmpty
+                ? SeatVote.hidden
+                : game.votes[i]
+                    ? SeatVote.approve
+                    : SeatVote.reject,
             _ => SeatVote.none,
           };
     final canPick = _iPickTeam &&
@@ -823,7 +904,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       highlight: _highlightSeat(i),
       vote: vote,
       // one after another around the table, once the last card has landed
-      voteDelay: _ms(760 + 120 * i),
+      voteDelay: _ms(180 + 55 * i),
       onVoteRevealed: () => _voteRevealed(i),
       bump: _bumps[i],
       plateKey: _plateKeys[i],
@@ -1098,7 +1179,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         // the count is only shown once every card has been turned over
         return Appear(
           key: ValueKey('vr${game.history.length}.${game.rejections}'),
-          delay: _ms(500),
+          delay: _ms(120),
           child: bar(
               '贊成 $yes · 反對 ${game.players.length - yes}　—　'
               '${finalRejection ? '連續五次組隊遭否決，邪惡陣營獲勝' : game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
@@ -1132,19 +1213,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _ => '選擇刺殺目標',
     };
     // online there is nobody to hand the phone to
-    final content = !revealed && !game.isOnline
-        ? _handoff(actor, action, s)
-        : switch (game.phase) {
-            GamePhase.identity => _identity(actor, s, c),
-            GamePhase.vote => _secretVote(s, c),
-            GamePhase.quest => _secretQuest(actor, s, c),
-            GamePhase.lady => _ladyPick(actor, s),
-            GamePhase.excalibur => _excaliburPick(actor, s),
-            GamePhase.ladyResult ||
-            GamePhase.excaliburResult =>
-              _expansionResult(actor, s, c),
-            _ => _assassinate(s),
-          };
+    final content = !game.isOnline && game.phase == GamePhase.vote
+        ? _publicVote()
+        : !revealed && !game.isOnline
+            ? _handoff(actor, action, s)
+            : switch (game.phase) {
+                GamePhase.identity => _identity(actor, s, c),
+                GamePhase.vote => _secretVote(s, c),
+                GamePhase.quest => _secretQuest(actor, s, c),
+                GamePhase.lady => _ladyPick(actor, s),
+                GamePhase.excalibur => _excaliburPick(actor, s),
+                GamePhase.ladyResult ||
+                GamePhase.excaliburResult =>
+                  _expansionResult(actor, s, c),
+                _ => _assassinate(s),
+              };
     return Container(
       alignment: Alignment.center,
       padding: EdgeInsets.all(16 * s),
@@ -1365,8 +1448,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             // changes hands
                             HapticFeedback.selectionClick();
                             setState(() => _hiding = true);
-                            _after(_ms(400),
-                                () => act(() => game.confirmIdentity(actor)));
+                            final turn = _turnKey;
+                            _after(_ms(400), () {
+                              if (turn == _turnKey) {
+                                act(() => game.confirmIdentity(actor));
+                              }
+                            });
                           })),
                     ],
                   )),
@@ -1378,7 +1465,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _identityKnowledge(int actor, Role role, double s, double width) {
-    final info = roleInformation(role);
+    final info = roleInformation(role,
+        configuredRoles: game.configuredRoles, expansions: game.expansions);
     final visible = game.visiblePlayers(actor);
     return Container(
       key: const ValueKey('identityKnowledge'),
@@ -1419,9 +1507,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                                     style: _t(13.5, s, height: 1.3))))),
                 ]),
             ],
-            SizedBox(height: 8 * s),
-            Text(info.reminder,
-                style: _t(13, s, color: const Color(0xFFD5CBB8))),
+            if (info.reminder.isNotEmpty) ...[
+              SizedBox(height: 8 * s),
+              Text(info.reminder,
+                  style: _t(13, s, color: const Color(0xFFD5CBB8))),
+            ],
           ]),
     );
   }
@@ -1493,6 +1583,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
         ]));
   }
+
+  Widget _publicVote() => LocalVotePanel(
+      key: ValueKey(
+          'localVotes/${game.generation}/${game.questNumber}/${game.rejections}'),
+      players: game.players,
+      leader: game.leader,
+      team: game.team,
+      onSubmit: (ballots) => act(() => game.recordVotes(ballots)));
 
   Widget _secretVote(double s, BoxConstraints c) {
     final seat = privateActor;
@@ -2189,7 +2287,9 @@ class _Snap {
   _Snap.of(GameSession g)
       : generation = g.generation,
         phase = g.phase,
-        leader = g.leader;
-  final int generation, leader;
+        leader = g.leader,
+        historyLength = g.history.length,
+        rejections = g.rejections;
+  final int generation, leader, historyLength, rejections;
   final GamePhase phase;
 }

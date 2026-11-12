@@ -114,6 +114,7 @@ abstract class GameSession extends ChangeNotifier {
   /// Seat of the person holding this phone, or null when it is passed round.
   int? get mySeat;
   bool get isOnline => mySeat != null;
+  bool get tableAvailable => true;
 
   /// The seat that has to take the phone for the current secret step
   /// (pass & play only).
@@ -130,6 +131,7 @@ abstract class GameSession extends ChangeNotifier {
 
   /// Public seat numbers this player is allowed to see in their private card.
   List<int> visiblePlayers(int seat) => const [];
+  Set<Role>? get configuredRoles => null;
 
   /// May this device press the shared "continue" buttons?
   bool get canAdvance;
@@ -142,6 +144,10 @@ abstract class GameSession extends ChangeNotifier {
   Future<void> confirmIdentity(int seat);
   Future<void> proposeTeam(List<int> team, {int? excalibur});
   Future<void> vote(int seat, bool approve);
+  Future<void> recordVotes(List<bool> ballots) async {
+    throw const GameMoveException('只有一機模式支援公開登記投票');
+  }
+
   Future<void> continueVote();
   Future<void> playQuest(int seat, bool success);
   Future<void> continueQuest();
@@ -314,6 +320,8 @@ class LocalGameSession extends GameSession {
   @override
   String knowledge(int seat) => _game.knowledge(seat);
   @override
+  Set<Role> get configuredRoles => _game.roles.toSet();
+  @override
   List<int> visiblePlayers(int seat) => visibleSeats(_game.roles, seat);
   @override
   bool get canAdvance => true;
@@ -328,6 +336,9 @@ class LocalGameSession extends GameSession {
   @override
   Future<void> vote(int seat, bool approve) =>
       _apply(() => _game.vote(approve));
+  @override
+  Future<void> recordVotes(List<bool> ballots) =>
+      _apply(() => _game.recordVotes(ballots));
   @override
   Future<void> continueVote() => _apply(_game.continueVote);
   @override

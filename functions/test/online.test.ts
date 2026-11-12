@@ -12,6 +12,7 @@ import {
   connectFirestoreEmulator,
   doc,
   getDoc,
+  getDocFromServer,
   getFirestore,
   collection, deleteDoc, getDocs, query, setDoc, Timestamp, updateDoc, where,
 } from 'firebase/firestore';
@@ -267,6 +268,9 @@ describe('online game end to end', () => {
       const team = Array.from({ length: size }, (_, i) => i);
       await move(r.game.leader, 'proposeTeam', { team });
       await speeches();
+      await refused(move(0, 'vote', { approve: true, generation: r.gen - 1 }), /這局已更新/);
+      await refused(move(0, 'vote', { approve: true, historyLength: q + 1 }), /這輪已更新/);
+      await refused(move(0, 'vote', { approve: true, rejections: r.game.rejections + 1 }), /這輪已更新/);
       for (let i = 0; i < 4; i++) await move(i, 'vote', { approve: i !== 3 });
       r = await room(phones[0], code);
       assert.equal(r.game.votes, null, 'votes are not published yet');
@@ -311,6 +315,8 @@ describe('online game end to end', () => {
     assert.equal(r.gen, 2);
     assert.equal(r.game.phase, 'identity');
     await refused(outsider.call('joinRoom', { code, name: '路人' }), /已經開始/);
+    await refused(phones[0].call('move', { code, move: 'confirmIdentity', generation: r.gen - 1 }), /這局已更新/);
+    assert.deepEqual((await room(phones[0], code)).game.confirmed, []);
   });
 
   test('a player leaving mid-game ends it for everyone', async () => {
@@ -331,6 +337,7 @@ describe('online game end to end', () => {
     assert.equal((await getDoc(doc(phones[0].db, 'rooms', code, 'voice', phones[4].uid))).exists(), false);
     // the seat is gone: the room can no longer be read from that phone
     await denied(getDoc(doc(phones[4].db, 'rooms', code)));
+    await denied(getDocFromServer(doc(phones[4].db, 'rooms', code, 'private', phones[4].uid)));
     // and the others can carry on: someone new can join the lobby
     const { seat } = await outsider.call('joinRoom', { code, name: '路人' });
     assert.equal(seat, 4);

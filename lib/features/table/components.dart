@@ -528,6 +528,7 @@ class SeatPlate extends StatelessWidget {
               faceUp: vote == SeatVote.approve || vote == SeatVote.reject,
               flipOnMount: true,
               delay: voteDelay,
+              duration: const Duration(milliseconds: 420),
               onRevealed: onVoteRevealed,
               back: CardBack(width: 26 * s, elevation: 3, deck: CardDeck.vote),
               front: GameCard(
@@ -551,15 +552,17 @@ class SeatPlate extends StatelessWidget {
     );
     return SizedBox(
       width: 178 * s,
-      height: 56 * s,
+      height: (badges.isEmpty ? 56 : 86) * s,
       child: Stack(clipBehavior: Clip.none, children: [
         Align(
-          alignment: Alignment.center,
-          child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: tokensOnRight
-                  ? [plate, SizedBox(width: 4 * s), pieces]
-                  : [pieces, SizedBox(width: 4 * s), plate]),
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+              height: 56 * s,
+              child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: tokensOnRight
+                      ? [plate, SizedBox(width: 4 * s), pieces]
+                      : [pieces, SizedBox(width: 4 * s), plate])),
         ),
         Positioned(
           top: -10 * s,
@@ -575,11 +578,19 @@ class SeatPlate extends StatelessWidget {
           ),
         ),
         if (badges.isNotEmpty)
-          // on the table side of the seat, under the shield and vote
+          // A separate row below the nameplate, outside every vote rectangle.
           Positioned(
-            bottom: -7 * s,
-            left: tokensOnRight ? 118 * s : 2 * s,
-            child: Row(mainAxisSize: MainAxisSize.min, children: badges),
+            bottom: 0,
+            left: tokensOnRight ? 12 * s : 78 * s,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              for (final badge in badges)
+                Padding(
+                    padding: EdgeInsets.only(right: 5 * s),
+                    child: SizedBox(
+                        width: 26 * s,
+                        height: 26 * s,
+                        child: FittedBox(fit: BoxFit.contain, child: badge))),
+            ]),
           ),
       ]),
     );

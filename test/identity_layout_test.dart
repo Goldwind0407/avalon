@@ -143,16 +143,21 @@ void main() {
                 1,
                 reason: 'A seat and nickname must stay together');
           }
-          final reminder = roleInformation(role).reminder;
-          final paragraph =
-              tester.renderObject<RenderParagraph>(find.text(reminder));
-          expect(
-              paragraph
-                  .getBoxesForSelection(TextSelection(
-                      baseOffset: 0, extentOffset: reminder.length))
-                  .length,
-              reminder.split('\n').length,
-              reason: 'Reminders only break at intentional line endings');
+          final reminder = roleInformation(role,
+                  configuredRoles: game.configuredRoles,
+                  expansions: game.expansions)
+              .reminder;
+          if (reminder.isNotEmpty) {
+            final paragraph =
+                tester.renderObject<RenderParagraph>(find.text(reminder));
+            expect(
+                paragraph
+                    .getBoxesForSelection(TextSelection(
+                        baseOffset: 0, extentOffset: reminder.length))
+                    .length,
+                reminder.split('\n').length,
+                reason: 'Reminders only break at intentional line endings');
+          }
           expect(find.text('記住了').hitTestable(), findsOneWidget);
           await tester.pumpWidget(const SizedBox.shrink());
           game.dispose();

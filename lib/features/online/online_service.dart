@@ -72,6 +72,7 @@ class OnlineService {
   Stream<Map<String, dynamic>?> room(String code) => FirebaseFirestore.instance
       .doc('rooms/$code')
       .snapshots()
+      .where((s) => s.exists || !s.metadata.isFromCache)
       .map((s) => s.data());
 
   /// This player's own role. Nobody else can read it (firestore.rules).

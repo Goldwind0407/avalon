@@ -21,6 +21,7 @@ import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
 import { voiceIceServers } from './voice_ice';
+import { roomHasExpired } from './room_lifecycle';
 
 initializeApp();
 // Callable functions must be reachable by the app; who is calling is
@@ -108,7 +109,11 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
 async function loadRoom(tx: Transaction, code: string): Promise<Room> {
   const snap = await tx.get(roomRef(code));
   if (!snap.exists) throw new HttpsError('not-found', '找不到這個房間');
-  return snap.data() as Room;
+  const room = snap.data() as Room;
+  if (roomHasExpired(room.expireAt)) {
+    throw new HttpsError('failed-precondition', '房間已到期');
+  }
+  return room;
 }
 
 function seatOf(room: Room, uid: string): number {
@@ -120,12 +125,13 @@ function seatOf(room: Room, uid: string): number {
 /** When a room (and its private and secret documents) may be deleted. */
 const expiry = () => Timestamp.fromMillis(Date.now() + ROOM_LIFETIME_MS);
 
-function touch(room: Room) {
+function touch(room: Room, { renew = true } = {}) {
   return {
     ...room,
     step: room.step + 1,
     updatedAt: FieldValue.serverTimestamp(),
-    expireAt: expiry(),
+    expireAt: renew ? expiry()
+      : room.expireAt instanceof Timestamp ? room.expireAt : Timestamp.fromMillis(0),
   };
 }
 
@@ -201,10 +207,16 @@ export const leaveRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const code = cleanCode(req.data?.code);
   return db.runTransaction(async (tx) => {
-    const room = await loadRoom(tx, code);
+    // Cleanup is deliberately allowed for expired or already deleted rooms.
+    // Only this authenticated caller's private data/presence may be removed.
+    const snap = await tx.get(roomRef(code));
+    tx.delete(privateRef(code, uid));
+    tx.delete(roomRef(code).collection('voice').doc(uid));
+    if (!snap.exists) return { left: true, ended: false };
+    const room = snap.data() as Room;
     const seat = room.playerUids.indexOf(uid);
     if (seat < 0) return { left: true, ended: false };
-    tx.delete(roomRef(code).collection('voice').doc(uid));
+    const expired = roomHasExpired(room.expireAt);
     const name = room.players[seat].name;
     // Seats are fixed while cards are dealt, so a player leaving ends the
     // game for everyone and the room goes back to the lobby.
@@ -223,7 +235,7 @@ export const leaveRoom = onCall(async (req) => {
     if (room.hostUid === uid) room.hostUid = room.playerUids[0];
     room.notice = ended ? `${name} 離開了房間，對局已中止` : `${name} 離開了房間`;
     room.noticeStep = room.step + 1; // the step touch() is about to write
-    tx.set(roomRef(code), touch(room));
+    tx.set(roomRef(code), touch(room, { renew: !expired }));
     return { left: true, ended };
   });
 });
@@ -235,9 +247,6 @@ export const voiceIce = onCall(async (req) => {
   await db.runTransaction(async tx => {
     const room = await loadRoom(tx, code);
     seatOf(room, uid);
-    if (!room.expireAt || room.expireAt.toMillis() <= Date.now()) {
-      throw new HttpsError('failed-precondition', '房間已到期');
-    }
   });
   try {
     return { iceServers: voiceIceServers(uid, {
@@ -381,6 +390,15 @@ export const move = onCall((req) =>
     const data = req.data ?? {};
     await db.runTransaction((tx) =>
       applyMove(tx, code, uid, (state, seat, room) => {
+        if (kind !== 'endSpeech' && data.generation !== undefined && data.generation !== room.gen) {
+          throw new HttpsError('failed-precondition', '這局已更新，請依目前畫面重新操作');
+        }
+        if (kind !== 'endSpeech' && (
+          (data.historyLength !== undefined && data.historyLength !== state.history.length) ||
+          (data.rejections !== undefined && data.rejections !== state.rejections)
+        )) {
+          throw new HttpsError('failed-precondition', '這輪已更新，請依目前畫面重新操作');
+        }
         switch (kind) {
           case 'endSpeech':
             if (data.generation !== room.gen) return false;

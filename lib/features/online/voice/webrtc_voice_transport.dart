@@ -30,6 +30,7 @@ class WebRtcVoiceTransport implements VoiceTransport, VoiceFloorTransport {
   Timer? _levels;
   Future<void>? _closing;
   bool _microphone = false, _sampling = false, _ready = false;
+  int _microphoneGeneration = 0;
   Set<String> _speakers = {};
   String? _lastUpdate;
   Set<String>? _allowedSpeakers;
@@ -122,8 +123,9 @@ class WebRtcVoiceTransport implements VoiceTransport, VoiceFloorTransport {
   @override
   Future<void> setMicrophoneEnabled(bool enabled) async {
     if (_closing != null || !_ready) throw const VoiceException('語音已斷線');
+    final generation = ++_microphoneGeneration;
     await _audio.setMicrophoneEnabled(enabled);
-    if (_closing != null) return;
+    if (_closing != null || generation != _microphoneGeneration) return;
     _microphone = enabled;
     _emit();
   }
@@ -132,6 +134,7 @@ class WebRtcVoiceTransport implements VoiceTransport, VoiceFloorTransport {
   Future<void> close() => _closing ??= _close();
 
   Future<void> _close() async {
+    ++_microphoneGeneration;
     _ready = false;
     _levels?.cancel();
     final cancelled = _subscription?.cancel();

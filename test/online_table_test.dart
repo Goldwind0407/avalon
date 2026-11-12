@@ -27,7 +27,7 @@ class FakeServer {
           for (final (i, uid) in uids.indexed) {'uid': uid, 'name': '騎士$i'}
         ],
         'playerUids': uids,
-        'optionalRoles': <String>[],
+        'optionalRoles': <String>['percival', 'morgana'],
         'gen': 1,
         'step': 1,
         'game': {
@@ -94,8 +94,7 @@ void main() {
         findsOneWidget);
     expect(find.descendant(of: knowledge, matching: find.text('4 號 【騎士3】')),
         findsOneWidget);
-    expect(
-        find.descendant(of: knowledge, matching: find.text('若有莫甘娜，\n你無法分辨兩者。')),
+    expect(find.descendant(of: knowledge, matching: find.text('你無法分辨梅林與莫甘娜。')),
         findsOneWidget);
     await tester.tap(find.text('記住了'));
     await advance(tester, 600);
@@ -128,8 +127,14 @@ void main() {
     await advance(tester, 300);
     await tester.tap(find.text('蓋牌投出'));
     await advance(tester, 600);
-    expect(server.calls.last.$2,
-        {'code': '123456', 'move': 'vote', 'approve': false});
+    expect(server.calls.last.$2, {
+      'code': '123456',
+      'move': 'vote',
+      'generation': 1,
+      'historyLength': 0,
+      'rejections': 0,
+      'approve': false
+    });
     server.room({
       'phase': 'vote',
       'team': [0, 1],
@@ -201,6 +206,9 @@ void main() {
     expect(server.calls.last.$2, {
       'code': '123456',
       'move': 'proposeTeam',
+      'generation': 1,
+      'historyLength': 0,
+      'rejections': 0,
       'team': [1, 3]
     });
     expect(tester.takeException(), isNull);

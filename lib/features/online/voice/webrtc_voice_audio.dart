@@ -109,13 +109,16 @@ class WebRtcVoiceAudio implements VoiceAudio {
   }
 
   Future<void> _stopCapture() async {
+    final generation = _captureGeneration;
     final stream = _stream;
     _stream = null;
     // Stop hardware immediately; replacing the sender is only cleanup.
     if (stream != null) await _release(stream);
+    if (generation != _captureGeneration) return;
     await Future.wait([
       for (final peer in [..._peers]) peer.setTrack(null)
     ]);
+    if (generation != _captureGeneration) return;
     if (!_closed && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       await Helper.setAppleAudioIOMode(AppleAudioIOMode.remoteOnly,
           preferSpeakerOutput: true);

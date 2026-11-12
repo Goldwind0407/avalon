@@ -271,4 +271,24 @@ void main() {
     expect(created, 4);
     expect(a.connected, isEmpty);
   });
+
+  test('same UID takeover closes the old links without erasing the replacement',
+      () async {
+    final old = mesh('a'), b = mesh('b');
+    final errors = <Object>[];
+    final sub = old.changes.listen((_) {}, onError: errors.add);
+    await old.start();
+    await b.start();
+    await flush();
+    final oldPeer = peers['a']!.single;
+    final replacement = mesh('a');
+    await replacement.start();
+    await flush();
+    expect(errors, hasLength(1));
+    expect(old.connected, isEmpty);
+    expect(oldPeer.closes, 1);
+    expect(replacement.connected, {'b'});
+    expect(bus.people['a']!.session, replacement.session);
+    await sub.cancel();
+  });
 }

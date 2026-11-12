@@ -93,6 +93,24 @@ void main() {
     expect(voice.microphone, isTrue);
   });
 
+  test('a floor change while joining never mutes a not-yet-ready transport',
+      () async {
+    transport.pendingConnect = Completer<void>();
+    final joining = voice.join();
+    await Future<void>.delayed(Duration.zero);
+    voice.setFloor({'other'}, 'me');
+    await Future<void>.delayed(Duration.zero);
+    expect(voice.status, VoiceStatus.connecting);
+    expect(transport.microphoneRequests, isEmpty);
+    expect(transport.closes, 0);
+    transport.pendingConnect!.complete();
+    await joining;
+    expect(voice.connected, isTrue);
+    expect(voice.microphoneAllowed, isFalse);
+    await voice.toggleMicrophone();
+    expect(transport.microphoneRequests, isEmpty);
+  });
+
   test('floor loss cancels pending mic and restoring floor never opens it',
       () async {
     await voice.join();

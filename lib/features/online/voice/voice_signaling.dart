@@ -34,10 +34,15 @@ abstract class VoiceSignaling {
 }
 
 class FirestoreVoiceSignaling implements VoiceSignaling {
-  FirestoreVoiceSignaling(this.code, [FirebaseFirestore? db])
-      : _db = db ?? FirebaseFirestore.instance;
+  FirestoreVoiceSignaling(this.code,
+      {FirebaseFirestore? db, int Function()? now, Future<void>? clockReady})
+      : _db = db ?? FirebaseFirestore.instance,
+        _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
+        _clockReady = clockReady ?? Future.value();
   final String code;
   final FirebaseFirestore _db;
+  final int Function() _now;
+  final Future<void> _clockReady;
   String? _roomId;
   bool _announced = false;
   int _order = 0;
@@ -62,9 +67,8 @@ class FirestoreVoiceSignaling implements VoiceSignaling {
             for (final doc in people!)
               if (members.contains(doc.id) &&
                   doc.data()['roomId'] == _roomId &&
-                  (doc.data()['expireAt'] as Timestamp)
-                      .toDate()
-                      .isAfter(DateTime.now()))
+                  (doc.data()['expireAt'] as Timestamp).millisecondsSinceEpoch >
+                      _now())
                 VoicePresence(doc.id, doc.data()['session'] as String)
           ]);
         }
@@ -95,9 +99,8 @@ class FirestoreVoiceSignaling implements VoiceSignaling {
       _signals.where('to', isEqualTo: uid).snapshots().map((snapshot) => [
             for (final doc in snapshot.docs)
               if (doc.data()['roomId'] == _roomId &&
-                  (doc.data()['expireAt'] as Timestamp)
-                      .toDate()
-                      .isAfter(DateTime.now()))
+                  (doc.data()['expireAt'] as Timestamp).millisecondsSinceEpoch >
+                      _now())
                 VoiceSignal(
                     id: doc.id,
                     from: doc.data()['from'] as String,
@@ -113,6 +116,7 @@ class FirestoreVoiceSignaling implements VoiceSignaling {
   @override
   Future<void> announce(VoicePresence me) async {
     if (_roomId == null) {
+      await _clockReady;
       final room =
           (await _room.get(const GetOptions(source: Source.server))).data();
       _roomId = room?['voiceRoomId'] as String?;
@@ -128,8 +132,7 @@ class FirestoreVoiceSignaling implements VoiceSignaling {
         'uid': me.uid,
         'session': me.session,
         'roomId': _roomId,
-        'expireAt':
-            Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 90))),
+        'expireAt': Timestamp.fromMillisecondsSinceEpoch(_now() + 90000),
       });
     });
     _announced = true;
@@ -158,8 +161,7 @@ class FirestoreVoiceSignaling implements VoiceSignaling {
       'kind': signal.kind,
       'data': signal.data,
       'order': _order++,
-      'expireAt':
-          Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 5))),
+      'expireAt': Timestamp.fromMillisecondsSinceEpoch(_now() + 300000),
     });
   }
 

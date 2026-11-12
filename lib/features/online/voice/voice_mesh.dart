@@ -152,6 +152,11 @@ class VoiceMesh {
 
   void _onPresence(List<VoicePresence> people) {
     if (_stopped) return;
+    if (people.any((p) => p.uid == uid && p.session != session)) {
+      _error(StateError('語音已在其他裝置開啟，請重新加入'), StackTrace.current);
+      unawaited(stop().catchError((Object _) {}));
+      return;
+    }
     final previous = Map<String, String>.of(_present);
     _present
       ..clear()

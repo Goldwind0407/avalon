@@ -9,6 +9,7 @@ class AudioDevice implements VoiceAudio {
   bool microphone = false, closed = false, deny = false;
   int captures = 0, initializations = 0;
   Completer<void>? pendingInitialize;
+  Completer<void>? pendingMicrophone;
   final peers = <FakePeer>[];
   @override
   Future<void> initialize() async {
@@ -25,6 +26,7 @@ class AudioDevice implements VoiceAudio {
 
   @override
   Future<void> setMicrophoneEnabled(bool enabled) async {
+    if (enabled) await pendingMicrophone?.future;
     if (deny) throw StateError('permission denied');
     if (enabled) captures++;
     microphone = enabled;
@@ -59,6 +61,23 @@ void main() {
     transports.add(voice);
     return voice;
   }
+
+  test('late mic capture completion cannot overwrite a newer mute', () async {
+    final device = AudioDevice()..pendingMicrophone = Completer<void>();
+    final voice = transport('a', device);
+    final updates = <VoiceUpdate>[];
+    final sub = voice.updates.listen(updates.add);
+    await voice.connect();
+    final opening = voice.setMicrophoneEnabled(true);
+    await flush();
+    await voice.setMicrophoneEnabled(false);
+    device.pendingMicrophone!.complete();
+    await opening;
+    await flush();
+    expect(updates.last.microphone, isFalse);
+    expect(updates.any((u) => u.microphone), isFalse);
+    await sub.cancel();
+  });
 
   test(
       'joining listens without capture, reports actual peers and speaking UIDs',

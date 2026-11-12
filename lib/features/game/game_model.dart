@@ -79,19 +79,33 @@ class RoleInformation {
 }
 
 /// Shared wording for both the structured card view and plain-text knowledge.
-RoleInformation roleInformation(Role role) {
+RoleInformation roleInformation(Role role,
+    {Set<Role>? configuredRoles, ExpansionSettings? expansions}) {
+  bool has(Role candidate) =>
+      configuredRoles == null || configuredRoles.contains(candidate);
   if (role == Role.merlin) {
-    return const RoleInformation('你看見的邪惡玩家', '莫德雷德不會被你看見。', listsPlayers: true);
-  }
-  if (role == Role.percival) {
-    return const RoleInformation('梅林候選人', '若有莫甘娜，\n你無法分辨兩者。',
+    return RoleInformation('你看見的邪惡玩家', has(Role.mordred) ? '莫德雷德不會被你看見。' : '',
         listsPlayers: true);
   }
+  if (role == Role.percival) {
+    return has(Role.morgana)
+        ? const RoleInformation('梅林候選人', '你無法分辨梅林與莫甘娜。', listsPlayers: true)
+        : const RoleInformation('你看見的梅林', '請保護梅林，避免暴露他的身分。',
+            listsPlayers: true);
+  }
   if (role == Role.lancelotGood) {
+    if (expansions?.lancelot == 2) {
+      return const RoleInformation(
+          '你沒有額外情報。', '你不知道另一位蘭斯洛特是誰。\n依公開的轉換牌換邊，按當前陣營出牌。');
+    }
     return const RoleInformation(
         '你沒有額外情報。', '你不知道另一位蘭斯洛特是誰。\n翻出「轉換陣營」時，你會改為邪惡陣營。');
   }
   if (role == Role.lancelotEvil) {
+    if (expansions?.lancelot == 2) {
+      return const RoleInformation(
+          '你屬於邪惡陣營。', '其他邪惡玩家認得你，但你看不到他們。\n依公開的轉換牌換邊，按當前陣營出牌。');
+    }
     return const RoleInformation(
         '你屬於邪惡陣營。', '其他邪惡玩家認得你，但你看不到他們。\n翻出「轉換陣營」時，你會改為正義陣營。');
   }
@@ -99,18 +113,21 @@ RoleInformation roleInformation(Role role) {
     return const RoleInformation('你屬於邪惡陣營。', '你與其他邪惡玩家互不相認。');
   }
   if (role.isEvil) {
-    return const RoleInformation('你的邪惡同伴', '奧伯倫不會出現在此。', listsPlayers: true);
+    return RoleInformation('你的邪惡同伴', has(Role.oberon) ? '奧伯倫不會出現在此。' : '',
+        listsPlayers: true);
   }
   return const RoleInformation('你沒有額外情報。', '透過討論與投票，\n找出值得信任的隊友。');
 }
 
-String knowledgeText(Role role, List<int> visible, List<String> players) {
-  final info = roleInformation(role);
+String knowledgeText(Role role, List<int> visible, List<String> players,
+    {Set<Role>? configuredRoles, ExpansionSettings? expansions}) {
+  final info = roleInformation(role,
+      configuredRoles: configuredRoles, expansions: expansions);
   final names = visible.map((i) => playerLabel(i, players[i])).join('、');
   final heading = info.listsPlayers
       ? '${info.heading}：${names.isEmpty ? '無' : names}。'
       : info.heading;
-  return '$heading\n${info.reminder}';
+  return info.reminder.isEmpty ? heading : '$heading\n${info.reminder}';
 }
 
 class QuestResult {
@@ -156,8 +173,8 @@ class AvalonGame {
     leader = rng.nextInt(players.length);
     if (expansions.lancelot > 0) {
       // 5 "no change" and 2 "switch" loyalty cards
-      _loyaltyDeck.addAll([false, false, false, false, false, true, true]
-        ..shuffle(rng));
+      _loyaltyDeck.addAll(
+          [false, false, false, false, false, true, true]..shuffle(rng));
       if (expansions.lancelot == 2) {
         loyalty.setAll(0, _loyaltyDeck.take(5));
         _loyaltyDeck.clear();
@@ -256,7 +273,8 @@ class AvalonGame {
   }
 
   String knowledge(int index) =>
-      knowledgeText(roles[index], visibleSeats(roles, index), players);
+      knowledgeText(roles[index], visibleSeats(roles, index), players,
+          configuredRoles: roles.toSet(), expansions: expansions);
 
   void confirmIdentity() {
     _require(GamePhase.identity);
@@ -321,6 +339,16 @@ class AvalonGame {
     } else {
       phase = GamePhase.vote;
       speechDeadline = null;
+    }
+  }
+
+  void recordVotes(List<bool> ballots) {
+    _require(GamePhase.vote);
+    if (ballots.length != players.length || actor != 0) {
+      throw ArgumentError('請完整登記每位玩家的票型');
+    }
+    for (final approve in List<bool>.of(ballots)) {
+      vote(approve);
     }
   }
 
@@ -430,7 +458,8 @@ class AvalonGame {
       _finish('邪惡', '三次任務失敗，邪惡陣營獲勝。');
     } else if (successes == 3) {
       phase = GamePhase.assassination;
-    } else if (ladyHolder != null && const [2, 3, 4].contains(_history.length)) {
+    } else if (ladyHolder != null &&
+        const [2, 3, 4].contains(_history.length)) {
       phase = GamePhase.lady;
     } else {
       _nextQuest();

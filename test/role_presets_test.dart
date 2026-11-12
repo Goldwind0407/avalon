@@ -16,9 +16,9 @@ void main() {
             players: List.generate(
                 n, (i) => Player(id: '$i', name: '$i', isReady: true)))
           ..expansions = ExpansionSettings(lancelot: lancelot ? 1 : 0);
-        room.specialRoles.addAll(
-            [for (final r in rolePreset(n)!) r.label]);
-        expect(room.roleIssue, isNull, reason: '$n players, lancelot $lancelot');
+        room.specialRoles.addAll([for (final r in rolePreset(n)!) r.label]);
+        expect(room.roleIssue, isNull,
+            reason: '$n players, lancelot $lancelot');
       }
     }
     expect(rolePreset(9), {Role.percival, Role.mordred});
@@ -33,11 +33,13 @@ void main() {
     await tester.pumpWidget(
         MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
     await tester.pumpAndSettle();
-    bool on(String role) => tester
-        .widget<Icon>(find.descendant(
-            of: find.byKey(ValueKey('role$role')),
-            matching: find.byType(Icon)))
-        .icon == Icons.check_circle;
+    bool on(String role) =>
+        tester
+            .widget<Icon>(find.descendant(
+                of: find.byKey(ValueKey('role$role')),
+                matching: find.byType(Icon)))
+            .icon ==
+        Icons.check_circle;
     expect(on('派西維爾') && on('莫甘娜') && !on('莫德雷德'), isTrue);
     await tester.tap(find.byKey(const ValueKey('playerCount9')));
     await tester.pumpAndSettle();
@@ -68,7 +70,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('playerCount8')));
     await tester.pumpAndSettle();
     await openExpansions();
+    await tester.tap(find.byKey(const ValueKey('expansionLancelot')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('變體一・每輪翻牌'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('expansionSave')));
     await tester.pumpAndSettle();
     expect(find.text('蘭斯洛特（變體一）'), findsOneWidget);
@@ -78,7 +83,11 @@ void main() {
     expect(find.textContaining('未使用'), findsOneWidget);
     await openExpansions();
     expect(find.textContaining('目前 6 人'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('expansionLancelot')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('變體一・每輪翻牌'), warnIfMissed: false);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('expansionSave')));
     await tester.pumpAndSettle();
     expect(find.textContaining('未使用'), findsOneWidget);

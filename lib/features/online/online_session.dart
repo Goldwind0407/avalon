@@ -103,20 +103,25 @@ class OnlineGameSession extends GameSession {
         if (leaving) return;
         if (data == null) {
           closed = true;
+          this.room = null;
+          _mine = null;
         } else {
-          error = null;
+          closed = false;
+          _roomError = null;
           this.room = OnlineRoom.fromMap(data);
         }
         _updated();
-      }, onError: _failed),
+      }, onError: (Object e) => _failed(e, private: false)),
       mine.listen((data) {
         if (leaving) return;
+        _mineError = null;
         _mine = data;
         _updated();
-      }, onError: _failed),
+      }, onError: (Object e) => _failed(e, private: true)),
     ];
-    unawaited(_synchronizeClock());
+    clockReady = _synchronizeClock();
   }
+  late final Future<void> clockReady;
 
   int _clockOffset = 0;
   bool _disposed = false;
@@ -133,13 +138,13 @@ class OnlineGameSession extends GameSession {
       if (server != null) {
         _clockOffset = server - ((before + super.nowMillis) ~/ 2);
       }
-      refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
+      refreshSpeechTimer(active: tableAvailable);
     } catch (_) {/* Local time remains a usable offline fallback. */}
   }
 
   void _updated() {
-    refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
-    if (room?.inGame == true && mySeat != null) {
+    refreshSpeechTimer(active: tableAvailable);
+    if (tableAvailable) {
       final scope = notebookScope;
       final card = _myCard;
       final role =
@@ -149,7 +154,7 @@ class OnlineGameSession extends GameSession {
           : '${role.label}・${role.isEvil ? '邪惡陣營' : '正義陣營'}\n${role.isEvil ? '讓任務失敗或找出梅林' : '完成三次任務，並保護梅林'}\n${knowledgeText(role, [
                 for (final i in card!['visible'] as List? ?? const [])
                   (i as num).toInt()
-              ], players)}';
+              ], players, configuredRoles: configuredRoles, expansions: expansions)}';
       final records = proposalHistory;
       _notebookSync = _notebookSync.then((_) async {
         if (_disposed || notebookScope != scope) return;
@@ -187,11 +192,24 @@ class OnlineGameSession extends GameSession {
   bool closed = false;
 
   /// Reading the room failed (e.g. this player is no longer in it).
-  Object? error;
+  Object? _roomError, _mineError;
+  Object? get error => _roomError ?? _mineError;
+  @override
+  bool get tableAvailable =>
+      room?.inGame == true &&
+      !closed &&
+      !leaving &&
+      error == null &&
+      mySeat != null;
 
-  void _failed(Object e) {
+  void _failed(Object e, {required bool private}) {
     if (leaving) return;
-    error = e;
+    if (private) {
+      _mineError = e;
+      _mine = null;
+    } else {
+      _roomError = e;
+    }
     refreshSpeechTimer(active: false);
     notifyListeners();
   }
@@ -215,13 +233,19 @@ class OnlineGameSession extends GameSession {
   Future<void> _move(String move,
       [Map<String, Object?> extra = const {}]) async {
     final before = super.nowMillis;
-    final response =
-        await _call('move', {'code': code, 'move': move, ...extra});
+    final response = await _call('move', {
+      'code': code,
+      'move': move,
+      'generation': generation,
+      'historyLength': history.length,
+      'rejections': rejections,
+      ...extra
+    });
     if (_disposed) return;
     final server = (response['serverNow'] as num?)?.toInt();
     if (server != null) {
       _clockOffset = server - ((before + super.nowMillis) ~/ 2);
-      refreshSpeechTimer(active: room?.inGame == true && !leaving && !closed);
+      refreshSpeechTimer(active: tableAvailable);
     }
   }
 
@@ -249,7 +273,7 @@ class OnlineGameSession extends GameSession {
       await _call('leaveRoom', {'code': code});
     } catch (_) {
       leaving = false;
-      refreshSpeechTimer(active: room?.inGame == true && !closed);
+      refreshSpeechTimer(active: tableAvailable);
       rethrow;
     }
   }
@@ -370,8 +394,17 @@ class OnlineGameSession extends GameSession {
     final role = roleOf(seat);
     final card = _myCard;
     if (role == null || card == null) return '';
-    return knowledgeText(role, visiblePlayers(seat), players);
+    return knowledgeText(role, visiblePlayers(seat), players,
+        configuredRoles: configuredRoles, expansions: expansions);
   }
+
+  @override
+  Set<Role> get configuredRoles => {
+        Role.merlin,
+        Role.assassin,
+        ...?room?.optionalRoles,
+        if (expansions.lancelot > 0) ...[Role.lancelotGood, Role.lancelotEvil],
+      };
 
   @override
   List<int> visiblePlayers(int seat) {
@@ -392,9 +425,9 @@ class OnlineGameSession extends GameSession {
   @override
   Future<void> confirmIdentity(int seat) => _move('confirmIdentity');
   @override
-  Future<void> proposeTeam(List<int> team, {int? excalibur}) =>
-      _move('proposeTeam',
-          {'team': team, if (excalibur != null) 'excalibur': excalibur});
+  Future<void> proposeTeam(List<int> team, {int? excalibur}) => _move(
+      'proposeTeam',
+      {'team': team, if (excalibur != null) 'excalibur': excalibur});
   @override
   Future<void> vote(int seat, bool approve) =>
       _move('vote', {'approve': approve});
@@ -419,7 +452,9 @@ class OnlineGameSession extends GameSession {
   @override
   List<bool?> get loyalty {
     final cards = _game['loyalty'] as List? ?? const [];
-    return [for (var i = 0; i < 5; i++) i < cards.length ? cards[i] as bool? : null];
+    return [
+      for (var i = 0; i < 5; i++) i < cards.length ? cards[i] as bool? : null
+    ];
   }
 
   @override

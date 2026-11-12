@@ -768,6 +768,13 @@ class FlightLayerState extends State<FlightLayer>
     with TickerProviderStateMixin {
   final _active = <_ActiveFlight>[];
 
+  void clear() {
+    for (final flight in _active) {
+      flight.controller.dispose();
+    }
+    if (mounted) setState(_active.clear);
+  }
+
   void launch(Flight f) {
     final box = context.findRenderObject() as RenderBox;
     Rect local(Rect r) => Rect.fromPoints(

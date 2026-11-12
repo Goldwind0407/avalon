@@ -36,7 +36,9 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   void _setPlayers(int count) {
     playerCount = count;
     // Lancelot cannot be played with fewer than 7
-    if (count < lancelotMinPlayers) expansions = expansions.copyWith(lancelot: 0);
+    if (count < lancelotMinPlayers) {
+      expansions = expansions.copyWith(lancelot: 0);
+    }
     final preset = rolePreset(count);
     if (preset == null) return;
     roles
@@ -68,6 +70,13 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   @override
   Widget build(BuildContext context) {
     final configuration = setup;
+    final options = [
+      ...roleOptions,
+      if (expansions.lancelot > 0) ...[
+        ('正義蘭斯洛特', '正義・擴充固定'),
+        ('邪惡蘭斯洛特', '邪惡・擴充固定'),
+      ],
+    ];
     final evilCount = Room.evilCount(playerCount);
     return Scaffold(
       resizeToAvoidBottomInset: false,
@@ -128,8 +137,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                     active ? AvalonTheme.bg : AvalonTheme.muted,
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(9))),
-                            onPressed: () =>
-                                setState(() => _setPlayers(count)),
+                            onPressed: () => setState(() => _setPlayers(count)),
                             child: Text('$count')),
                       ));
                 }),
@@ -231,7 +239,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                   const SectionLabel('角色配置'),
                                   const SizedBox(height: 8),
                                   ...List.generate(
-                                      3,
+                                      options.length ~/ 2,
                                       (row) => Expanded(
                                               child: Padding(
                                             padding: EdgeInsets.only(
@@ -240,11 +248,14 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                                 children:
                                                     List.generate(2, (column) {
                                               final (role, side) =
-                                                  roleOptions[row * 2 + column];
-                                              final active =
+                                                  options[row * 2 + column];
+                                              final expansionRole =
+                                                  role.endsWith('蘭斯洛特');
+                                              final active = expansionRole ||
                                                   roles.contains(role);
-                                              final required =
-                                                  role == '梅林' || role == '刺客';
+                                              final required = expansionRole ||
+                                                  role == '梅林' ||
+                                                  role == '刺客';
                                               return Expanded(
                                                   child: Padding(
                                                 padding: EdgeInsets.only(
@@ -278,28 +289,30 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                                                 horizontal: 8),
                                                         child: Row(children: [
                                                           Expanded(
-                                                              child: Column(
-                                                                  mainAxisAlignment:
-                                                                      MainAxisAlignment
-                                                                          .center,
-                                                                  crossAxisAlignment:
-                                                                      CrossAxisAlignment
-                                                                          .start,
-                                                                  children: [
-                                                                Text(role,
-                                                                    style: TextStyle(
-                                                                        fontSize:
-                                                                            13,
-                                                                        color: active
-                                                                            ? AvalonTheme.gold
-                                                                            : Colors.white)),
-                                                                Text(side,
-                                                                    style: const TextStyle(
-                                                                        fontSize:
-                                                                            10,
-                                                                        color: AvalonTheme
-                                                                            .muted)),
-                                                              ])),
+                                                              child: FittedBox(
+                                                                  fit: BoxFit
+                                                                      .scaleDown,
+                                                                  alignment:
+                                                                      Alignment
+                                                                          .centerLeft,
+                                                                  child: Column(
+                                                                      mainAxisAlignment:
+                                                                          MainAxisAlignment
+                                                                              .center,
+                                                                      crossAxisAlignment:
+                                                                          CrossAxisAlignment
+                                                                              .start,
+                                                                      children: [
+                                                                        FittedBox(
+                                                                            fit:
+                                                                                BoxFit.scaleDown,
+                                                                            alignment: Alignment.centerLeft,
+                                                                            child: Text(role, style: TextStyle(fontSize: 13, color: active ? AvalonTheme.gold : Colors.white))),
+                                                                        Text(
+                                                                            side,
+                                                                            style:
+                                                                                const TextStyle(fontSize: 10, color: AvalonTheme.muted)),
+                                                                      ]))),
                                                           Icon(
                                                               active
                                                                   ? Icons
@@ -328,9 +341,9 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                     child: ExpansionsButton(
                         settings: expansions,
                         onTap: () async {
-                          final value =
-                              await editExpansions(context, expansions,
-                                  players: playerCount);
+                          final value = await editExpansions(
+                              context, expansions,
+                              players: playerCount);
                           if (mounted && value != null) {
                             setState(() => expansions = value);
                           }

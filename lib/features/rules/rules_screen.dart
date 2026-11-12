@@ -30,8 +30,8 @@ class RulesScreen extends StatefulWidget {
 
   static Future<void> open(BuildContext context,
           [RulesTopic topic = RulesTopic.goal]) =>
-      Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => RulesScreen(initial: topic)));
+      Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => RulesScreen(initial: topic)));
 
   @override
   State<RulesScreen> createState() => _RulesScreenState();
@@ -58,82 +58,84 @@ class _RulesScreenState extends State<RulesScreen> {
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                SizedBox(
-                  width: 168,
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(children: [
-                          IconButton(
-                              tooltip: '返回',
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.arrow_back),
-                              color: AvalonTheme.gold,
-                              constraints: const BoxConstraints.tightFor(
-                                  width: 36, height: 36),
-                              padding: EdgeInsets.zero),
-                          const SizedBox(width: 4),
-                          const Text('遊戲規則',
-                              style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: AvalonTheme.gold)),
-                        ]),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            child: Column(children: [
-                              for (final t in RulesTopic.values)
-                                _TopicTile(
-                                    topic: t,
-                                    selected: t == topic,
-                                    onTap: () => _show(t)),
-                            ]),
-                          ),
-                        ),
-                      ]),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: GoldPanel(
-                    padding: EdgeInsets.zero,
-                    child: Scrollbar(
-                      controller: _scroll,
-                      child: SingleChildScrollView(
-                        key: ValueKey(topic),
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 168,
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text(topic.title,
-                                style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: AvalonTheme.gold)),
-                            const SizedBox(height: 10),
-                            ..._content(topic),
-                            const SizedBox(height: 16),
-                            if (topic.index < RulesTopic.values.length - 1)
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton.icon(
-                                  key: const ValueKey('rulesNext'),
-                                  onPressed: () => _show(
-                                      RulesTopic.values[topic.index + 1]),
-                                  icon: const Icon(Icons.arrow_forward),
-                                  label: Text(
-                                      '下一篇：${RulesTopic.values[topic.index + 1].title}'),
-                                ),
+                            Row(children: [
+                              IconButton(
+                                  tooltip: '返回',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(Icons.arrow_back),
+                                  color: AvalonTheme.gold,
+                                  constraints: const BoxConstraints.tightFor(
+                                      width: 36, height: 36),
+                                  padding: EdgeInsets.zero),
+                              const SizedBox(width: 4),
+                              const Text('遊戲規則',
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: AvalonTheme.gold)),
+                            ]),
+                            const SizedBox(height: 6),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                child: Column(children: [
+                                  for (final t in RulesTopic.values)
+                                    _TopicTile(
+                                        topic: t,
+                                        selected: t == topic,
+                                        onTap: () => _show(t)),
+                                ]),
                               ),
-                          ],
+                            ),
+                          ]),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GoldPanel(
+                        padding: EdgeInsets.zero,
+                        child: Scrollbar(
+                          controller: _scroll,
+                          child: SingleChildScrollView(
+                            key: ValueKey(topic),
+                            controller: _scroll,
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(topic.title,
+                                    style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: AvalonTheme.gold)),
+                                const SizedBox(height: 10),
+                                ..._content(topic),
+                                const SizedBox(height: 16),
+                                if (topic.index < RulesTopic.values.length - 1)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      key: const ValueKey('rulesNext'),
+                                      onPressed: () => _show(
+                                          RulesTopic.values[topic.index + 1]),
+                                      icon: const Icon(Icons.arrow_forward),
+                                      label: Text(
+                                          '下一篇：${RulesTopic.values[topic.index + 1].title}'),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-              ]),
+                  ]),
             ),
           ),
         ),
@@ -158,15 +160,24 @@ class _RulesScreenState extends State<RulesScreen> {
         RulesTopic.round => const [
             _Step(1, '組隊', '隊長（有皇冠的人）挑出這次任務需要的人數，可以選自己。'),
             _Step(2, '討論', '大家輪流發言，說服別人或指出可疑的人。可以說謊，但不能把卡片給別人看。'),
-            _Step(3, '投票', '所有人同時蓋牌投「贊成」或「反對」，一起翻開。'
-                '超過半數贊成才通過，平手算否決。'),
+            _Step(
+                3,
+                '投票',
+                '所有人同時蓋牌投「贊成」或「反對」，一起翻開。'
+                    '超過半數贊成才通過，平手算否決。'),
             _Step(4, '否決', '隊長換成下一位玩家，重新組隊。同一個任務連續 5 次否決，邪惡直接獲勝。'),
             _Step(5, '出任務', '通過的隊員秘密打出任務牌。正義只能出「成功」；邪惡可以選「成功」或「失敗」。'),
-            _Step(6, '公開結果', '任務牌洗勻後翻開，看不出是誰出的。只要有 1 張失敗，任務就失敗'
-                '（7 人以上的第 4 次任務要 2 張失敗才算失敗）。'),
+            _Step(
+                6,
+                '公開結果',
+                '任務牌洗勻後翻開，看不出是誰出的。只要有 1 張失敗，任務就失敗'
+                    '（7 人以上的第 4 次任務要 2 張失敗才算失敗）。'),
             _Step(7, '下一輪', '隊長傳給下一位，繼續下一個任務。先拿到 3 次成功或 3 次失敗的一方贏。'),
-            _Step(8, '刺殺梅林', '正義拿到 3 次成功時，邪惡可以一起討論，最後由刺客指定一個人。'
-                '指中梅林，邪惡逆轉獲勝；指錯，正義獲勝。'),
+            _Step(
+                8,
+                '刺殺梅林',
+                '正義拿到 3 次成功時，邪惡可以一起討論，最後由刺客指定一個人。'
+                    '指中梅林，邪惡逆轉獲勝；指錯，正義獲勝。'),
           ],
         RulesTopic.players => [
             const _P('人數決定陣營比例，以及每次任務要派幾個人。'),
@@ -177,8 +188,7 @@ class _RulesScreenState extends State<RulesScreen> {
           ],
         RulesTopic.roles => [
             const _P('除了梅林與刺客，其他特殊角色可以在開局前自由加入。'),
-            for (final (role, text) in _roles)
-              _RoleRow(role: role, text: text),
+            for (final (role, text) in _roles) _RoleRow(role: role, text: text),
             const _P('建議：第一次玩只用梅林＋刺客。熟悉後加入派西維爾＋莫甘娜，遊戲會更好玩。'),
           ],
         RulesTopic.lady => [
@@ -260,7 +270,7 @@ class _RulesScreenState extends State<RulesScreen> {
             _H('一機遊玩'),
             _Bullets([
               '一支手機輪流傳。畫面出現「請將手機交給…」時，交給那位玩家，其他人移開視線。',
-              '本人按「我是本人，開啟秘密畫面」後才會顯示身分、投票或出牌。',
+              '身分與任務牌須本人開啟查看；組隊投票則在公開表格登記每人的贊成／反對。',
               '看完按「記住了，隱藏並交給下一位」，卡片會蓋回去再交出去。',
             ]),
             _H('多機遊玩'),
@@ -361,7 +371,8 @@ class _Bullets extends StatelessWidget {
           for (final line in lines)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Padding(
                   padding: EdgeInsets.only(top: 9, right: 8),
                   child: Icon(Icons.circle, size: 5, color: AvalonTheme.gold),
@@ -435,7 +446,8 @@ class _SideCard extends StatelessWidget {
             width: 40, height: 40, cacheWidth: 120),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title,
                 style: TextStyle(
                     fontSize: 15, fontWeight: FontWeight.bold, color: color)),
@@ -459,18 +471,17 @@ class _RoleRow extends StatelessWidget {
           GameCard(Assets.role(role, 0), width: 48, elevation: 3),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(role.label,
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: role.isEvil
-                              ? const Color(0xFFFF8A7E)
-                              : const Color(0xFF8FD0FF))),
-                  Text(text, style: _body),
-                ]),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(role.label,
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: role.isEvil
+                          ? const Color(0xFFFF8A7E)
+                          : const Color(0xFF8FD0FF))),
+              Text(text, style: _body),
+            ]),
           ),
         ]),
       );
