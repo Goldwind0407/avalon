@@ -24,6 +24,11 @@ class BotBrain {
   /// How readily Merlin votes like a servant while no quest has failed
   /// (times his style's disguise; halved after the first failed quest).
   static const merlinCover = 3.0;
+
+  /// How often Merlin turns down a team he knows is clean, and only while
+  /// at most this many proposals of the quest have been turned down.
+  static const merlinFalseAlarm = .3;
+  static const merlinSpareRejections = 2;
   final BotDialoguePlanner dialogue;
 
   /// With [asServant], what this seat would think without its opening role
@@ -203,8 +208,9 @@ class BotBrain {
   }
 
   /// Who voted for the team that then failed is the table's main public clue:
-  /// approving it from outside is a little suspicious, rejecting it a little
-  /// reassuring. The forced fifth proposal says nothing.
+  /// approving it from outside is suspicious, rejecting it reassuring; turning
+  /// down a team that came back clean is a lesser hint. The forced fifth
+  /// proposal says nothing.
   void _voteEvidence(BotObservation o, List<double> p) {
     for (var q = 0; q < o.history.length; q++) {
       final approved =
@@ -212,10 +218,15 @@ class BotBrain {
       if (approved.isEmpty || approved.last.attempt >= 5) continue;
       final proposal = approved.last;
       if (o.history[q].excaliburTarget != null) continue;
-      if ((_unexplained(o, q) ?? 0) == 0) continue;
+      final fails = _unexplained(o, q);
+      if (fails == null) continue;
       for (var s = 0; s < o.count; s++) {
         if (s == o.seat || proposal.team.contains(s)) continue;
-        p[s] += (proposal.votes[s] ? .08 : -.05) * difficulty.voteEvidence;
+        final approve = proposal.votes[s];
+        // Backing a team that then failed weighs most; turning down one
+        // that came back clean is a smaller hint the other way.
+        p[s] += (fails > 0 ? (approve ? .4 : -.25) : (approve ? 0 : .08)) *
+            difficulty.voteEvidence;
       }
     }
   }
@@ -452,6 +463,18 @@ class BotBrain {
       if (cover != real && rng.nextDouble() < chance) {
         return decide(cover, 'merlinDisguise');
       }
+    }
+    // Turning down a clean team costs only a proposal, while every vote
+    // that matches where evil sits is counted by the Assassin. Now and
+    // then Merlin turns down a team he knows is clean, while there are
+    // proposals to spare.
+    if (o.role == Role.merlin &&
+        real &&
+        o.history.isNotEmpty &&
+        o.rejections <= merlinSpareRejections &&
+        o.team.every((s) => p[s] < .5) &&
+        rng.nextDouble() < merlinFalseAlarm * difficulty.rolePlay) {
+      return decide(false, 'merlinDisguise');
     }
     return decide(real, real ? 'acceptableRisk' : 'unsafeTeam');
   }
