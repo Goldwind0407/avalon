@@ -25,6 +25,7 @@ import '../online/voice/voice_controls.dart';
 import '../notebook/notebook_screen.dart';
 import '../rules/rules_screen.dart';
 import '../solo/bot_difficulty.dart';
+import '../solo/review_screen.dart';
 import '../solo/solo_session.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
@@ -2302,6 +2303,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   if (game.canRestart) ...[
                     TableButton('相同配置，再玩一局',
                         scale: s, onPressed: () => act(game.restart)),
+                    SizedBox(width: 14 * s),
+                  ],
+                  if (game case SoloGameSession(:final review?)) ...[
+                    TableButton('複盤',
+                        key: const ValueKey('openReview'),
+                        scale: s,
+                        primary: false,
+                        onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                                builder: (_) => ReviewScreen(review: review)))),
                     SizedBox(width: 14 * s),
                   ],
                   TableButton(game.isOnline ? '回到房間' : '返回設定',

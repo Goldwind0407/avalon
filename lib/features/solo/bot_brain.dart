@@ -654,18 +654,29 @@ class BotBrain {
           e.$2.quest == o.quest &&
           e.$2.attempt == o.proposalId.attempt &&
           !o.statements.any((r) => r.speaker == o.seat && r.replyTo == e.$1));
+      lastSpeechSource = const SpeechSource.reply();
       return voice.reply(o, approve, question.$1);
     }
     final direct = voice.speak(o, approve, suspicion(o, asServant: true),
         suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
-    if (direct != null) return direct;
+    if (direct != null) {
+      lastSpeechSource = SpeechSource.voice(direct.intent ?? '');
+      return direct;
+    }
     // Before the first quest there is nothing to go on: people say a word
     // and let it go, rather than talk about records that do not exist.
-    if (o.history.isEmpty) return voice.firstQuest(o, approve);
+    if (o.history.isEmpty) {
+      lastSpeechSource = const SpeechSource.firstQuest();
+      return voice.firstQuest(o, approve);
+    }
     final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
+    lastSpeechSource = SpeechSource.catalog(dialogue.lastTrace?.ruleId);
     final text = voice.flavor(s.text);
     return text == s.text ? s : s.copyWithText(text);
   }
+
+  /// Where the last [speech] came from, for the game review (never public).
+  SpeechSource? lastSpeechSource;
 
   DiscussionStatement assassinationSpeech(BotObservation o, int target) {
     if (o.phase != GamePhase.assassination ||
@@ -679,4 +690,33 @@ class BotBrain {
     return dialogue.speak(o, false, (team) => teamRisk(o, team),
         chosenTarget: target);
   }
+}
+
+/// Where a bot's line came from, so a review can say how to change it.
+class SpeechSource {
+  const SpeechSource(this.label, this.where);
+  const SpeechSource.reply()
+      : label = '回答提問',
+        where = 'lib/features/solo/bot_voice.dart 的 reply()';
+  const SpeechSource.firstQuest()
+      : label = '第一輪短句',
+        where = 'lib/features/solo/bot_voice.dart 的 firstQuest()';
+  SpeechSource.voice(String intent)
+      : label = switch (intent) {
+          'accuse' => '點名',
+          'defendOther' => '辯護',
+          _ => '主動發言',
+        },
+        where = 'lib/features/solo/bot_voice.dart 的 speak()';
+  SpeechSource.catalog(String? rule)
+      : label = rule == null ? '台詞庫' : '台詞 $rule',
+        where = rule == null
+            ? 'docs/bot_dialogue_natural.txt'
+            : 'docs/bot_dialogue_natural.txt 開頭為「$rule |」的那一行';
+
+  /// Short tag shown next to the line.
+  final String label;
+
+  /// Where to edit it.
+  final String where;
 }

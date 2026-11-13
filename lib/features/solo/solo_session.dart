@@ -10,6 +10,7 @@ import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_difficulty.dart';
 import 'bot_observation.dart';
+import 'game_review.dart';
 import 'bot_style.dart';
 import 'bot_vote_plan.dart';
 import 'dialogue/bot_contract.dart';
@@ -44,6 +45,10 @@ class SoloGameSession extends GameSession {
   final _statements = <DiscussionStatement>[];
   final _plannedVotes = <int, BotVotePlan>{};
   final _plannedCards = <int, bool>{};
+
+  // ── kept for the game review (private until the game is over) ──
+  final _sources = <int, SpeechSource>{};
+  final _decisions = <int, Map<int, BotVoteDecision>>{};
   String? _proposalKey, _speechKey, _currentStatement;
   String? _revealKey;
   Future<void> _saving = Future.value();
@@ -69,6 +74,8 @@ class SoloGameSession extends GameSession {
       _ownCards[s] = {};
     }
     _statements.clear();
+    _sources.clear();
+    _decisions.clear();
     _plannedVotes.clear();
     _plannedCards.clear();
     _proposalKey = _speechKey = _currentStatement = _revealKey = null;
@@ -129,6 +136,9 @@ class SoloGameSession extends GameSession {
           _random.nextDouble() <
               (reveal.evil! ? .9 : _brains[owner]!.style.frame);
       final claim = reveal.evil! != lie;
+      _sources[_statements.length] = SpeechSource(
+          '湖中女神宣稱（${reveal.evil! ? '實際查到邪惡' : '實際查到正義'}）',
+          'lib/features/solo/solo_session.dart 的 _rememberReveal()');
       _statements.add(DiscussionStatement(
           generation: generation,
           attempt: rejections + 1,
@@ -187,6 +197,8 @@ class SoloGameSession extends GameSession {
           .lastOrNull;
       if (source == null) continue;
       final name = playerLabel(source.$2.speaker, players[source.$2.speaker]);
+      _sources[_statements.length] = const SpeechSource(
+          '改口', 'lib/features/solo/solo_session.dart 的 _reviewVotes()');
       _statements.add(DiscussionStatement(
           generation: generation,
           quest: view.quest,
@@ -237,6 +249,14 @@ class SoloGameSession extends GameSession {
       _reviewVotes(Iterable.generate(players.length - 1, (i) => i + 1),
           lock: true);
     }
+    // the votes are in: keep why each bot cast its ballot
+    final index = proposalHistory.length - 1;
+    if (phase == GamePhase.voteResult && !_decisions.containsKey(index)) {
+      _decisions[index] = {
+        for (final e in _plannedVotes.entries)
+          if (e.value.current case final decision?) e.key: decision
+      };
+    }
     final speech = '$generation/$speechVersion';
     if (phase == GamePhase.discussion && speaker != mySeat) {
       if (_speechKey != speech) {
@@ -245,6 +265,9 @@ class SoloGameSession extends GameSession {
         final statement = _brains[speaker]!
             .speech(_observe(speaker!), _plannedVote(speaker!));
         _currentStatement = statement.text;
+        if (_brains[speaker]!.lastSpeechSource case final source?) {
+          _sources[_statements.length] = source;
+        }
         _statements.add(statement);
       }
     } else {
@@ -354,6 +377,8 @@ class SoloGameSession extends GameSession {
           final announcement = brain.assassinationSpeech(view, target);
           await _local.assassinate(target);
           if (!_disposed && generation == deal) {
+            _sources[_statements.length] =
+                SpeechSource.catalog(brain.dialogue.lastTrace?.ruleId);
             _statements.add(announcement);
             notifyListeners();
           }
@@ -543,6 +568,26 @@ class SoloGameSession extends GameSession {
 
   @override
   bool get isSolo => true;
+
+  /// The whole game with roles and the bots' reasons; only once it is over.
+  GameReview? get review => phase != GamePhase.finished
+      ? null
+      : GameReview.build(
+          players: players,
+          roles: _rules.roles,
+          styles: [for (var s = 0; s < players.length; s++) seatStyle(s)],
+          mySeat: mySeat!,
+          winner: winner,
+          result: result,
+          proposals: proposalHistory,
+          history: history,
+          statements: _statements,
+          sources: Map.unmodifiable(_sources),
+          decisions: Map.unmodifiable(_decisions),
+          cardsBySeat: Map.unmodifiable(_ownCards),
+          ladyChecks: ladyChecks,
+          assassinTarget: assassinTarget,
+          expansions: expansions);
 
   /// How each computer player liked to play; shown once the game is over.
   @override
