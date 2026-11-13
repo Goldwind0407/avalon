@@ -22,8 +22,7 @@ void main() {
     for (var seed = 0; seed < 20; seed++) {
       final said = voice(seed).evidence(
           observe(seat: 0, leader: 0, history: cleanFirst, team: [0, 1, 3]),
-          true,
-          const {});
+          true, const {});
       expect(said, isNotNull);
       expect(said!.intent, 'explainTeam');
       expect(said.text, contains('2號第1次出任務沒有失敗牌'));
@@ -35,8 +34,7 @@ void main() {
   test('a leader mentions who was dropped after a failed quest', () {
     final said = voice(1).evidence(
         observe(seat: 0, leader: 0, history: failedFirst, team: [0, 1, 4]),
-        true,
-        const {});
+        true, const {});
     expect(said!.text, contains('3號、4號在第1次出失敗牌的隊上，這次先不帶'));
   });
 
@@ -45,8 +43,7 @@ void main() {
     for (var seed = 0; seed < 30; seed++) {
       final said = voice(seed).evidence(
           observe(seat: 0, history: failedFirst, team: [1, 2, 4]),
-          false,
-          const {});
+          false, const {});
       expect(said, isNotNull);
       expect(said!.supportsTeam, isFalse);
       if (said.topic == 'member/2') {
@@ -65,8 +62,7 @@ void main() {
       for (var seed = 0; seed < 10; seed++)
         voice(seed).evidence(
             observe(seat: 5, history: failedFirst, team: [1, 2, 4]),
-            false,
-            const {})!
+            false, const {})!
     ].firstWhere((s) => s.topic == 'member/2');
     var agreed = 0;
     for (var seed = 0; seed < 30; seed++) {
@@ -91,12 +87,13 @@ void main() {
   test('nobody calls a player out and waves that player\'s team through', () {
     for (var seed = 0; seed < 40; seed++) {
       final said = voice(seed).evidence(
-          observe(
-              seat: 0,
-              history: [
-                QuestResult([0, 3], 1, false)
-              ],
-              team: [3, 4, 5]),
+          observe(seat: 0, history: [
+            QuestResult([0, 3], 1, false)
+          ], team: [
+            3,
+            4,
+            5
+          ]),
           true,
           const {});
       if (said == null) continue;
@@ -154,13 +151,15 @@ void main() {
         text: '我懷疑1號。',
         target: 0,
         position: DiscussionPosition.suspect);
-    final o = observe(
-        seat: 0,
-        history: [
-          QuestResult([0, 2, 3], 1, false)
-        ],
-        team: [1, 4, 5],
-        statements: [accusation]);
+    final o = observe(seat: 0, history: [
+      QuestResult([0, 2, 3], 1, false)
+    ], team: [
+      1,
+      4,
+      5
+    ], statements: [
+      accusation
+    ]);
     final neutral = List.filled(7, .3);
     final said = voice(1).speak(o, false, neutral, neutral, const {})!;
     expect(said.replyTo, 0);

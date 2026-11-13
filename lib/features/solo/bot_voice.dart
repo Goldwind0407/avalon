@@ -6,7 +6,10 @@ import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'bot_strategy_plan.dart';
 import 'dialogue/bot_contract.dart';
+import 'memory/match_archive.dart';
+import 'memory/social_memory.dart';
 
+part 'bot_voice_memory.dart';
 part 'bot_voice_points.dart';
 
 /// Plain-spoken lines built from the public record, so bots name names and
@@ -23,6 +26,11 @@ class BotVoice {
   final _recentLines = <String>[];
   final _topics = <String, int>{};
   int? _topicsGeneration;
+
+  /// What this bot remembers of earlier games with the human, if anything.
+  BotMemory? memory;
+  int? _recalledGeneration;
+  bool _asideUsed = false;
 
   /// People at a table say the seat number, not the full name plate.
   String _who(BotObservation o, int seat) => '${seat + 1}號';
@@ -317,13 +325,12 @@ class BotVoice {
       if (t == o.seat) {
         plan = BotStrategyPlan(BotGoal.defendSelf, t, o.generation, o.switched);
         return line(
-            _defence(o, allies) ??
-                _pick([
-                  '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
-                  '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
-                  '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
-                  '$speaker，我不會只回一句我是好人。你指出哪裡不對，我們就談那件事。',
-                ]),
+            '${_aside(accusedBy: said.speaker)}${_defence(o, allies) ?? _pick([
+                      '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
+                      '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
+                      '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
+                      '$speaker，我不會只回一句我是好人。你指出哪裡不對，我們就談那件事。',
+                    ])}',
             t,
             null,
             replyTo: index);
@@ -396,11 +403,12 @@ class BotVoice {
     final reasons = _reasons(o, t)!;
     return line(
         _pick([
-          '$_opener$who很可疑：${_reasons(o, t)!.replaceFirst(who, '他')}。',
-          '$_opener$reasons，我目前最懷疑他。',
-          '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
-          '$reasons。$who，你怎麼看這幾段紀錄？',
-        ]),
+              '$_opener$who很可疑：${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$_opener$reasons，我目前最懷疑他。',
+              '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$reasons。$who，你怎麼看這幾段紀錄？',
+            ]) +
+            _aside(accusing: t),
         t,
         DiscussionPosition.suspect);
   }

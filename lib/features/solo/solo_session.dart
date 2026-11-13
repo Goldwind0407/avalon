@@ -14,6 +14,10 @@ import 'game_review.dart';
 import 'bot_style.dart';
 import 'bot_vote_plan.dart';
 import 'dialogue/bot_contract.dart';
+import 'memory/match_archive.dart';
+import 'memory/match_repository.dart';
+import 'memory/social_memory.dart';
+import 'persona/bot_persona.dart';
 
 /// Local referee + one private human view. Bots receive only value snapshots.
 /// Result screens wait for the human so animations and public evidence can be
@@ -22,10 +26,18 @@ class SoloGameSession extends GameSession {
   SoloGameSession(Room room,
       {Random? random,
       this.difficulty = BotDifficulty.normal,
+      List<BotPersona>? personas,
+      this.archive,
+      DateTime Function()? now,
       this.botDelay = const Duration(milliseconds: 450),
       this.speechDuration = const Duration(seconds: 7)})
       : _random = random ?? Random.secure(),
+        _now = now ?? DateTime.now,
+        personas = personas == null ? null : List.unmodifiable(personas),
         _local = LocalGameSession(room, random: random) {
+    if (personas != null && personas.length != room.players.length - 1) {
+      throw ArgumentError('One persona for each computer seat');
+    }
     _resetBots();
     _local.addListener(_changed);
     _schedule();
@@ -36,6 +48,20 @@ class SoloGameSession extends GameSession {
 
   /// How well every computer player reasons and acts in this game.
   final BotDifficulty difficulty;
+
+  /// Who the computer players are, seat 1 first. Null: nameless bots with
+  /// styles dealt at random.
+  final List<BotPersona>? personas;
+
+  /// Where finished games are kept; null keeps nothing.
+  final MatchRepository? archive;
+  final DateTime Function() _now;
+  int? _archivedGeneration;
+  bool _announcing = false;
+
+  /// The regular in seat [seat], if any.
+  BotPersona? persona(int seat) =>
+      seat == mySeat || personas == null ? null : personas![seat - 1];
   Timer? _botTimer;
   bool _disposed = false, _paused = false;
   int? _pausedSpeechMillis;
@@ -63,7 +89,9 @@ class SoloGameSession extends GameSession {
     _brains.clear();
     _facts.clear();
     _ownCards.clear();
-    final styles = BotStyle.deal(players.length, _random);
+    final styles = personas == null
+        ? BotStyle.deal(players.length, _random)
+        : [BotStyle.balanced, for (final p in personas!) p.style];
     for (var s = 0; s < players.length; s++) {
       final seed = _random.nextInt(1 << 30);
       _brains[s] = BotBrain(Random(seed),
@@ -79,6 +107,39 @@ class SoloGameSession extends GameSession {
     _plannedVotes.clear();
     _plannedCards.clear();
     _proposalKey = _speechKey = _currentStatement = _revealKey = null;
+    _remember();
+  }
+
+  /// Hands each regular what it remembers of earlier games with the player.
+  /// Finished games only, so this cannot tell anyone a current role.
+  Future<void> _remember() async {
+    final store = archive, deal = generation;
+    if (store == null || personas == null) return;
+    final past = await store.summaries();
+    if (_disposed || deal != generation) return;
+    for (var s = 1; s < players.length; s++) {
+      _brains[s]?.voice.memory =
+          BotMemory.of(personas![s - 1].id, past, mySeat!);
+    }
+  }
+
+  /// Keeps the finished game, once.
+  void _archive() {
+    final store = archive;
+    if (store == null ||
+        _announcing ||
+        phase != GamePhase.finished ||
+        _archivedGeneration == generation) {
+      return;
+    }
+    _archivedGeneration = generation;
+    final at = _now();
+    store.save(MatchArchive(
+        id: '${at.millisecondsSinceEpoch}-$generation',
+        endedAt: at,
+        difficulty: difficulty.label,
+        personas: [for (var s = 0; s < players.length; s++) persona(s)?.id],
+        review: review!));
   }
 
   // This projection is the ONLY input accepted by BotBrain. The hidden role
@@ -223,6 +284,7 @@ class SoloGameSession extends GameSession {
   void _changed() {
     if (_disposed) return;
     _rememberReveal();
+    _archive();
     final planning = [
       GamePhase.discussion,
       GamePhase.freeDiscussion,
@@ -375,11 +437,19 @@ class SoloGameSession extends GameSession {
         case GamePhase.assassination:
           final target = brain.assassinate(view);
           final announcement = brain.assassinationSpeech(view, target);
-          await _local.assassinate(target);
+          // the game ends inside this call; keep it until the Assassin's
+          // words are on the record too
+          _announcing = true;
+          try {
+            await _local.assassinate(target);
+          } finally {
+            _announcing = false;
+          }
           if (!_disposed && generation == deal) {
             _sources[_statements.length] =
                 SpeechSource.catalog(brain.dialogue.lastTrace?.ruleId);
             _statements.add(announcement);
+            _archive();
             notifyListeners();
           }
         default:

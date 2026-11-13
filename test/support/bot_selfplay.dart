@@ -174,8 +174,9 @@ SelfPlayStats selfPlay(int n, int games,
           for (final v in votes) {
             game.vote(v);
           }
-          transcript?.writeln(
-              '   票：${[for (var s = 0; s < n; s++) '${s + 1}${votes[s] ? '○' : '✕'}'].join(' ')}');
+          transcript?.writeln('   票：${[
+            for (var s = 0; s < n; s++) '${s + 1}${votes[s] ? '○' : '✕'}'
+          ].join(' ')}');
           if (first && !game.teamApproved) stats.firstRejected++;
           game.continueVote();
         case GamePhase.quest:
@@ -191,7 +192,8 @@ SelfPlayStats selfPlay(int n, int games,
           }
           stats.quests++;
           if (needed == 2 && fails == 1) stats.uselessLoneFails++;
-          transcript?.writeln('   >> 任務${fails >= needed ? '失敗' : '成功'}，$fails 張失敗牌');
+          transcript
+              ?.writeln('   >> 任務${fails >= needed ? '失敗' : '成功'}，$fails 張失敗牌');
           game.continueQuest();
           // a good player on a failed pair knows the partner is evil
           if (team.length == 2 && fails == 1 && game.phase == GamePhase.team) {

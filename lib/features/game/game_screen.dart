@@ -24,6 +24,8 @@ import '../online/voice/voice_controller.dart';
 import '../online/voice/voice_controls.dart';
 import '../notebook/notebook_screen.dart';
 import '../rules/rules_screen.dart';
+import '../solo/memory/match_repository.dart';
+import '../solo/persona/bot_persona.dart';
 import '../solo/bot_difficulty.dart';
 import '../solo/review_screen.dart';
 import '../solo/solo_session.dart';
@@ -43,12 +45,16 @@ class GameScreen extends StatefulWidget {
       : session = null,
         voice = null,
         solo = false,
+        cast = null,
+        archive = null,
         difficulty = BotDifficulty.normal;
 
   const GameScreen.solo(
       {super.key,
       required Room this.room,
-      this.difficulty = BotDifficulty.normal})
+      this.difficulty = BotDifficulty.normal,
+      this.cast,
+      this.archive})
       : session = null,
         voice = null,
         solo = true;
@@ -58,6 +64,8 @@ class GameScreen extends StatefulWidget {
       {super.key, required GameSession this.session, this.voice})
       : room = null,
         solo = false,
+        cast = null,
+        archive = null,
         difficulty = BotDifficulty.normal;
 
   final Room? room;
@@ -67,6 +75,11 @@ class GameScreen extends StatefulWidget {
 
   /// Solo: the level of the computer players.
   final BotDifficulty difficulty;
+
+  /// Solo: who the computer players are (seat 1 first) and where finished
+  /// games are kept.
+  final List<BotPersona>? cast;
+  final MatchRepository? archive;
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -130,7 +143,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     super.initState();
     game = widget.session ??
         (widget.solo
-            ? SoloGameSession(widget.room!, difficulty: widget.difficulty)
+            ? SoloGameSession(widget.room!,
+                difficulty: widget.difficulty,
+                personas: widget.cast,
+                archive: widget.archive ?? MatchRepository.shared)
             : LocalGameSession(widget.room!));
     final n = game.players.length;
     List<GlobalKey> keys() => List.generate(n, (_) => GlobalKey());

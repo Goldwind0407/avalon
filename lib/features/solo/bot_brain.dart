@@ -667,6 +667,10 @@ class BotBrain {
     // Before the first quest there is nothing to go on: people say a word
     // and let it go, rather than talk about records that do not exist.
     if (o.history.isEmpty) {
+      if (voice.recall(o, approve) case final recalled?) {
+        lastSpeechSource = const SpeechSource.memory();
+        return recalled;
+      }
       lastSpeechSource = const SpeechSource.firstQuest();
       return voice.firstQuest(o, approve);
     }
@@ -728,6 +732,9 @@ class SpeechSource {
           _ => '主動發言',
         },
         where = 'lib/features/solo/bot_voice.dart 的 speak()';
+  const SpeechSource.memory()
+      : label = '提起舊局',
+        where = 'lib/features/solo/memory/social_memory.dart 的 memoryLines()';
   SpeechSource.evidence(String topic)
       : label = '引用紀錄',
         where = 'lib/features/solo/bot_voice_points.dart'
