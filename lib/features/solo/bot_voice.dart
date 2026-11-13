@@ -319,4 +319,45 @@ class BotVoice {
 
   /// Wording is authored as complete sentences; no random prefix disguise.
   String flavor(String text) => text;
+
+  /// A short word before the first quest, when nobody has anything to go on.
+  DiscussionStatement firstQuest(BotObservation o, bool approve) {
+    final again = o.proposalId.attempt > 1;
+    final lines = approve
+        ? [
+            if (again) ...[
+              '上一隊沒過，這次我沒意見，讓它出發吧。',
+              '換了組合也好，這隊我贊成。',
+              '再拖下去也沒新資訊，這次就過吧。',
+            ],
+            '第一輪沒什麼資訊，我沒意見，讓它出發吧。',
+            '第一隊我沒意見，贊成。',
+            '先跑一次看看結果再說。',
+            '我沒特別想法，這隊可以。',
+            '資訊還太少，先過吧。',
+            '第一輪就不多說了，我投贊成。',
+            '沒意見，先讓任務給我們一點線索。',
+            '過吧，回來再聊。',
+          ]
+        : [
+            '第一輪沒什麼根據，不過我想再看一個組合。',
+            '我沒什麼特別理由，只是想多看一次提案。',
+            '這隊我先不投，換個人選看看。',
+          ];
+    final said = {
+      for (final s in _thisRound(o))
+        if (s.speaker != o.seat) s.text
+    };
+    final fresh = lines.where((l) => !said.contains(l)).toList();
+    return DiscussionStatement(
+        speaker: o.seat,
+        quest: o.quest,
+        generation: o.generation,
+        attempt: o.proposalId.attempt,
+        text: _pick(fresh.isEmpty ? lines : fresh),
+        team: o.team,
+        supportsTeam: approve,
+        switched: o.switched,
+        intent: approve ? 'supportTeam' : 'opposeTeam');
+  }
 }
