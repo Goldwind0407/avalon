@@ -408,20 +408,25 @@ class BotBrain {
       }
       // A team that will not fail: go along with it early to blend in, fight
       // it when it would be good's winning quest.
-      var blend = o.successes == 2
-          ? .1
-          : o.quest <= 2
-              ? .55
-              : .3;
+      // Nobody has a reason to object to the very first team yet; an evil
+      // player who does stands out.
+      var blend = o.history.isEmpty
+          ? .85
+          : o.successes == 2
+              ? .1
+              : o.quest <= 2
+                  ? .55
+                  : .3;
       // Morgana wants Percival to take her for Merlin: she backs clean teams.
       if (o.role == Role.morgana && o.successes < 2) {
         blend += .2 * difficulty.rolePlay;
       }
       // Mordred can afford to look agreeable: Merlin does not see him.
       if (o.role == Role.mordred && o.successes < 2) blend += .1;
-      return decide(
-          rng.nextDouble() < min(.9, blend * style.blend * difficulty.blend),
-          'evilBlend');
+      final approveChance = o.history.isEmpty
+          ? .9 // whatever the style: objecting to the first team stands out
+          : min(.9, blend * style.blend * difficulty.blend);
+      return decide(rng.nextDouble() < approveChance, 'evilBlend');
     }
     var real = _goodVote(o, p);
     // a beginner sometimes simply votes the other way
@@ -435,10 +440,15 @@ class BotBrain {
     final disguise = style.disguise *
         difficulty.rolePlay *
         (o.failures == 0 ? merlinCover : merlinCover / 2);
-    if (o.role == Role.merlin && disguise > 0 && o.failures < 2) {
+    if (o.role == Role.merlin &&
+        (disguise > 0 || o.history.isEmpty) &&
+        o.failures < 2) {
       final cover = _goodVote(o, suspicion(o, asServant: true));
       // letting a doubtful team through is the costlier act: do it less
-      final chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
+      var chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
+      // Turning down the very first team, when nobody else has a reason
+      // to, tells the Assassin who knows something.
+      if (o.history.isEmpty) chance = max(chance, .6);
       if (cover != real && rng.nextDouble() < chance) {
         return decide(cover, 'merlinDisguise');
       }
@@ -649,6 +659,9 @@ class BotBrain {
     final direct = voice.speak(o, approve, suspicion(o, asServant: true),
         suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
     if (direct != null) return direct;
+    // Before the first quest there is nothing to go on: people say a word
+    // and let it go, rather than talk about records that do not exist.
+    if (o.history.isEmpty) return voice.firstQuest(o, approve);
     final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
     final text = voice.flavor(s.text);
     return text == s.text ? s : s.copyWithText(text);

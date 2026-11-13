@@ -83,10 +83,13 @@ void main() {
 
   test('public claims cannot erase a role-authorized certainty', () {
     final brain = BotBrain(Random(1), difficulty: BotDifficulty.expert);
+    // after a clean first quest (before it Merlin often plays along)
     final o = observe(role: Role.merlin, visible: [
       2,
       3,
       4
+    ], history: [
+      QuestResult([5, 6], 0, true)
     ], statements: [
       for (final s in [1, 5, 6])
         DiscussionStatement(

@@ -313,8 +313,17 @@ void main() {
       () {
     var approvals = 0;
     for (var seed = 0; seed < 200; seed++) {
-      if (BotBrain(Random(seed)).vote(view(
-          role: Role.assassin, evil: true, visible: [5, 6], team: [1, 2]))) {
+      // after the first quest (before it nobody objects, see below)
+      if (BotBrain(Random(seed))
+          .vote(view(role: Role.assassin, evil: true, visible: [
+        5,
+        6
+      ], team: [
+        1,
+        2
+      ], history: [
+        QuestResult([3, 4], 0, true)
+      ]))) {
         approvals++;
       }
     }
@@ -322,7 +331,13 @@ void main() {
     for (var rejects = 0; rejects < 4; rejects++) {
       expect(
           BotBrain(Random(1)).vote(view(
-              role: Role.merlin, visible: [1], team: [0, 1], rejects: rejects)),
+              role: Role.merlin,
+              visible: [1],
+              team: [0, 1],
+              rejects: rejects,
+              history: [
+                QuestResult([2, 3], 0, true)
+              ])),
           isFalse);
     }
   });
@@ -378,8 +393,15 @@ void main() {
       bool success(BotBrain b) => b.questCard(quest);
       expect(count(success, BotStyle.actor),
           greaterThan(count(success, BotStyle.aggressive) + 40));
-      final clean =
-          view(role: Role.minion, evil: true, visible: [5, 6], team: [1, 2]);
+      final clean = view(role: Role.minion, evil: true, visible: [
+        5,
+        6
+      ], team: [
+        1,
+        2
+      ], history: [
+        QuestResult([3, 4], 0, true)
+      ]);
       bool approves(BotBrain b) => b.vote(clean);
       expect(count(approves, BotStyle.actor),
           greaterThan(count(approves, BotStyle.aggressive) + 80));
@@ -387,7 +409,16 @@ void main() {
     test('Merlin sometimes votes like a servant, never when a loss is near',
         () {
       // seat 1 is evil to Merlin; an ordinary servant would let this pass
-      final o = view(role: Role.merlin, visible: [1], team: [0, 1]);
+      // seat 2 came back from a clean quest, so a servant trusts him; only
+      // Merlin knows he is evil
+      final o = view(role: Role.merlin, visible: [
+        2
+      ], team: [
+        0,
+        2
+      ], history: [
+        QuestResult([2, 3], 0, true)
+      ]);
       bool approves(BotBrain b) => b.vote(o);
       // with nothing lost yet he mostly plays along; less after a failure
       final early = count(approves, BotStyle.actor);
@@ -636,5 +667,25 @@ void main() {
     }
     // a Lancelot seat that is not among the visible allies is refused
     expect(() => evil(lancelot: 5), throwsArgumentError);
+  });
+  test('before the first quest nobody has a reason to object', () {
+    int approvals(BotObservation o, BotStyle style) => [
+          for (var seed = 0; seed < 300; seed++)
+            if (BotBrain(Random(seed), style: style).vote(o)) 1
+        ].length;
+    // evil goes along whatever its style
+    final clean =
+        view(role: Role.minion, evil: true, visible: [5, 6], team: [1, 2]);
+    expect(approvals(clean, BotStyle.aggressive), greaterThan(250));
+    // Merlin mostly lets a first team with evil on it through
+    final merlin = view(role: Role.merlin, visible: [1], team: [0, 1]);
+    expect(approvals(merlin, BotStyle.balanced), inInclusiveRange(150, 230));
+    // and says a word without talking about records that do not exist
+    final words = BotBrain(Random(1))
+        .speech(view(role: Role.loyal, team: [1, 2]), true)
+        .text;
+    for (final record in ['紀錄', '投票', '第1次', '懷疑']) {
+      expect(words, isNot(contains(record)));
+    }
   });
 }
