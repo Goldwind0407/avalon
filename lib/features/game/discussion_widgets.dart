@@ -232,36 +232,18 @@ class PlayerSpeechBar extends StatelessWidget {
     }
   }
 
-  Future<int?> _pickSeat(BuildContext context, String title) => showDialog<int>(
-      context: context,
-      builder: (context) => AlertDialog(
-            title: Text(title),
-            content: Wrap(spacing: 8, runSpacing: 8, children: [
-              for (var i = 0; i < game.players.length; i++)
-                if (i != game.mySeat)
-                  ActionChip(
-                      key: ValueKey('speechSeat$i'),
-                      label: Text(playerLabel(i, game.players[i])),
-                      onPressed: () => Navigator.pop(context, i)),
-            ]),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('取消'))
-            ],
-          ));
-
-  Future<void> _aimed(
-      BuildContext context, PlayerSpeechKind kind, String title) async {
-    final seat = await _pickSeat(context, title);
-    if (seat != null && context.mounted) {
-      await _say(context, PlayerSpeech(kind, target: seat));
-    }
-  }
-
   Future<void> _type(BuildContext context) async {
-    final text = await showDialog<String>(
-        context: context, builder: (_) => const _TypedSpeechDialog());
+    // typing takes a while: hold the clock and the computers meanwhile
+    game.pauseAutomation(true);
+    final String? text;
+    try {
+      text = await showDialog<String>(
+          context: context,
+          builder: (_) => _SpeechPage(game: game),
+          useSafeArea: false);
+    } finally {
+      game.pauseAutomation(false);
+    }
     if (text == null || text.trim().isEmpty || !context.mounted) return;
     await _say(
         context, PlayerSpeech.parse(text, game.players, game.mySeat ?? -1));
@@ -287,59 +269,41 @@ class PlayerSpeechBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: AvalonTheme.gold)),
         ),
-      Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          alignment: WrapAlignment.center,
-          children: [
-            ActionChip(
-                key: const ValueKey('speechSuspect'),
-                avatar: const Icon(Icons.gpp_maybe_outlined, size: 16),
-                label: const Text('懷疑…'),
-                onPressed: () =>
-                    _aimed(context, PlayerSpeechKind.suspect, '你懷疑誰？')),
-            ActionChip(
-                key: const ValueKey('speechTrust'),
-                avatar: const Icon(Icons.verified_user_outlined, size: 16),
-                label: const Text('相信…'),
-                onPressed: () =>
-                    _aimed(context, PlayerSpeechKind.trust, '你相信誰是好人？')),
-            ActionChip(
-                key: const ValueKey('speechAsk'),
-                avatar: const Icon(Icons.help_outline, size: 16),
-                label: const Text('問…'),
-                onPressed: () =>
-                    _aimed(context, PlayerSpeechKind.ask, '你想問誰？')),
-            ActionChip(
-                key: const ValueKey('speechChallengeVote'),
-                avatar: const Icon(Icons.how_to_vote_outlined, size: 16),
-                label: const Text('問投票…'),
-                onPressed: game.proposalHistory.isEmpty
-                    ? null
-                    : () => _aimed(context, PlayerSpeechKind.challengeVote,
-                        '要問誰上一張公開票的理由？')),
-            ActionChip(
-                key: const ValueKey('speechClaimGood'),
-                label: const Text('我是好人'),
-                onPressed: () => _say(
-                    context, const PlayerSpeech(PlayerSpeechKind.claimGood))),
-            ActionChip(
-                key: const ValueKey('speechType'),
-                avatar: const Icon(Icons.edit_outlined, size: 16),
-                label: const Text('打字'),
-                onPressed: () => _type(context)),
-          ]),
+      FilledButton.tonalIcon(
+          key: const ValueKey('speechType'),
+          icon: const Icon(Icons.edit_outlined, size: 18),
+          label: const Text('我要發言'),
+          onPressed: () => _type(context)),
     ]);
   }
 }
 
-class _TypedSpeechDialog extends StatefulWidget {
-  const _TypedSpeechDialog();
-  @override
-  State<_TypedSpeechDialog> createState() => _TypedSpeechDialogState();
+/// What the computers will take from a typed line, in words.
+String speechReading(PlayerSpeech speech, List<String> players) {
+  final who = speech.target == null
+      ? ''
+      : playerLabel(speech.target!, players[speech.target!]);
+  return switch (speech.kind) {
+    PlayerSpeechKind.suspect => '你懷疑 $who',
+    PlayerSpeechKind.trust => '你相信 $who 是好人',
+    PlayerSpeechKind.ask => '你在問 $who，對方會回答',
+    PlayerSpeechKind.challengeVote => '你在問 $who 的投票理由',
+    PlayerSpeechKind.claimGood => '你說自己是好人',
+    PlayerSpeechKind.support => '你支持這隊',
+    PlayerSpeechKind.oppose => '你想換人',
+    PlayerSpeechKind.remark => '只是一句話（沒有點名，也沒有表態）',
+  };
 }
 
-class _TypedSpeechDialogState extends State<_TypedSpeechDialog> {
+/// Full screen so the field stays above the keyboard on a landscape phone.
+class _SpeechPage extends StatefulWidget {
+  const _SpeechPage({required this.game});
+  final GameSession game;
+  @override
+  State<_SpeechPage> createState() => _SpeechPageState();
+}
+
+class _SpeechPageState extends State<_SpeechPage> {
   final controller = TextEditingController();
   @override
   void dispose() {
@@ -347,27 +311,59 @@ class _TypedSpeechDialogState extends State<_TypedSpeechDialog> {
     super.dispose();
   }
 
+  void _send() => Navigator.pop(context, controller.text);
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('你想說什麼？'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-              key: const ValueKey('speechText'),
-              controller: controller,
-              autofocus: true,
-              maxLength: 60,
-              decoration: const InputDecoration(hintText: '例如：我懷疑 3 號，他投了失敗的隊'),
-              onSubmitted: (v) => Navigator.pop(context, v)),
-          const Text('電腦看得懂：座位號碼或暱稱，加上「懷疑／壞人」「相信／好人」「為什麼？」「支持／反對」。',
-              style: TextStyle(fontSize: 11, color: AvalonTheme.muted)),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          TextButton(
-              key: const ValueKey('speechSend'),
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('說出來')),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final game = widget.game;
+    final text = controller.text.trim();
+    final reading = text.isEmpty
+        ? null
+        : speechReading(
+            PlayerSpeech.parse(text, game.players, game.mySeat ?? -1),
+            game.players);
+    return Dialog.fullscreen(
+        backgroundColor: AvalonTheme.bg,
+        child: SafeArea(
+            child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(children: [
+                        IconButton(
+                            tooltip: '取消',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close)),
+                        Expanded(
+                            child: TextField(
+                                key: const ValueKey('speechText'),
+                                controller: controller,
+                                autofocus: true,
+                                maxLength: 60,
+                                textInputAction: TextInputAction.send,
+                                onChanged: (_) => setState(() {}),
+                                onSubmitted: (_) => _send(),
+                                decoration: const InputDecoration(
+                                    hintText: '想說什麼都可以，例如：3號上一輪投了失敗的隊，我不信他'))),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                            key: const ValueKey('speechSend'),
+                            onPressed: text.isEmpty ? null : _send,
+                            child: const Text('說出來')),
+                      ]),
+                      Padding(
+                          padding: const EdgeInsets.only(left: 48),
+                          child: Text(
+                              reading == null
+                                  ? '計時已暫停。提到座位號碼或暱稱，再說懷疑、相信、為什麼或支持／反對，電腦就會回應。'
+                                  : '電腦會理解成：$reading',
+                              key: const ValueKey('speechReading'),
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: reading == null
+                                      ? AvalonTheme.muted
+                                      : AvalonTheme.gold))),
+                    ]))));
+  }
 }
