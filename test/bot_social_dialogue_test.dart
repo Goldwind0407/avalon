@@ -521,7 +521,7 @@ void main() {
     ),
     (
       'XSW04',
-      observe(history: [
+      observe(expansions: const ExpansionSettings(excalibur: true), history: [
         QuestResult([0, 1, 2], 1, false, excaliburHolder: 1, excaliburTarget: 2)
       ], statements: [
         DiscussionStatement(

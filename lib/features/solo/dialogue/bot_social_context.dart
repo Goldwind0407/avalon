@@ -133,6 +133,8 @@ class BotSocialContext {
                 ? e.statement.speaker == o.seat
                 : e.statement.speaker != o.seat) &&
             e.statement.position == DiscussionPosition.defend &&
+            // asking about oneself in the third person makes no sense
+            (id == 'G19' || e.statement.target != o.seat) &&
             c.contraryQuest(e) != null));
         bind(prior);
         if (prior != null) {
@@ -348,7 +350,10 @@ class BotSocialContext {
           final s = e.statement;
           if (s.speaker == o.seat || s.quotedFrom != null) return false;
           if (id == 'XSW04') {
-            return s.claimedOriginalSuccess != null &&
+            // only Excalibur hides an original card; "my card was a
+            // Success" in a plain game is not a claim about one
+            return o.expansions.excalibur &&
+                s.claimedOriginalSuccess != null &&
                 s.originalCardQuest! <= o.history.length &&
                 !c.hasLegalCardSource(e);
           }

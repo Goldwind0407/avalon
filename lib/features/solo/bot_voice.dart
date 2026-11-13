@@ -142,7 +142,7 @@ class BotVoice {
       return _pick([
         '第$q次隊上還有${named.join('、')}，我出的是成功，失敗牌不能只算在我頭上。',
         '我在第$q次的隊上沒錯，但${named.join('、')}也在。我那張是成功，請把他們一起看。',
-        '第$q次不是我一個人出任務，${named.join('、')}都在。只盯著我，剛好放過真正出失敗牌的人。',
+        '第$q次不是我一個人出任務，${named.join('、')}${named.length > 1 ? '都' : '也'}在。只盯著我，剛好放過真正出失敗牌的人。',
       ]);
     }
     if (backed.isNotEmpty) {
@@ -325,7 +325,7 @@ class BotVoice {
       if (t == o.seat) {
         plan = BotStrategyPlan(BotGoal.defendSelf, t, o.generation, o.switched);
         return line(
-            '${_aside(accusedBy: said.speaker)}${_defence(o, allies) ?? _pick([
+            '${_aside(o, accusedBy: said.speaker)}${_defence(o, allies) ?? _pick([
                       '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
                       '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
                       '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
@@ -337,11 +337,32 @@ class BotVoice {
       }
       final defend = allies.contains(t) ||
           (!o.evil && real[t] <= .2 && _cleanWith(o, t).isNotEmpty);
-      if (defend && random.nextDouble() < _boldness) {
+      // someone already spoke up for this player this round
+      final defenders = round
+          .where((s) =>
+              s.speaker != o.seat &&
+              s.position == DiscussionPosition.defend &&
+              s.target == t)
+          .length;
+      if (defend && defenders < 2 && random.nextDouble() < _boldness) {
+        if (defenders == 1) {
+          return line(
+              _pick([
+                '我也覺得${_who(o, t)}還不到要排掉的程度。',
+                '${_who(o, t)}這邊我跟前面一樣，先別急著定。',
+              ]),
+              t,
+              DiscussionPosition.defend,
+              replyTo: index);
+        }
         final clean = _cleanWith(o, t);
         final why = clean.isNotEmpty
-            ? '${_quests(clean)}他在的隊伍沒有失敗牌，但也不能當成身分保證'
-            : '單靠一個懷疑還不能定案';
+            ? '${_who(o, t)}在的${_quests(clean)}遠征沒有失敗牌，雖然不能當成身分保證'
+            : _pick([
+                '單靠一個懷疑還不能定案',
+                '光憑同隊一次說明不了什麼',
+                '現在的紀錄還不夠指認誰',
+              ]);
         return line(
             _pick([
               '我不太同意$speaker，$why，不能只盯著${_who(o, t)}。',
@@ -400,6 +421,24 @@ class BotVoice {
     plan = BotStrategyPlan(o.evil ? BotGoal.framePlayer : BotGoal.exposeSuspect,
         t, o.generation, o.switched);
     final who = _who(o, t);
+    // others already named this player this round: join in briefly
+    final voices = round
+        .where((s) =>
+            s.speaker != o.seat &&
+            s.position == DiscussionPosition.suspect &&
+            s.target == t)
+        .length;
+    if (voices >= 4) return null;
+    if (voices >= 1) {
+      return line(
+          _pick([
+            '$who我也不放心。',
+            '加我一個，我也看$who。',
+            '我一樣卡在$who。',
+          ]),
+          t,
+          DiscussionPosition.suspect);
+    }
     final reasons = _reasons(o, t)!;
     return line(
         _pick([
@@ -408,7 +447,7 @@ class BotVoice {
               '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
               '$reasons。$who，你怎麼看這幾段紀錄？',
             ]) +
-            _aside(accusing: t),
+            _aside(o, accusing: t),
         t,
         DiscussionPosition.suspect);
   }

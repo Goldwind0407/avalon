@@ -54,6 +54,12 @@ class BotDialogueContext {
             o.history.where((q) => q.fails > 0 && q.team.contains(a)).length));
     if (candidates.isNotEmpty) target = candidates.first;
     if (o.proposals.isNotEmpty) previous = o.proposals.last;
+    if (rule.id == 'G10') {
+      // only the leader can say why the team changed, and only from the
+      // proposal just before it in the same quest
+      if (previous?.quest != o.quest) previous = null;
+      target = o.leader == o.seat ? null : o.leader;
+    }
     if (previous != null) {
       removed = previous!.team.where((s) => !o.team.contains(s)).toList();
       added = o.team.where((s) => !previous!.team.contains(s)).toList();
@@ -318,7 +324,42 @@ class BotDialogueContext {
 
   /// Prose trigger conditions omitted from draft prerequisite lists must also
   /// be enforced. Explicit allowlist: unimplemented scenarios stay disabled.
-  bool get matchesTrigger => _evaluateTrigger ?? false;
+  /// Lines that take for granted a switch card has been turned over.
+  static const _afterSwitch = {'RLG01', 'RLG02', 'RLG05', 'XLC01', 'XLC02'};
+
+  int _saidThisGame(BotSpeechIntent intent) => o.statements
+      .where((s) => s.generation == o.generation && s.intent == intent.name)
+      .length;
+
+  /// Expansion talk runs dry fast. A sword flip or a Lancelot switch is
+  /// talked about twice a game at the table; Lancelot only once a switch
+  /// has actually been turned over; a Lady holder repeats a result only in
+  /// the quest right after the check, once.
+  bool get _expansionTalkLeft => switch (rule.intent) {
+        BotSpeechIntent.discussSword =>
+          _saidThisGame(BotSpeechIntent.discussSword) < 2,
+        BotSpeechIntent.discussLancelot =>
+          (!_afterSwitch.contains(rule.id) || o.loyalty.contains(true)) &&
+              _saidThisGame(BotSpeechIntent.discussLancelot) < 2,
+        BotSpeechIntent.interpretLady when rule.id.startsWith('XLD') =>
+          o.ladyChecks.any(
+                  (c) => c.holder == o.seat && c.quest == o.history.length) &&
+              o.statements
+                      .where((s) =>
+                          s.generation == o.generation &&
+                          s.quest == o.quest &&
+                          s.speaker == o.seat &&
+                          s.intent == BotSpeechIntent.interpretLady.name)
+                      .length <
+                  2,
+        _ => true,
+      };
+
+  bool get matchesTrigger =>
+      _expansionTalkLeft &&
+      (rule.id != 'G10' ||
+          (previous != null && added.isNotEmpty && !added.contains(o.seat))) &&
+      (_evaluateTrigger ?? false);
   bool? get _evaluateTrigger => social.supported
       ? social.matches
       : switch (rule.id) {
