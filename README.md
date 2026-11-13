@@ -259,3 +259,6 @@ CI 固定使用 Flutter 3.41.0、Node 22、Java 21 與 Firebase CLI 15.30.0。�
 - `firestore.rules`：Firestore 安全規則。
 
 遊戲背景與人數可參考 [Indie Boards & Cards 官方介紹](https://indieboardsandcards.com/our-games/the-resistance-avalon/)。本專案未包含官方插畫及 Logo。
+
+高手 NPC 本次診斷、投票重評與測試說明：[solo_expert_diagnosis.md](docs/solo_expert_diagnosis.md)。
+正式台詞可直接編輯 [bot_dialogue_natural.txt](docs/bot_dialogue_natural.txt)，每種情境四句，修改後執行 `python tool/prepare_bot_dialogue.py`。

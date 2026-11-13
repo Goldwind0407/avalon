@@ -6,6 +6,7 @@ import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'bot_voice.dart';
+import 'bot_vote_plan.dart';
 import 'dialogue/bot_dialogue_planner.dart';
 
 /// A deliberately modest, reproducible first opponent. All deductions come
@@ -104,11 +105,27 @@ class BotBrain {
       }
     }
     _voteEvidence(o, p);
+    // Establish card/deal constraints first. Applying this afterwards used to
+    // erase 90% of an expert's response to discussion, making expert listeners
+    // less responsive than novices. Public claims remain soft and cannot
+    // override deductions that hold in every legal deal.
+    _deduce(o, p, privateBeliefs);
+    final certain = <int, double>{
+      for (var s = 0; s < p.length; s++)
+        if (p[s] == 0 || p[s] == 1) s: p[s],
+    };
     // A claim is not a private fact. It is remembered for the whole game
     // (a novice only minds the latest) and trusted according to the
     // observer's own current view of its author; claims from before a
     // Lancelot switch are dropped.
+    final credibility = List<double>.of(p);
+    final claims = <String, DiscussionStatement>{};
     for (final claim in o.statements) {
+      if (claim.claimedEvil != null && claim.quotedFrom == null) {
+        claims['${claim.speaker}/${claim.target}/${claim.switched}'] = claim;
+      }
+    }
+    for (final claim in claims.values) {
       if (claim.claimedEvil == null ||
           claim.target == null ||
           claim.speaker == o.seat ||
@@ -116,12 +133,22 @@ class BotBrain {
           (claim.switched != null && claim.switched != o.switched)) {
         continue;
       }
-      final trust = max(0.0, .5 - p[claim.speaker]) * difficulty.claimTrust;
+      final trust =
+          max(0.0, .5 - credibility[claim.speaker]) * difficulty.claimTrust;
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
     }
     // Who doubts or vouches for whom: weak, weighted by how far this seat
     // trusts the speaker. Framing a good player works on the gullible.
+    final latestPositions = <String, DiscussionStatement>{};
     for (final statement in o.statements) {
+      if (statement.position != null &&
+          statement.quotedFrom == null &&
+          statement.generation == o.generation &&
+          (statement.switched == null || statement.switched == o.switched)) {
+        latestPositions['${statement.speaker}/${statement.target}'] = statement;
+      }
+    }
+    for (final statement in latestPositions.values) {
       final target = statement.target;
       if (statement.position == null ||
           target == null ||
@@ -130,11 +157,21 @@ class BotBrain {
           statement.generation != o.generation) {
         continue;
       }
-      final trust = max(0.0, .55 - p[statement.speaker]) * .2;
+      final trust = max(0.0, .55 - credibility[statement.speaker]) * .2;
       p[target] +=
           statement.position == DiscussionPosition.suspect ? trust : -trust;
     }
+    final publicVotes = <String, DiscussionStatement>{};
     for (final statement in o.statements) {
+      if (statement.supportsTeam != null &&
+          statement.quotedFrom == null &&
+          (statement.switched == null || statement.switched == o.switched)) {
+        publicVotes[
+                '${statement.quest}/${statement.attempt}/${statement.speaker}'] =
+            statement;
+      }
+    }
+    for (final statement in publicVotes.values) {
       if (statement.supportsTeam == null || statement.speaker == o.seat) {
         continue;
       }
@@ -143,11 +180,10 @@ class BotBrain {
         p[statement.speaker] += .025;
       }
     }
-    for (final entry in privateBeliefs.entries) {
+    for (final entry in {...certain, ...privateBeliefs}.entries) {
       p[entry.key] = entry.value;
     }
     p[o.seat] = o.evil ? 1 : 0;
-    _deduce(o, p, privateBeliefs);
     return [for (final value in p) value.clamp(0.0, 1.0)];
   }
 
@@ -340,12 +376,20 @@ class BotBrain {
     return scored.first.$1;
   }
 
-  bool vote(BotObservation o) {
-    // The fifth proposal passes whatever a minority does (a tie or less is
-    // needed to reject), and votes are public: rejecting only exposes evil.
-    if (o.rejections == 4) return true;
+  BotVoteDecision? lastVoteDecision;
+
+  bool vote(BotObservation o, {Random? decisionRandom}) {
+    final rng = decisionRandom ?? random;
     final p = suspicion(o);
     final risk = _risk(o, p, o.team);
+    bool decide(bool approve, String reason) {
+      lastVoteDecision = BotVoteDecision(approve, reason, risk, p);
+      return approve;
+    }
+
+    // The fifth proposal passes whatever a minority does (a tie or less is
+    // needed to reject), and votes are public: rejecting only exposes evil.
+    if (o.rejections == 4) return decide(true, 'fifthProposal');
     if (o.evil) {
       if (risk > .45) {
         // Backing every team an ally is on gives the whole side away. When
@@ -357,10 +401,10 @@ class BotBrain {
         final critical = o.failures == 2 || o.successes == 2;
         if (exposed &&
             !critical &&
-            random.nextDouble() < .35 * difficulty.rolePlay * style.blend) {
-          return false;
+            rng.nextDouble() < .35 * difficulty.rolePlay * style.blend) {
+          return decide(false, 'concealAlly');
         }
-        return true;
+        return decide(true, 'sabotageOpportunity');
       }
       // A team that will not fail: go along with it early to blend in, fight
       // it when it would be good's winning quest.
@@ -375,13 +419,14 @@ class BotBrain {
       }
       // Mordred can afford to look agreeable: Merlin does not see him.
       if (o.role == Role.mordred && o.successes < 2) blend += .1;
-      return random.nextDouble() <
-          min(.9, blend * style.blend * difficulty.blend);
+      return decide(
+          rng.nextDouble() < min(.9, blend * style.blend * difficulty.blend),
+          'evilBlend');
     }
     var real = _goodVote(o, p);
     // a beginner sometimes simply votes the other way
-    if (difficulty.slip > 0 && random.nextDouble() < difficulty.slip) {
-      real = !real;
+    if (difficulty.slip > 0 && rng.nextDouble() < difficulty.slip) {
+      return decide(!real, 'noviceSlip');
     }
     // Merlin who always votes by what he sees is found by the Assassin, so
     // now and then he votes like a servant who knows nothing. Not when one
@@ -394,15 +439,18 @@ class BotBrain {
       final cover = _goodVote(o, suspicion(o, asServant: true));
       // letting a doubtful team through is the costlier act: do it less
       final chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
-      if (cover != real && random.nextDouble() < chance) return cover;
+      if (cover != real && rng.nextDouble() < chance) {
+        return decide(cover, 'merlinDisguise');
+      }
     }
-    return real;
+    return decide(real, real ? 'acceptableRisk' : 'unsafeTeam');
   }
 
   bool _goodVote(BotObservation o, List<double> p) {
     final risk = _risk(o, p, o.team);
     // Do not wave through a player this seat clearly doubts.
-    if (o.team.any((s) => s != o.seat && p[s] >= difficulty.doubt)) {
+    if (o.failsRequired == 1 &&
+        o.team.any((s) => s != o.seat && p[s] >= difficulty.doubt)) {
       return false;
     }
     // "Is this about as safe as the team I would send?" rather than a fixed
@@ -589,10 +637,17 @@ class BotBrain {
         s.generation == o.generation &&
         !o.statements.any((r) =>
             r.speaker == o.seat && r.replyTo == o.statements.indexOf(s)));
-    final direct = asked
-        ? null
-        : voice.speak(o, approve, suspicion(o, asServant: true), suspicion(o),
-            o.evil ? _knownAllies(o) : const <int>{});
+    if (asked) {
+      final question = o.statements.indexed.lastWhere((e) =>
+          e.$2.questionTo == o.seat &&
+          e.$2.speaker != o.seat &&
+          e.$2.quest == o.quest &&
+          e.$2.attempt == o.proposalId.attempt &&
+          !o.statements.any((r) => r.speaker == o.seat && r.replyTo == e.$1));
+      return voice.reply(o, approve, question.$1);
+    }
+    final direct = voice.speak(o, approve, suspicion(o, asServant: true),
+        suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
     if (direct != null) return direct;
     final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
     final text = voice.flavor(s.text);

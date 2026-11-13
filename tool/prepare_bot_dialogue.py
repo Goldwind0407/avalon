@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs/avalon_bot_dialogue_templates_v2.json"
 DEST = ROOT / "lib/features/solo/dialogue/generated/bot_dialogue_data.dart"
+WORDING = ROOT / "docs/bot_dialogue_natural.txt"
 ROLES = dict(zip(
     ["all", "loyal_servant", "merlin", "percival", "evil_minion", "assassin",
      "morgana", "mordred", "oberon", "lancelot_good", "lancelot_evil"],
@@ -109,6 +110,24 @@ def compile_catalog():
                       "policy": POLICIES[entry["claim_policy"]],
                       "requires": entry["prerequisites"],
                       "sourceTrigger": entry["trigger"], "templates": templates})
+    wording = {}
+    for line in WORDING.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        rule_id, *lines = [part.strip() for part in line.split("|")]
+        if rule_id in wording or len(lines) != 4 or len(set(lines)) != 4:
+            raise ValueError(f"Expected four unique variants: {rule_id}")
+        for text in lines:
+            keys = re.findall(r"\{\{([A-Za-z]+)\}\}", text)
+            if set(keys) - set(PLACEHOLDERS.values()) - {"quest", "attempt"}:
+                raise ValueError(f"Unknown wording placeholder: {rule_id}")
+            if re.search(r"[{}]", re.sub(r"\{\{[A-Za-z]+\}\}", "", text)):
+                raise ValueError(f"Malformed wording placeholder: {rule_id}")
+        wording[rule_id] = lines
+    if set(wording) != seen:
+        raise ValueError(f"Wording IDs differ: {set(wording) ^ seen}")
+    for rule in rules:
+        rule["templates"] = wording[rule["id"]]
     return {"schemaVersion": 1, "sourceVersion": source["version"], "rules": rules}
 
 

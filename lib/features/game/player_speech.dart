@@ -6,6 +6,7 @@ enum PlayerSpeechKind {
   suspect,
   trust,
   ask,
+  challengeVote,
   claimGood,
 
   /// Free text the bots could not read anything definite from.
@@ -23,7 +24,8 @@ class PlayerSpeech {
   bool get needsTarget => const [
         PlayerSpeechKind.suspect,
         PlayerSpeechKind.trust,
-        PlayerSpeechKind.ask
+        PlayerSpeechKind.ask,
+        PlayerSpeechKind.challengeVote
       ].contains(kind);
 
   /// Reads typed text the way a table would: a seat number or nickname, and

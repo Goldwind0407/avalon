@@ -311,6 +311,14 @@ class PlayerSpeechBar extends StatelessWidget {
                 onPressed: () =>
                     _aimed(context, PlayerSpeechKind.ask, '你想問誰？')),
             ActionChip(
+                key: const ValueKey('speechChallengeVote'),
+                avatar: const Icon(Icons.how_to_vote_outlined, size: 16),
+                label: const Text('問投票…'),
+                onPressed: game.proposalHistory.isEmpty
+                    ? null
+                    : () => _aimed(context, PlayerSpeechKind.challengeVote,
+                        '要問誰上一張公開票的理由？')),
+            ActionChip(
                 key: const ValueKey('speechClaimGood'),
                 label: const Text('我是好人'),
                 onPressed: () => _say(

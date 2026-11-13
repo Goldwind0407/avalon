@@ -115,14 +115,26 @@ void main() {
                   }
                   if (session.phase == GamePhase.voteResult) {
                     final p = session.proposalHistory.last;
-                    for (final speech in session.statements.where((s) =>
-                        s.speaker != 0 &&
-                        s.supportsTeam != null &&
-                        s.quest == p.quest &&
-                        s.attempt == p.attempt)) {
-                      expect(speech.supportsTeam, p.votes[speech.speaker],
+                    for (var seat = 1; seat < count; seat++) {
+                      final declared = session.statements
+                          .where((s) =>
+                              s.speaker == seat &&
+                              s.supportsTeam != null &&
+                              s.quest == p.quest &&
+                              s.attempt == p.attempt)
+                          .toList();
+                      if (declared.isEmpty) continue;
+                      expect(declared.last.supportsTeam, p.votes[seat],
                           reason:
-                              'The first speech and actual vote share one frozen plan');
+                              'The latest public position matches the locked vote');
+                      for (var i = 1; i < declared.length; i++) {
+                        if (declared[i].supportsTeam !=
+                            declared[i - 1].supportsTeam) {
+                          expect(declared[i].intent, 'reassess');
+                          expect(declared[i].replyTo, isNotNull);
+                          expect(declared[i].evidenceIds, isNotEmpty);
+                        }
+                      }
                     }
                   }
                   if (session.hasPrivateInput ||

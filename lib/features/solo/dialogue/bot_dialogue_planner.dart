@@ -7,6 +7,13 @@ import 'bot_dialogue_context.dart';
 
 class BotSpeechMemory {
   final _entries = <BotDialogueTrace>[];
+  final _lines = <String>[];
+  bool recentlySaid(String text) => _lines.contains(text);
+  void rememberLine(String text) {
+    _lines.add(text);
+    if (_lines.length > 12) _lines.removeAt(0);
+  }
+
   List<BotDialogueTrace> get entries => List.unmodifiable(_entries);
   void record(BotDialogueTrace entry) => _entries.add(entry);
   double penalty(String semanticKey) {
@@ -14,7 +21,7 @@ class BotSpeechMemory {
     final recent = proposals.reversed.take(2).toSet();
     return _entries.any(
             (e) => recent.contains(e.proposal) && e.semanticKey == semanticKey)
-        ? 40
+        ? 80
         : 0;
   }
 }
@@ -97,10 +104,11 @@ class BotDialoguePlanner {
             if (!saidLines.any((said) => said.endsWith(text))) text
       ];
       if (lines.isEmpty) continue;
-      final key =
-          '${rule.intent.name}/${context.referenceQuest}/${context.target}';
+      final key = '${rule.intent.name}/${context.target}/'
+          '${context.references.where((r) => r.kind != BotEvidenceKind.proposal).map((r) => r.id).join(',')}';
       final score = rule.priority -
           memory.penalty(key) -
+          (lines.every(memory.recentlySaid) ? 100 : 0) -
           12 * (saidIntents[rule.intent.name] ?? 0) +
           random.nextDouble() * 8 -
           4;
@@ -108,12 +116,31 @@ class BotDialoguePlanner {
     }
     if (candidates.isEmpty) {
       lastTrace = null;
+      final alternatives = approve
+          ? [
+              '這隊我先贊成，回來再看結果。',
+              '目前我願意讓這組試一次。',
+              '這次我支持，但不替任何人的身分保證。',
+              '我先過這隊，結果出來再調整。'
+            ]
+          : [
+              '這次我先反對，想再比較其他組合。',
+              '目前這份名單我不放心，先換人吧。',
+              '我還不想讓這隊出發，這票反對。',
+              '這次我想再組一次，不會投贊成。'
+            ];
+      final fresh = alternatives
+          .where((s) => !memory.recentlySaid(s) && !saidLines.contains(s))
+          .toList();
+      final choices = fresh.isEmpty ? alternatives : fresh;
+      final text = choices[random.nextInt(choices.length)];
+      memory.rememberLine(text);
       return DiscussionStatement(
           speaker: o.seat,
           quest: o.quest,
           generation: o.generation,
           attempt: o.proposalId.attempt,
-          text: approve ? '我會支持這次提案，先看接下來的結果。' : '這次我先投反對，希望再比較其他組合。',
+          text: text,
           supportsTeam: approve,
           team: o.team,
           intent: 'opinion');
@@ -125,7 +152,10 @@ class BotDialoguePlanner {
         if (render(t, context.bindings) case final String text)
           if (!saidLines.any((said) => said.endsWith(text))) (t, text)
     ];
-    final (template, text) = lines[random.nextInt(lines.length)];
+    final fresh = lines.where((line) => !memory.recentlySaid(line.$2)).toList();
+    final choices = fresh.isEmpty ? lines : fresh;
+    final (template, text) = choices[random.nextInt(choices.length)];
+    memory.rememberLine(text);
     final trace = BotDialogueTrace(
         ruleId: rule.id,
         proposal: o.proposalId,
@@ -169,7 +199,7 @@ class BotDialoguePlanner {
           BotSpeechIntent.opposeTeam,
           BotSpeechIntent.warnFifthVote
         ].contains(rule.intent) ||
-        (rule.id == 'REV05' && template.contains('不會直接跟'));
+        rule.id == 'REV05';
     final position = publicTarget == null
         ? null
         : rule.intent == BotSpeechIntent.defendOther

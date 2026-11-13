@@ -68,7 +68,7 @@ void main() {
       () {
     final catalog = BotDialogueCatalog.bundled;
     expect(catalog.rules, hasLength(105));
-    expect(catalog.rules.expand((r) => r.templates), hasLength(210));
+    expect(catalog.rules.expand((r) => r.templates), hasLength(420));
     expect(catalog.rules.map((r) => r.id).toSet(), hasLength(105));
     expect(catalog.rules.firstWhere((r) => r.id == 'G07').policy,
         BotClaimPolicy.strategicOpinionBluff);
@@ -239,7 +239,7 @@ void main() {
         ]));
     expect(planner.lastTrace!.ruleId, 'G16');
     expect(statement.target, 2);
-    expect(statement.text, contains('兩次已公開'));
+    expect(statement.text, isNot(contains('這次卻反對')));
     expect(statement.evidenceIds.where((id) => id.contains('/ballot/')),
         hasLength(2));
   });
@@ -247,7 +247,9 @@ void main() {
   test(
       'unbound optional event removes only that template, not the generic reply',
       () {
-    final planner = plannerFor('G17');
+    final planner = plannerFor('G17', overrides: {
+      'templates': ['我願意解釋，但先把你指的那一輪說清楚。', '第{{quest}}次的事情我會說明。']
+    });
     final question = DiscussionStatement(
         speaker: 1,
         quest: 1,
