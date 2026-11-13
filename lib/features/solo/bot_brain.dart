@@ -549,6 +549,7 @@ class BotBrain {
   }
 
   int? swordTarget(BotObservation o) {
+    if (!o.evil) return _goodSwordTarget(o);
     final p = suspicion(o);
     final baseline = _risk(o, p, o.team);
     var bestGain = .000001;
@@ -558,6 +559,34 @@ class BotBrain {
       final gain = o.evil ? flipped - baseline : baseline - flipped;
       if (gain > bestGain) {
         bestGain = gain;
+        target = seat;
+      }
+    }
+    return target;
+  }
+
+  /// A good holder flips blind: the card turns over whatever it was. Evil
+  /// players often play Success when a trusted holder has the sword, and
+  /// only one of two evil members needs to fail, so a flip usually turns a
+  /// Success into a Fail. Flip only a card that very likely is a Fail, never
+  /// on the first quest, and Merlin judges by the record alone, so the
+  /// flip does not show what he knows.
+  int? _goodSwordTarget(BotObservation o) {
+    if (o.quest == 1) return null;
+    final p = suspicion(o, asServant: o.role == Role.merlin);
+    final others = o.team.where((s) => s != o.seat).toList();
+    final likely = others.where((s) => p[s] >= .5).length;
+    final baseline = _risk(o, p, o.team);
+    int? target;
+    var best = .55;
+    for (final seat in others) {
+      // a flip that cannot save the quest is not worth the risk
+      if (_risk(o, p, o.team, flipped: seat) >= baseline) continue;
+      // an evil player under a trusted sword fails a bit over half the time
+      var fail = p[seat] * .62;
+      if (likely >= 2) fail *= .6;
+      if (fail > best) {
+        best = fail;
         target = seat;
       }
     }

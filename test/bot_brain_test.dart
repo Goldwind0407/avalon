@@ -91,7 +91,15 @@ void main() {
       'sword compares result utility, can decline, and accounts for own submitted card',
       () {
     final brain = BotBrain(Random(1));
-    expect(brain.swordTarget(view(role: Role.merlin, visible: [1])), 1);
+    // a blind flip on the first quest, or one made on Merlin's private
+    // knowledge, turns a concealing Success into a Fail more often than not
+    expect(brain.swordTarget(view(role: Role.merlin, visible: [1])), isNull);
+    // after a failed pair, the partner almost surely played that Fail
+    expect(
+        brain.swordTarget(view(history: [
+          QuestResult([0, 1], 1, false)
+        ])),
+        1);
     expect(brain.swordTarget(view(role: Role.minion, evil: true, visible: [1])),
         isNull);
     expect(
