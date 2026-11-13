@@ -5,6 +5,7 @@ import '../game/game_session.dart';
 import '../game/discussion_model.dart';
 import '../game/expansion_model.dart';
 import '../lobby/room_model.dart';
+import '../notebook/notebook_model.dart';
 import 'online_service.dart';
 
 /// Calls a game-server function with some arguments.
@@ -156,9 +157,14 @@ class OnlineGameSession extends GameSession {
                   (i as num).toInt()
               ], players, configuredRoles: configuredRoles, expansions: expansions, lancelot: (card['lancelot'] as num?)?.toInt())}';
       final records = proposalHistory;
+      final seat = mySeat;
+      final pages = role == null || seat == null
+          ? const <String, PlayerNote>{}
+          : openingNotesByPlayer(seat);
       _notebookSync = _notebookSync.then((_) async {
         if (_disposed || notebookScope != scope) return;
-        await notebook.synchronize(scope, opening: opening, proposals: records);
+        await notebook.synchronize(scope,
+            opening: opening, proposals: records, openingNotes: pages);
       });
     }
     notifyListeners();

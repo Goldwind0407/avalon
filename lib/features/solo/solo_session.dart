@@ -254,9 +254,11 @@ class SoloGameSession extends GameSession {
     final ownRole = roleOf(mySeat!)!;
     final opening = '${ownRole.label}\n${knowledge(mySeat!)}';
     final records = proposalHistory;
+    final pages = openingNotesByPlayer(mySeat!);
     _saving = _saving.then((_) async {
       if (!_disposed && notebookScope == scope) {
-        await notebook.synchronize(scope, opening: opening, proposals: records);
+        await notebook.synchronize(scope,
+            opening: opening, proposals: records, openingNotes: pages);
       }
     });
     notifyListeners();
