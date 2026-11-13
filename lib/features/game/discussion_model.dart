@@ -45,6 +45,29 @@ class DiscussionStatement {
   final bool? claimedOriginalSuccess;
   final int? originalCardQuest, quotedFrom;
   final bool claimsOpeningKnowledge;
+
+  /// The same statement worded differently.
+  DiscussionStatement copyWithText(String text) => DiscussionStatement(
+      speaker: speaker,
+      quest: quest,
+      text: text,
+      target: target,
+      claimedEvil: claimedEvil,
+      switched: switched,
+      supportsTeam: supportsTeam,
+      generation: generation,
+      attempt: attempt,
+      intent: intent,
+      questionTo: questionTo,
+      replyTo: replyTo,
+      position: position,
+      certainty: certainty,
+      claimedOriginalSuccess: claimedOriginalSuccess,
+      originalCardQuest: originalCardQuest,
+      quotedFrom: quotedFrom,
+      claimsOpeningKnowledge: claimsOpeningKnowledge,
+      evidenceIds: evidenceIds,
+      team: team);
 }
 
 class DiscussionSettings {

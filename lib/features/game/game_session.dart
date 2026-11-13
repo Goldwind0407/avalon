@@ -5,6 +5,7 @@ import '../../core/assets.dart';
 import '../lobby/room_model.dart';
 import 'game_model.dart';
 import 'discussion_model.dart';
+import 'player_speech.dart';
 import 'expansion_model.dart';
 import '../notebook/notebook_model.dart';
 
@@ -33,6 +34,10 @@ abstract class GameSession extends ChangeNotifier {
   List<DiscussionStatement> get statements => const [];
   String? get currentStatement => null;
   Future<void> expressOpinion(bool approve) async {}
+
+  /// Solo: say something during this player's turn to speak, without ending
+  /// it. Computer players take it into account and may answer.
+  Future<void> say(PlayerSpeech speech) async {}
   void pauseAutomation(bool paused) {}
   int? get speaker => null;
   int get speechVersion => 0;
@@ -65,6 +70,37 @@ abstract class GameSession extends ChangeNotifier {
 
   GameNotebook? _notebook;
   GameNotebook get notebook => _notebook ??= GameNotebook();
+
+  /// What [seat] learnt from their own card, as notes for the notebook's
+  /// player pages (keyed by seat). Only this device's own knowledge.
+  Map<int, PlayerNote> openingNotes(int seat) {
+    final role = roleOf(seat);
+    if (role == null) return const {};
+    final seen = visiblePlayers(seat);
+    final lancelot = knownLancelotSeat(seat);
+    return {
+      seat: PlayerNote(
+          text: '我：${role.label}',
+          side: role.isEvil ? SuspectedSide.evil : SuspectedSide.good),
+      for (final s in seen)
+        s: switch (role) {
+          Role.merlin =>
+            const PlayerNote(text: '開局看到：邪惡', side: SuspectedSide.evil),
+          Role.percival => seen.length == 1
+              ? const PlayerNote(text: '開局看到：梅林', side: SuspectedSide.good)
+              : const PlayerNote(text: '梅林候選人（其中一位可能是莫甘娜）'),
+          _ => PlayerNote(
+              text: s == lancelot ? '邪惡同伴（邪惡蘭斯洛特）' : '邪惡同伴',
+              side: SuspectedSide.evil),
+        },
+    };
+  }
+
+  /// [openingNotes] keyed like the notebook's player pages.
+  Map<String, PlayerNote> openingNotesByPlayer(int seat) => {
+        for (final e in openingNotes(seat).entries)
+          if (e.key < playerIds.length) playerIds[e.key]: e.value
+      };
   String get notebookScope => 'local/${identityHashCode(this)}/$generation';
   @override
   void dispose() {

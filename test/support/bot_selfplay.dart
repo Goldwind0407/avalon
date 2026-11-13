@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
@@ -7,6 +8,7 @@ import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
+import 'package:avalon_shadow_council/features/solo/bot_vote_plan.dart';
 
 /// What the bots did over many all-bot games (base game, no speeches).
 /// Used to check that strategy changes keep play plausible.
@@ -22,6 +24,7 @@ class SelfPlayStats {
   int merlinVotes = 0, merlinTellingVotes = 0;
   int uselessLoneFails = 0;
   int certainCases = 0, certainMissed = 0;
+  int utterances = 0, directResponses = 0, revisedVotes = 0;
 
   static String _pc(int a, int b) =>
       b == 0 ? '-' : '${(100 * a / b).toStringAsFixed(0)}%';
@@ -46,7 +49,8 @@ class SelfPlayStats {
 SelfPlayStats selfPlay(int n, int games,
     {BotDifficulty good = BotDifficulty.normal,
     BotDifficulty evil = BotDifficulty.normal,
-    Set<Role>? roles}) {
+    Set<Role>? roles,
+    bool withDiscussion = false}) {
   final stats = SelfPlayStats(n, games);
   for (var g = 0; g < games; g++) {
     final rng = Random(g * 31 + n);
@@ -64,6 +68,7 @@ SelfPlayStats selfPlay(int n, int games,
             style: styles[i], difficulty: game.roles[i].isEvil ? evil : good)
     ];
     final own = [for (var i = 0; i < n; i++) <int, bool>{}];
+    final statements = <DiscussionStatement>[];
     for (var i = 0; i < n; i++) {
       game.confirmIdentity();
     }
@@ -84,7 +89,7 @@ SelfPlayStats selfPlay(int n, int games,
         proposals: game.proposals,
         ladyPast: const [],
         facts: const [],
-        statements: const [],
+        statements: statements,
         ownCards: own[s],
         phase: phase);
     bool isEvil(int s) => game.roles[s].isEvil;
@@ -106,9 +111,37 @@ SelfPlayStats selfPlay(int n, int games,
           final dirty = game.team.any(isEvil);
           final seen =
               game.team.any((s) => isEvil(s) && game.roles[s] != Role.mordred);
-          final votes = [
-            for (var s = 0; s < n; s++) brains[s].vote(see(s, GamePhase.vote))
-          ];
+          final votes = <bool>[];
+          if (withDiscussion) {
+            final plans = [
+              for (var s = 0; s < n; s++) BotVotePlan(rng.nextInt(1 << 30))
+            ];
+            for (var s = 0; s < n; s++) {
+              plans[s].evaluate(brains[s], see(s, GamePhase.discussion));
+            }
+            for (var offset = 1; offset <= n; offset++) {
+              final s = (game.leader + offset) % n;
+              final view = see(s, GamePhase.discussion);
+              final decision = plans[s].evaluate(brains[s], view);
+              final statement = brains[s].speech(view, decision.approve);
+              statements.add(statement);
+              stats.utterances++;
+              if (statement.replyTo != null) stats.directResponses++;
+            }
+            // Simultaneous final views: never expose submitted ballots.
+            for (var s = 0; s < n; s++) {
+              final finalVote = plans[s]
+                  .evaluate(brains[s], see(s, GamePhase.vote), lock: true);
+              votes.add(finalVote.approve);
+              if (finalVote.approve != plans[s].initial!.approve) {
+                stats.revisedVotes++;
+              }
+            }
+          } else {
+            for (var s = 0; s < n; s++) {
+              votes.add(brains[s].vote(see(s, GamePhase.vote)));
+            }
+          }
           stats.proposals++;
           final first = game.rejections == 0;
           if (first) stats.firstProposals++;

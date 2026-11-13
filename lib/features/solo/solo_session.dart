@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../game/discussion_model.dart';
 import '../game/expansion_model.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
+import '../game/player_speech.dart';
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
+import 'bot_vote_plan.dart';
 import 'dialogue/bot_contract.dart';
 
 /// Local referee + one private human view. Bots receive only value snapshots.
@@ -19,7 +22,7 @@ class SoloGameSession extends GameSession {
       {Random? random,
       this.difficulty = BotDifficulty.normal,
       this.botDelay = const Duration(milliseconds: 450),
-      this.speechDuration = const Duration(seconds: 5)})
+      this.speechDuration = const Duration(seconds: 7)})
       : _random = random ?? Random.secure(),
         _local = LocalGameSession(room, random: random) {
     _resetBots();
@@ -39,12 +42,17 @@ class SoloGameSession extends GameSession {
   final _facts = <int, List<BotFact>>{};
   final _ownCards = <int, Map<int, bool>>{};
   final _statements = <DiscussionStatement>[];
-  final _plannedVotes = <int, bool>{};
+  final _plannedVotes = <int, BotVotePlan>{};
   final _plannedCards = <int, bool>{};
   String? _proposalKey, _speechKey, _currentStatement;
   String? _revealKey;
   Future<void> _saving = Future.value();
   AvalonGame get _rules => _local.game;
+
+  /// Developer inspection only. Never attach this to public statements,
+  /// Firebase, the notebook, or a release build's UI.
+  Map<int, BotVotePlan> get debugVotePlans =>
+      kDebugMode ? Map.unmodifiable(_plannedVotes) : const {};
 
   void _resetBots() {
     _brains.clear();
@@ -142,8 +150,63 @@ class SoloGameSession extends GameSession {
     }
   }
 
-  bool _plannedVote(int seat) => _plannedVotes.putIfAbsent(
-      seat, () => _brains[seat]!.vote(_observe(seat)));
+  BotVotePlan _votePlan(int seat) => _plannedVotes.putIfAbsent(
+      seat, () => BotVotePlan(_random.nextInt(1 << 30)));
+
+  bool _plannedVote(int seat) {
+    final plan = _votePlan(seat);
+    return (plan.current ?? plan.evaluate(_brains[seat]!, _observe(seat)))
+        .approve;
+  }
+
+  void _reviewVotes(Iterable<int> seats, {bool lock = false}) {
+    // All final votes see the same public discussion, before any amendments
+    // are appended. No partially submitted ballots enter these observations.
+    final views = {for (final seat in seats) seat: _observe(seat)};
+    for (final entry in views.entries) {
+      final seat = entry.key, view = entry.value;
+      final plan = _votePlan(seat);
+      if (plan.locked) continue;
+      final decision = plan.evaluate(_brains[seat]!, view, lock: lock);
+      final prior = view.statements
+          .where((s) =>
+              s.speaker == seat &&
+              s.supportsTeam != null &&
+              s.quest == view.quest &&
+              s.attempt == view.proposalId.attempt)
+          .lastOrNull;
+      if (prior == null || prior.supportsTeam == decision.approve) continue;
+      final source = view.statements.indexed
+          .where((e) =>
+              e.$2.speaker != seat &&
+              e.$2.quest == view.quest &&
+              e.$2.attempt == view.proposalId.attempt &&
+              (e.$2.position != null ||
+                  e.$2.claimedEvil != null ||
+                  e.$2.supportsTeam != null))
+          .lastOrNull;
+      if (source == null) continue;
+      final name = playerLabel(source.$2.speaker, players[source.$2.speaker]);
+      _statements.add(DiscussionStatement(
+          generation: generation,
+          quest: view.quest,
+          attempt: view.proposalId.attempt,
+          speaker: seat,
+          team: team,
+          supportsTeam: decision.approve,
+          switched: lancelotSwitched,
+          intent: 'reassess',
+          replyTo: source.$1,
+          evidenceIds: [
+            BotEvidenceId(
+                    generation, BotEvidenceKind.statement, 's${source.$1}')
+                .id
+          ],
+          text: decision.approve
+              ? '聽完討論，包括$name的說法，我收回剛才的反對。這隊我願意試。'
+              : '聽完討論，包括$name的說法，我對這隊沒那麼放心了。剛才說支持，現在改投反對。'));
+    }
+  }
 
   void _changed() {
     if (_disposed) return;
@@ -160,8 +223,7 @@ class SoloGameSession extends GameSession {
       _proposalKey = proposal;
       _plannedVotes.clear();
       _plannedCards.clear();
-      // Freeze every BOT's plan before the first speech. Each plan uses only
-      // that seat's projection; another BOT's speech cannot expose its ballot.
+      // Initial intentions use private projections, not irrevocable ballots.
       for (var seat = 1; seat < players.length; seat++) {
         _plannedVote(seat);
       }
@@ -171,10 +233,15 @@ class SoloGameSession extends GameSession {
         _plannedCards[seat] = _brains[seat]!.questCard(_observe(seat));
       }
     }
+    if (phase == GamePhase.vote) {
+      _reviewVotes(Iterable.generate(players.length - 1, (i) => i + 1),
+          lock: true);
+    }
     final speech = '$generation/$speechVersion';
     if (phase == GamePhase.discussion && speaker != mySeat) {
       if (_speechKey != speech) {
         _speechKey = speech;
+        _reviewVotes([speaker!]);
         final statement = _brains[speaker]!
             .speech(_observe(speaker!), _plannedVote(speaker!));
         _currentStatement = statement.text;
@@ -187,9 +254,11 @@ class SoloGameSession extends GameSession {
     final ownRole = roleOf(mySeat!)!;
     final opening = '${ownRole.label}\n${knowledge(mySeat!)}';
     final records = proposalHistory;
+    final pages = openingNotesByPlayer(mySeat!);
     _saving = _saving.then((_) async {
       if (!_disposed && notebookScope == scope) {
-        await notebook.synchronize(scope, opening: opening, proposals: records);
+        await notebook.synchronize(scope,
+            opening: opening, proposals: records, openingNotes: pages);
       }
     });
     notifyListeners();
@@ -228,13 +297,23 @@ class SoloGameSession extends GameSession {
         _ => null,
       };
 
+  /// Long enough to read the speech: [speechDuration] at least, plus about a
+  /// fifth of a second per character past 25, up to twice as long.
+  Duration _readingTime(String? text) {
+    final extra = max(0, (text?.length ?? 0) - 25) * 200;
+    final base = speechDuration.inMilliseconds;
+    return Duration(milliseconds: min(base * 2, base + extra));
+  }
+
   void _schedule() {
     _botTimer?.cancel();
     if (_disposed || _paused) return;
     final actor = _botActor;
     if (actor == null || actor == mySeat) return;
     final deal = generation, version = speechVersion, stage = phase;
-    final delay = phase == GamePhase.discussion ? speechDuration : botDelay;
+    final delay = phase == GamePhase.discussion
+        ? _readingTime(_currentStatement)
+        : botDelay;
     _botTimer = Timer(delay, () async {
       if (_disposed ||
           _paused ||
@@ -374,6 +453,82 @@ class SoloGameSession extends GameSession {
         team: team,
         text: approve ? '我目前支持這次隊伍提案。' : '我對這隊有疑慮，想換個組合。'));
     await endSpeech(speechVersion);
+  }
+
+  @override
+  Future<void> say(PlayerSpeech speech) async {
+    _requireHuman(GamePhase.discussion);
+    final me = mySeat!;
+    final t = speech.target;
+    if (speech.needsTarget &&
+        (t == null || t < 0 || t == me || t >= players.length)) {
+      throw const GameMoveException('請選擇另一位玩家');
+    }
+    String who(int seat) => playerLabel(seat, players[seat]);
+    final ballot = speech.kind == PlayerSpeechKind.challengeVote
+        ? proposalHistory.lastOrNull
+        : null;
+    if (speech.kind == PlayerSpeechKind.challengeVote && ballot == null) {
+      throw const GameMoveException('還沒有公開的投票紀錄，可以先詢問立場');
+    }
+    final typed = speech.text?.trim();
+    final text = typed != null && typed.isNotEmpty
+        ? typed
+        : switch (speech.kind) {
+            PlayerSpeechKind.support => '我支持這隊。',
+            PlayerSpeechKind.oppose => '這隊我想換人。',
+            PlayerSpeechKind.suspect => '我懷疑${who(t!)}。',
+            PlayerSpeechKind.trust => '我相信${who(t!)}是好人。',
+            PlayerSpeechKind.ask => '${who(t!)}，你怎麼看？說說你的理由。',
+            PlayerSpeechKind.challengeVote =>
+              '${who(t!)}，第${ballot!.quest}次遠征的第${ballot.attempt}次提案，你投${ballot.votes[t] ? '贊成' : '反對'}的理由是什麼？',
+            PlayerSpeechKind.claimGood => '我是好人，請相信我。',
+            PlayerSpeechKind.remark => '',
+          };
+    if (text.isEmpty) return;
+    _statements.add(DiscussionStatement(
+        generation: generation,
+        attempt: rejections + 1,
+        speaker: me,
+        quest: questNumber,
+        switched: lancelotSwitched,
+        team: team,
+        text: text,
+        supportsTeam: switch (speech.kind) {
+          PlayerSpeechKind.support => true,
+          PlayerSpeechKind.oppose => false,
+          _ => null,
+        },
+        intent: switch (speech.kind) {
+          PlayerSpeechKind.support => BotSpeechIntent.supportTeam.name,
+          PlayerSpeechKind.oppose => BotSpeechIntent.opposeTeam.name,
+          PlayerSpeechKind.suspect => BotSpeechIntent.accuse.name,
+          PlayerSpeechKind.trust => BotSpeechIntent.defendOther.name,
+          PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
+          PlayerSpeechKind.challengeVote => BotSpeechIntent.challengeVote.name,
+          PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
+          PlayerSpeechKind.remark => 'opinion',
+        },
+        target: switch (speech.kind) {
+          PlayerSpeechKind.claimGood => me,
+          _ => t,
+        },
+        position: switch (speech.kind) {
+          PlayerSpeechKind.suspect => DiscussionPosition.suspect,
+          PlayerSpeechKind.trust => DiscussionPosition.defend,
+          _ => null,
+        },
+        evidenceIds: [
+          if (ballot != null)
+            BotEvidenceId(generation, BotEvidenceKind.ballot,
+                    'q${ballot.quest}/a${ballot.attempt}')
+                .id
+        ],
+        questionTo: [PlayerSpeechKind.ask, PlayerSpeechKind.challengeVote]
+                .contains(speech.kind)
+            ? t
+            : null));
+    notifyListeners();
   }
 
   @override

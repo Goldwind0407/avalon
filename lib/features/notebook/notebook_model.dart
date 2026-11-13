@@ -28,7 +28,8 @@ class LocalNotebookStorage implements NotebookStorage {
       _preferences.setString(key, value);
 }
 
-/// Local notes; never derives marks from roles or sends content to Firebase.
+/// Local notes, never sent to Firebase. Player pages start with what this
+/// player learnt from their own card; nothing is derived from anyone else's.
 class GameNotebook extends ChangeNotifier {
   GameNotebook({NotebookStorage? storage})
       : _storage = storage ?? LocalNotebookStorage();
@@ -36,6 +37,9 @@ class GameNotebook extends ChangeNotifier {
   final _players = <String, PlayerNote>{};
   final _quests = <int, String>{};
   String? opening;
+
+  /// The opening knowledge has been written onto the player pages.
+  bool openingNotesApplied = false;
   List<ProposalRecord> proposals = const [];
   Future<void>? _binding;
   String? _key;
@@ -63,6 +67,7 @@ class GameNotebook extends ChangeNotifier {
     _players.clear();
     _quests.clear();
     opening = null;
+    openingNotesApplied = false;
     proposals = const [];
     loading = true;
     _loadFailed = false;
@@ -75,6 +80,7 @@ class GameNotebook extends ChangeNotifier {
       if (raw != null) {
         final data = jsonDecode(raw) as Map<String, dynamic>;
         opening = data['opening'] as String?;
+        openingNotesApplied = data['openingNotesApplied'] == true;
         proposals = [
           for (final p in data['proposals'] as List? ?? const [])
             ProposalRecord.fromMap(Map<String, dynamic>.from(p as Map))
@@ -117,12 +123,27 @@ class GameNotebook extends ChangeNotifier {
       text.characters.take(maxLength).toString();
 
   /// Receives only this player's opening knowledge and fully revealed ballots.
+  /// [openingNotes] (keyed like the player pages) are written once per game,
+  /// and only onto pages the player has not written on or marked yet.
   Future<void> synchronize(String scope,
-      {String? opening, required List<ProposalRecord> proposals}) async {
+      {String? opening,
+      required List<ProposalRecord> proposals,
+      Map<String, PlayerNote> openingNotes = const {}}) async {
     await bind(scope);
     if (_disposed || _key != 'avalon.notebook.v1/$scope' || !canEdit) return;
+    var changed = false;
+    if (!openingNotesApplied && openingNotes.isNotEmpty) {
+      for (final entry in openingNotes.entries) {
+        final old = player(entry.key);
+        _players[entry.key] = PlayerNote(
+            text: old.text.isEmpty ? _trim(entry.value.text) : old.text,
+            side: old.side ?? entry.value.side);
+      }
+      openingNotesApplied = changed = true;
+    }
     final nextOpening = this.opening ?? opening;
-    if (nextOpening == this.opening &&
+    if (!changed &&
+        nextOpening == this.opening &&
         jsonEncode(proposals.map((p) => p.toMap()).toList()) ==
             jsonEncode(this.proposals.map((p) => p.toMap()).toList())) {
       return;
@@ -161,6 +182,8 @@ class GameNotebook extends ChangeNotifier {
     _loadFailed = false;
     _players.clear();
     _quests.clear();
+    // the opening knowledge comes back on the next update
+    openingNotesApplied = false;
     return _save();
   }
 
@@ -172,6 +195,7 @@ class GameNotebook extends ChangeNotifier {
     final generation = _generation;
     final value = jsonEncode({
       'opening': opening,
+      'openingNotesApplied': openingNotesApplied,
       'proposals': proposals.map((p) => p.toMap()).toList(),
       'players': {
         for (final entry in _players.entries)

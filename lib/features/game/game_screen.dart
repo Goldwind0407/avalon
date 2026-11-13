@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../core/assets.dart';
 import '../../core/ambient_motion.dart';
@@ -596,11 +597,57 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                                   '第 ${line.quest} 次遠征・${player(line.speaker)}\n${line.text}'))
                       ])),
             actions: [
+              if (kDebugMode && game is SoloGameSession)
+                TextButton(
+                    onPressed: _openBotDecisions,
+                    child: const Text('NPC 決策（開發模式）')),
               TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('返回對局'))
             ],
           )));
+
+  Future<void> _openBotDecisions() async {
+    if (!kDebugMode || game is! SoloGameSession) return;
+    final plans = (game as SoloGameSession).debugVotePlans;
+    const reasons = {
+      'fifthProposal': '第五次提案，避免直接落敗',
+      'concealAlly': '暫時與可疑隊友切割',
+      'sabotageOpportunity': '隊伍有機會破壞任務',
+      'evilBlend': '邪惡方評估偽裝與阻擋收益',
+      'noviceSlip': '新手判斷失誤',
+      'merlinDisguise': '梅林刻意偽裝',
+      'acceptableRisk': '隊伍風險在可接受範圍',
+      'unsafeTeam': '嫌疑或隊伍風險超過接受範圍',
+    };
+    await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+              title: const Text('NPC 決策・私人資訊（僅開發模式）'),
+              content: SizedBox(
+                  width: 560,
+                  height: 250,
+                  child: ListView(children: [
+                    const Text('以下是 NPC 自己的估計，不是真實陣營機率。'),
+                    for (final entry in plans.entries)
+                      if (entry.value.current case final decision?)
+                        Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                                '${player(entry.key)}｜${entry.value.locked ? '已鎖定' : '初步立場'}\n'
+                                '初始：${entry.value.initial!.approve ? '贊成' : '反對'} → '
+                                '目前：${decision.approve ? '贊成' : '反對'}\n'
+                                '原因：${reasons[decision.reason] ?? decision.reason}\n'
+                                '隊伍風險估計：${(decision.risk * 100).round()}%\n'
+                                '各座位嫌疑：${decision.suspicion.indexed.map((v) => '${v.$1 + 1}號 ${(v.$2 * 100).round()}%').join('、')}')),
+                  ])),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('關閉'))
+              ],
+            ));
+  }
 
   Future<void> _openNotebook() async {
     if (!game.hasOwnSeat || _notebookOpen || _dealing || _interlude) return;
@@ -1680,11 +1727,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _secretVote(double s, BoxConstraints c) {
     final seat = privateActor;
+    final revised = game.statements
+        .where((line) =>
+            line.quest == game.questNumber &&
+            line.attempt == game.rejections + 1 &&
+            line.intent == 'reassess' &&
+            line.supportsTeam != null)
+        .map((s) => s.speaker)
+        .toSet();
     return _choiceRow(
       s,
       c,
       '${player(seat)}　投下組隊票',
-      '提案隊伍：${game.team.map(player).join('、')}',
+      '提案隊伍：${game.team.map(player).join('、')}'
+          '${revised.isEmpty ? '' : '\n${revised.length} 位電腦玩家已更正立場，原因可查看討論紀錄。'}',
       [
         (true, Assets.voteApprove, '贊成', true),
         (false, Assets.voteReject, '反對', true),
