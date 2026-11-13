@@ -29,6 +29,8 @@ class BotDialogueContext {
         continue;
       }
       if (rule.id == 'G15' && (!q.succeeded || q.fails != 0)) continue;
+      // saying "my card was a Success" only means something after a Fail
+      if (rule.id == 'G12' && q.fails == 0) continue;
       if (['G11', 'G13', 'G24', 'REV03', 'ROB03', 'RLE06'].contains(rule.id) &&
           q.succeeded) {
         continue;
@@ -380,7 +382,7 @@ class BotDialogueContext {
         };
 
   Map<String, String> get bindings {
-    String label(int s) => playerLabel(s, o.names[s]);
+    String label(int s) => '${s + 1}號';
     final values = <String, String>{
       if (target != null) 'target': label(target!),
       if (q != null) 'quest': '$referenceQuest',

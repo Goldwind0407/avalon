@@ -655,7 +655,8 @@ class BotBrain {
           e.$2.attempt == o.proposalId.attempt &&
           !o.statements.any((r) => r.speaker == o.seat && r.replyTo == e.$1));
       lastSpeechSource = const SpeechSource.reply();
-      return voice.reply(o, approve, question.$1);
+      return voice.reply(
+          o, approve, question.$1, o.evil ? _knownAllies(o) : const <int>{});
     }
     final direct = voice.speak(o, approve, suspicion(o, asServant: true),
         suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
@@ -668,6 +669,25 @@ class BotBrain {
     if (o.history.isEmpty) {
       lastSpeechSource = const SpeechSource.firstQuest();
       return voice.firstQuest(o, approve);
+    }
+    // Most of the time say something about what actually happened: who was
+    // on which quest, who voted how. The catalogue keeps its share for the
+    // role-flavoured lines, the fifth proposal and the expansion events.
+    final special = o.rejections >= 4 ||
+        o.history.last.excaliburTarget != null ||
+        o.ladyChecks.any((c) => c.quest == o.history.length);
+    if (dialogue.random.nextDouble() <
+        (special
+            ? .35
+            : o.seat == o.leader
+                ? .9
+                : .75)) {
+      final cited =
+          voice.evidence(o, approve, o.evil ? _knownAllies(o) : const <int>{});
+      if (cited != null) {
+        lastSpeechSource = SpeechSource.evidence(cited.topic ?? '');
+        return cited;
+      }
     }
     final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
     lastSpeechSource = SpeechSource.catalog(dialogue.lastTrace?.ruleId);
@@ -708,6 +728,10 @@ class SpeechSource {
           _ => '主動發言',
         },
         where = 'lib/features/solo/bot_voice.dart 的 speak()';
+  SpeechSource.evidence(String topic)
+      : label = '引用紀錄',
+        where = 'lib/features/solo/bot_voice_points.dart'
+            '（主題 ${topic.split('/').first}）';
   SpeechSource.catalog(String? rule)
       : label = rule == null ? '台詞庫' : '台詞 $rule',
         where = rule == null

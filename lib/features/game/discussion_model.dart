@@ -15,6 +15,7 @@ class DiscussionStatement {
       this.generation,
       this.attempt,
       this.intent,
+      this.topic,
       this.questionTo,
       this.replyTo,
       this.position,
@@ -37,6 +38,10 @@ class DiscussionStatement {
 
   /// Public semantic intent, never the private strategy/role-specific rule ID.
   final String? intent;
+
+  /// What the line is about (a member, a past vote…), so the next speaker
+  /// can agree with it instead of saying the same thing again.
+  final String? topic;
   final List<String> evidenceIds;
   final DiscussionPosition? position;
   final DiscussionCertainty certainty;
@@ -58,6 +63,7 @@ class DiscussionStatement {
       generation: generation,
       attempt: attempt,
       intent: intent,
+      topic: topic,
       questionTo: questionTo,
       replyTo: replyTo,
       position: position,

@@ -50,7 +50,8 @@ SelfPlayStats selfPlay(int n, int games,
     {BotDifficulty good = BotDifficulty.normal,
     BotDifficulty evil = BotDifficulty.normal,
     Set<Role>? roles,
-    bool withDiscussion = false}) {
+    bool withDiscussion = false,
+    StringSink? transcript}) {
   final stats = SelfPlayStats(n, games);
   for (var g = 0; g < games; g++) {
     final rng = Random(g * 31 + n);
@@ -72,6 +73,10 @@ SelfPlayStats selfPlay(int n, int games,
     for (var i = 0; i < n; i++) {
       game.confirmIdentity();
     }
+    transcript?.writeln('===== 第 ${g + 1} 局：${[
+      for (var i = 0; i < n; i++)
+        '${i + 1}號${game.roles[i].label}(${styles[i].label})'
+    ].join(' ')}');
     BotObservation see(int s, GamePhase phase) => BotObservation(
         seat: s,
         role: game.roles[s],
@@ -107,6 +112,8 @@ SelfPlayStats selfPlay(int n, int games,
             if (team.where(isEvil).length >= 2) stats.evilLeadsStacked++;
           }
           game.proposeTeam(team);
+          transcript?.writeln(
+              '-- 第${game.questNumber}次遠征 提案${game.rejections + 1}：${l + 1}號帶 ${team.map((s) => s + 1).join('、')}');
         case GamePhase.vote:
           final dirty = game.team.any(isEvil);
           final seen =
@@ -125,6 +132,8 @@ SelfPlayStats selfPlay(int n, int games,
               final decision = plans[s].evaluate(brains[s], view);
               final statement = brains[s].speech(view, decision.approve);
               statements.add(statement);
+              transcript?.writeln(
+                  '   ${s + 1}號[${brains[s].lastSpeechSource?.label}]：${statement.text}');
               stats.utterances++;
               if (statement.replyTo != null) stats.directResponses++;
             }
@@ -165,6 +174,8 @@ SelfPlayStats selfPlay(int n, int games,
           for (final v in votes) {
             game.vote(v);
           }
+          transcript?.writeln(
+              '   票：${[for (var s = 0; s < n; s++) '${s + 1}${votes[s] ? '○' : '✕'}'].join(' ')}');
           if (first && !game.teamApproved) stats.firstRejected++;
           game.continueVote();
         case GamePhase.quest:
@@ -180,6 +191,7 @@ SelfPlayStats selfPlay(int n, int games,
           }
           stats.quests++;
           if (needed == 2 && fails == 1) stats.uselessLoneFails++;
+          transcript?.writeln('   >> 任務${fails >= needed ? '失敗' : '成功'}，$fails 張失敗牌');
           game.continueQuest();
           // a good player on a failed pair knows the partner is evil
           if (team.length == 2 && fails == 1 && game.phase == GamePhase.team) {

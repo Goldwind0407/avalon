@@ -104,12 +104,20 @@ class BotDialoguePlanner {
             if (!saidLines.any((said) => said.endsWith(text))) text
       ];
       if (lines.isEmpty) continue;
+      // Someone already used this rule about this proposal: four people
+      // saying the same thing in other words is still the same thing.
+      final echoes = [
+        for (final template in rule.templates)
+          if (render(template, context.bindings) case final String text)
+            if (saidLines.any((said) => said.endsWith(text))) text
+      ].length;
       final key = '${rule.intent.name}/${context.target}/'
           '${context.references.where((r) => r.kind != BotEvidenceKind.proposal).map((r) => r.id).join(',')}';
       final score = rule.priority -
           memory.penalty(key) -
           (lines.every(memory.recentlySaid) ? 100 : 0) -
-          12 * (saidIntents[rule.intent.name] ?? 0) +
+          12 * (saidIntents[rule.intent.name] ?? 0) -
+          (rule.priority >= 85 ? 0 : 45 * echoes) +
           random.nextDouble() * 8 -
           4;
       candidates.add((rule, context, key, score));
