@@ -419,7 +419,7 @@ void main() {
           3
         ]),
         approve: false);
-    expect(statement.text, '我對3 號 【小明】有疑慮。');
+    expect(statement.text, '我對3號有疑慮。');
     final a = BotBrain(Random(10)), b = BotBrain(Random(10));
     final o = observe();
     for (var i = 0; i < 10; i++) {

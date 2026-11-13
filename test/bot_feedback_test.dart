@@ -164,7 +164,7 @@ void main() {
     expect(answer.replyTo, 0);
     expect(answer.supportsTeam, true);
     expect(answer.evidenceIds, ['g4/statement/s0']);
-    expect(answer.text, contains('2 號'));
+    expect(answer.text, contains('2號'));
   });
 
   test('a successful two-Fail quest is not described as a failed mission', () {

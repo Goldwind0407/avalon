@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -9,10 +10,19 @@ import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
 import '../solo/bot_difficulty.dart';
+import '../solo/memory/match_history_screen.dart';
+import '../solo/memory/match_repository.dart';
+import '../solo/memory/social_memory.dart';
+import '../solo/persona/bot_persona.dart';
 
 class LocalPlayScreen extends StatefulWidget {
-  const LocalPlayScreen({super.key, this.solo = false});
+  const LocalPlayScreen(
+      {super.key, this.solo = false, this.random, this.archive});
   final bool solo;
+
+  /// Solo: decides who sits at the table, and where past games are kept.
+  final Random? random;
+  final MatchRepository? archive;
 
   @override
   State<LocalPlayScreen> createState() => _LocalPlayScreenState();
@@ -25,11 +35,15 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   BotDifficulty difficulty = BotDifficulty.normal;
   final names = List.generate(10, (i) => '玩家${i + 1}');
   final roles = <String>{'梅林', '刺客', '派西維爾', '莫甘娜'};
+  List<BotPersona> cast = const [];
+  MatchRepository get _archive => widget.archive ?? MatchRepository.shared;
   @override
   void initState() {
     super.initState();
     if (widget.solo) {
-      names.setAll(0, ['你', for (var i = 1; i < 10; i++) '電腦$i']);
+      // the regulars: whoever sits in seats 2 to 10 this evening
+      cast = BotPersona.deal(9, widget.random ?? Random());
+      names.setAll(0, ['你', for (final p in cast) p.name]);
       discussion = DiscussionSettings.recommended;
     }
   }
@@ -72,7 +86,40 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     return game;
   }
 
+  /// Solo: who this computer player is and what they remember of you.
+  Future<void> _showPersona(int index) async {
+    final persona = cast[index - 1];
+    final past = await _archive.summaries();
+    if (!mounted) return;
+    await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text('${index + 1} 號　${persona.name}'),
+              content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(persona.bio),
+                    const SizedBox(height: 8),
+                    Text(memorySummary(BotMemory.of(persona.id, past, 0)),
+                        key: const ValueKey('personaRecord'),
+                        style: const TextStyle(
+                            fontSize: 12.5, color: AvalonTheme.muted)),
+                    const SizedBox(height: 4),
+                    const Text('每一局都會重新抽角色；他記得的是以前打完的局。',
+                        style: TextStyle(
+                            fontSize: 11.5, color: AvalonTheme.muted)),
+                  ]),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('關閉'))
+              ],
+            ));
+  }
+
   Future<void> editName(int index) async {
+    if (widget.solo && index > 0) return _showPersona(index);
     final name = await showDialog<String>(
         context: context,
         builder: (_) => _PlayerNameDialog(name: names[index]));
@@ -116,7 +163,21 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         fontWeight: FontWeight.bold,
                         color: AvalonTheme.gold)),
                 if (widget.solo) ...[
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 4),
+                  IconButton(
+                      key: const ValueKey('matchHistory'),
+                      tooltip: '對局紀錄',
+                      onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  MatchHistoryScreen(repository: _archive))),
+                      icon: const Icon(Icons.history),
+                      color: AvalonTheme.gold,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 36, height: 36),
+                      padding: EdgeInsets.zero),
+                  const SizedBox(width: 6),
                   PopupMenuButton<BotDifficulty>(
                     key: const ValueKey('botDifficulty'),
                     tooltip: '電腦難度',
@@ -267,13 +328,12 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                                                                 maxLines: 1,
                                                                                 overflow: TextOverflow.ellipsis,
                                                                                 style: const TextStyle(fontSize: 13))),
-                                                                        const Icon(
-                                                                            Icons
-                                                                                .edit_outlined,
-                                                                            size:
-                                                                                14,
-                                                                            color:
-                                                                                AvalonTheme.muted),
+                                                                        Icon(
+                                                                            widget.solo && index > 0
+                                                                                ? Icons.person_outline
+                                                                                : Icons.edit_outlined,
+                                                                            size: 14,
+                                                                            color: AvalonTheme.muted),
                                                                       ])),
                                                             ),
                                                           ),
@@ -426,7 +486,11 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                                     builder: (_) => widget.solo
                                         ? GameScreen.solo(
                                             room: configuration,
-                                            difficulty: difficulty)
+                                            difficulty: difficulty,
+                                            cast: cast
+                                                .take(playerCount - 1)
+                                                .toList(),
+                                            archive: _archive)
                                         : GameScreen(room: configuration)))
                             : null,
                         icon: const Icon(Icons.play_arrow),

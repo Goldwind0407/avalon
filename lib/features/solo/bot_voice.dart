@@ -6,6 +6,11 @@ import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'bot_strategy_plan.dart';
 import 'dialogue/bot_contract.dart';
+import 'memory/match_archive.dart';
+import 'memory/social_memory.dart';
+
+part 'bot_voice_memory.dart';
+part 'bot_voice_points.dart';
 
 /// Plain-spoken lines built from the public record, so bots name names and
 /// give reasons the way people at a table do. Everything said is grounded in
@@ -19,8 +24,16 @@ class BotVoice {
   BotStrategyPlan? plan;
   final _arguments = <String>{};
   final _recentLines = <String>[];
+  final _topics = <String, int>{};
+  int? _topicsGeneration;
 
-  String _who(BotObservation o, int seat) => playerLabel(seat, o.names[seat]);
+  /// What this bot remembers of earlier games with the human, if anything.
+  BotMemory? memory;
+  int? _recalledGeneration;
+  bool _asideUsed = false;
+
+  /// People at a table say the seat number, not the full name plate.
+  String _who(BotObservation o, int seat) => '${seat + 1}號';
   String _pick(List<String> options) {
     final fresh = options.where((s) => !_recentLines.contains(s)).toList();
     final choices = fresh.isEmpty ? options : fresh;
@@ -72,11 +85,27 @@ class BotVoice {
     final failed = _failedWith(o, seat), backed = _backedFailures(o, seat);
     final who = _who(o, seat);
     final parts = <String>[];
-    if (failed.isNotEmpty) {
+    final shared = [
+      for (final q in failed)
+        if (o.history[q - 1].team.contains(o.seat)) q
+    ];
+    if (failed.isNotEmpty && shared.length == failed.length) {
+      // the speaker sat on the same team: say so instead of pointing from afar
       parts.add(_pick([
-        '${_quests(failed)}有失敗牌的隊伍上都有$who',
+        '${_quests(failed)}我和$who同隊就出了失敗牌，我出的是成功',
+        '${_quests(failed)}出失敗牌時隊上有我也有$who，我知道自己那張是成功',
+        '$who跟我一起出的${_quests(failed)}遠征有失敗牌，那張不是我的',
+      ]));
+    } else if (failed.isNotEmpty) {
+      parts.add(_pick([
+        if (failed.toSet().length > 1) ...[
+          '${_quests(failed)}有失敗牌的隊伍上都有$who',
+          '$who參與的${_quests(failed)}遠征都有失敗牌',
+        ] else ...[
+          '${_quests(failed)}那支有失敗牌的隊伍裡有$who',
+          '$who參與的${_quests(failed)}遠征出了失敗牌',
+        ],
         '${_quests(failed)}遠征出現失敗牌時$who就在隊上',
-        '$who參與的${_quests(failed)}遠征都有失敗牌',
         '我想追${_quests(failed)}的失敗牌，$who那時也在隊上',
       ]));
     }
@@ -90,6 +119,53 @@ class BotVoice {
       ]));
     }
     return parts.isEmpty ? null : parts.join('，而且');
+  }
+
+  /// What an accused bot answers from the record: who else was there.
+  String? _defence(BotObservation o, Set<int> allies) {
+    final me = o.seat;
+    final failed = _failedWith(o, me), backed = _backedFailures(o, me);
+    if (failed.isNotEmpty) {
+      final q = failed.last;
+      final mates = [
+        for (final s in o.history[q - 1].team)
+          if (s != me) s
+      ];
+      final others = mates.where((s) => !allies.contains(s)).toList();
+      final named = (others.isEmpty ? mates : others).map((s) => _who(o, s));
+      if (mates.length == 1) {
+        return _pick([
+          '第$q次就我和${named.first}兩個人，我出的是成功，所以問題在他，不在我。',
+          '那次只有兩個人，我知道自己出的是成功。該解釋的是${named.first}。',
+        ]);
+      }
+      return _pick([
+        '第$q次隊上還有${named.join('、')}，我出的是成功，失敗牌不能只算在我頭上。',
+        '我在第$q次的隊上沒錯，但${named.join('、')}也在。我那張是成功，請把他們一起看。',
+        '第$q次不是我一個人出任務，${named.join('、')}都在。只盯著我，剛好放過真正出失敗牌的人。',
+      ]);
+    }
+    if (backed.isNotEmpty) {
+      final q = backed.last;
+      final proposal =
+          o.proposals.where((p) => p.quest == q && p.approved).lastOrNull;
+      final also = [
+        if (proposal != null)
+          for (var s = 0; s < o.count; s++)
+            if (s != me &&
+                proposal.votes[s] &&
+                !proposal.team.contains(s) &&
+                !allies.contains(s))
+              s
+      ];
+      return also.isEmpty
+          ? '第$q次我是投了贊成，那時候沒有人知道會出失敗牌。一張票不能說明我是誰。'
+          : _pick([
+              '第$q次投贊成的不只我，${also.take(3).map((s) => _who(o, s)).join('、')}也贊成了，那時候沒有人知道會出失敗牌。',
+              '那一票我認，但${also.take(3).map((s) => _who(o, s)).join('、')}當時也在隊外投了贊成，要算就一起算。',
+            ]);
+    }
+    return null;
   }
 
   String get _opener => switch (style) {
@@ -120,37 +196,43 @@ class BotVoice {
             s
       ];
 
-  DiscussionStatement reply(BotObservation o, bool approve, int questionIndex) {
+  DiscussionStatement reply(BotObservation o, bool approve, int questionIndex,
+      [Set<int> allies = const {}]) {
     final question = o.statements[questionIndex];
+    final specific = answer(o, approve, allies, question);
     final name = _who(o, question.speaker);
     final ballot = o.publicLedger.events
         .where((e) =>
             e.id.kind == BotEvidenceKind.ballot &&
             question.evidenceIds.contains(e.id.id))
         .lastOrNull;
-    final opening = ballot == null
-        ? _pick([
-            '$name，你問我這隊怎麼看，我直接說我的票。',
-            '$name，我現在的立場是這樣：',
-            '回答$name剛才的問題，我先講這次的選擇。',
-            '$name，我還沒有誰百分之百可信的結論，但這隊我有傾向。'
-          ])
-        : '$name，你問的第${ballot.quest}次遠征、第${ballot.attempt}次提案，'
-            '我投的是${ballot.ballots[o.seat] ? '贊成' : '反對'}。'
-            '${ballot.attempt == 5 ? '那已經是第五次，不能再否決。' : '那是當時的選擇，不代表我之後每隊都會照投。'}';
-    final stance = approve
-        ? _pick([
-            '現在這隊我願意試一次，但不替整隊保證。',
-            '這次我會贊成，結果出來再看要不要調整。',
-            '目前我接受這份名單，這票支持。',
-            '這隊我先過，這是組隊票，不是誰的身分證明。'
-          ])
-        : _pick([
-            '現在這隊我不支持，我想換個組合比較。',
-            '這份名單我還不放心，這票反對。',
-            '這次我想再組一隊，不會投贊成。',
-            '目前我不接受這個搭配，先反對。'
-          ]);
+    final opening = ballot == null && specific != null
+        ? '$name，'
+        : ballot == null
+            ? _pick([
+                '$name，你問我這隊怎麼看，我直接說我的票。',
+                '$name，我現在的立場是這樣：',
+                '回答$name剛才的問題，我先講這次的選擇。',
+                '$name，我還沒有誰百分之百可信的結論，但這隊我有傾向。'
+              ])
+            : '$name，你問的第${ballot.quest}次遠征、第${ballot.attempt}次提案，'
+                '我投的是${ballot.ballots[o.seat] ? '贊成' : '反對'}。'
+                '${ballot.attempt == 5 ? '那已經是第五次，不能再否決。' : '那是當時的選擇，不代表我之後每隊都會照投。'}';
+    final stance = ballot == null && specific != null
+        ? '${specific.$1}${specific.$2 ? '' : _stance(approve)}'
+        : approve
+            ? _pick([
+                '現在這隊我願意試一次，但不替整隊保證。',
+                '這次我會贊成，結果出來再看要不要調整。',
+                '目前我接受這份名單，這票支持。',
+                '這隊我先過，這是組隊票，不是誰的身分證明。'
+              ])
+            : _pick([
+                '現在這隊我不支持，我想換個組合比較。',
+                '這份名單我還不放心，這票反對。',
+                '這次我想再組一隊，不會投贊成。',
+                '目前我不接受這個搭配，先反對。'
+              ]);
     return DiscussionStatement(
         speaker: o.seat,
         quest: o.quest,
@@ -243,12 +325,12 @@ class BotVoice {
       if (t == o.seat) {
         plan = BotStrategyPlan(BotGoal.defendSelf, t, o.generation, o.switched);
         return line(
-            _pick([
-              '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
-              '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
-              '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
-              '$speaker，我不會只回一句我是好人。你指出哪裡不對，我們就談那件事。',
-            ]),
+            '${_aside(accusedBy: said.speaker)}${_defence(o, allies) ?? _pick([
+                      '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
+                      '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
+                      '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
+                      '$speaker，我不會只回一句我是好人。你指出哪裡不對，我們就談那件事。',
+                    ])}',
             t,
             null,
             replyTo: index);
@@ -274,9 +356,22 @@ class BotVoice {
       if (canDoubt(t) &&
           (o.evil ? view[t] >= .3 : real[t] >= .45) &&
           random.nextDouble() < _boldness) {
+        // the reason has been given; from the second voice on, just join in
+        final voices = round
+            .where((s) =>
+                s.position == DiscussionPosition.suspect && s.target == t)
+            .length;
+        if (voices >= 4) break;
         return line(
-            '${_pick(['我同意$speaker，', '$speaker說的有道理，', '我也這麼覺得，'])}'
-            '${_reasons(o, t)}。',
+            voices >= 2
+                ? _pick([
+                    '${_who(o, t)}我也不放心。',
+                    '加我一個，我也看${_who(o, t)}。',
+                    '同樣的紀錄我也看到了，${_who(o, t)}得解釋。',
+                    '我一樣卡在${_who(o, t)}。',
+                  ])
+                : '${_pick(['我同意$speaker，', '$speaker說的有道理，', '我也這麼覺得，'])}'
+                    '${_reasons(o, t)}。',
             t,
             DiscussionPosition.suspect,
             replyTo: index);
@@ -308,11 +403,12 @@ class BotVoice {
     final reasons = _reasons(o, t)!;
     return line(
         _pick([
-          '$_opener$who很可疑：${_reasons(o, t)!.replaceFirst(who, '他')}。',
-          '$_opener$reasons，我目前最懷疑他。',
-          '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
-          '$reasons。$who，你怎麼看這幾段紀錄？',
-        ]),
+              '$_opener$who很可疑：${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$_opener$reasons，我目前最懷疑他。',
+              '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$reasons。$who，你怎麼看這幾段紀錄？',
+            ]) +
+            _aside(accusing: t),
         t,
         DiscussionPosition.suspect);
   }

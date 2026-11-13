@@ -616,7 +616,7 @@ void main() {
     final statement = brain.assassinationSpeech(o, 2);
     expect(brain.dialogue.lastTrace?.ruleId, 'RAS06');
     expect(statement.target, 2);
-    expect(statement.text, contains('3 號 【小明】'));
+    expect(statement.text, contains('3號'));
     expect(statement.quest, 3);
     expect(statement.attempt, isNull);
     expect(() => brain.assassinationSpeech(o, 0), throwsArgumentError);
