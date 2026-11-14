@@ -86,6 +86,19 @@ class BotVoice {
                 q + 1
       ];
 
+  /// Proposals that were voted down although [seat], who was not on the
+  /// team, backed them. Good players rarely do that; someone who knows an
+  /// ally is on the team often does.
+  List<ProposalRecord> _backedRejected(BotObservation o, int seat) => [
+        for (final p in o.proposals)
+          if (!p.approved &&
+              p.attempt < 5 &&
+              p.votes[seat] &&
+              p.leader != seat &&
+              !p.team.contains(seat))
+            p
+      ];
+
   /// Quests that came back clean with [seat] on the team.
   List<int> _cleanWith(BotObservation o, int seat) => [
         for (var q = 0; q < o.history.length; q++)
@@ -132,7 +145,18 @@ class BotVoice {
         '回頭看${_quests(backed)}，$subject在隊外支持的組合後來有失敗牌',
       ]));
     }
-    return parts.isEmpty ? null : parts.join('，而且');
+    final lone = _backedRejected(o, seat);
+    if (lone.isNotEmpty) {
+      final subject = parts.isEmpty ? who : '他';
+      final last = lone.last;
+      parts.add(lone.length > 1
+          ? '被否決的提案裡，$subject有${lone.length}次不在隊上卻投贊成'
+          : _pick([
+              '第${last.quest}次遠征第${last.attempt}次提案被否決時，$subject不在隊上卻投了贊成',
+              '$subject對第${last.quest}次遠征那支被否決的隊伍投了贊成，自己又不在隊上',
+            ]));
+    }
+    return parts.isEmpty ? null : parts.take(2).join('，而且');
   }
 
   /// What an accused bot answers from the record: who else was there.
@@ -178,6 +202,12 @@ class BotVoice {
               '第$q次投贊成的不只我，${also.take(3).map((s) => _who(o, s)).join('、')}也贊成了，那時候沒有人知道會出失敗牌。',
               '那一票我認，但${also.take(3).map((s) => _who(o, s)).join('、')}當時也在隊外投了贊成，要算就一起算。',
             ]);
+    }
+    if (_backedRejected(o, me).lastOrNull case final p?) {
+      return _pick([
+        '第${p.quest}次遠征那支被否決的隊我是投了贊成，我只是覺得可以試。一張票不能說明我是誰。',
+        '我贊成過被否決的那隊沒錯，那是我當時的判斷，不代表我認識隊上的誰。',
+      ]);
     }
     return null;
   }

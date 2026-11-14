@@ -23,12 +23,30 @@ class BotBrain {
 
   /// How readily Merlin votes like a servant while no quest has failed
   /// (times his style's disguise; halved after the first failed quest).
-  static const merlinCover = 3.0;
+  static const merlinCover = 6.0;
 
   /// How often Merlin turns down a team he knows is clean, and only while
   /// at most this many proposals of the quest have been turned down.
-  static const merlinFalseAlarm = .3;
+  static const merlinFalseAlarm = .5;
   static const merlinSpareRejections = 2;
+
+  /// How often an evil player backs a team that should fail although an
+  /// uninformed player in his seat would turn it down: from outside the
+  /// team, by how many proposals of this quest were already voted down;
+  /// from inside it; and when one more failed quest wins the game.
+  static const evilPush = [.15, .15, .3, .5];
+  static const evilPushOwnTeam = .5;
+  static const evilPushDecisive = .85;
+
+  /// How much an evil leader cares that his team looks safe to a player who
+  /// knows nothing, next to how likely it is to fail.
+  static const evilLeaderCover = .6;
+
+  /// How often a lone evil player plays Success on the first quest, at
+  /// tables of up to seven and at larger ones. Good players reckon with
+  /// the same numbers when a first quest comes back clean.
+  static const firstQuestCover = .7;
+  static const firstQuestCoverLarge = .45;
   final BotDialoguePlanner dialogue;
 
   /// With [asServant], what this seat would think without its opening role
@@ -311,28 +329,61 @@ class BotBrain {
   bool _switchedAt(BotObservation o, int index) =>
       o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
 
-  /// Who voted for the team that then failed is the table's main public clue:
-  /// approving it from outside is suspicious, rejecting it reassuring; turning
-  /// down a team that came back clean is a lesser hint. The forced fifth
-  /// proposal says nothing.
+  /// What the public votes say about each player, as odds. Evil players
+  /// know where their allies sit and vote for those teams; good players do
+  /// not. So, with the forced fifth proposal left out:
+  /// - backing a team from outside it that was voted down is the plainest
+  ///   tell: good players rarely do, the allies of someone on it often do;
+  /// - backing a team from outside it that then failed points the same
+  ///   way, and having turned that team down points strongly the other way,
+  ///   the more so for a member who voted against his own team.
+  /// Quests from before a Lancelot switch still count: everyone but the two
+  /// Lancelots is on the side he was on then.
+  ///
+  /// The factors are well short of what all-computer games measure (there
+  /// a player who backs a rejected team from outside is evil about nine
+  /// times in ten), so that a human who votes more freely is not condemned
+  /// for it.
+  static const backedRejectedTeam = 3.0,
+      joinedRejectedTeam = 2.2,
+      opposedRejectedTeam = .75,
+      opposedOwnRejectedTeam = .5,
+      backedFailedTeam = 1.5,
+      opposedFailedTeam = .4,
+      opposedOwnFailedTeam = .2;
+
   void _voteEvidence(BotObservation o, List<double> p) {
-    for (var q = 0; q < o.history.length; q++) {
-      final approved =
-          o.proposals.where((r) => r.quest == q + 1 && r.approved).toList();
-      if (approved.isEmpty || approved.last.attempt >= 5) continue;
-      final proposal = approved.last;
-      if (o.history[q].excaliburTarget != null) continue;
-      // A quest from before a Lancelot switch still counts: everyone but
-      // the two Lancelots is on the side he was on then.
-      final fails = _unexplained(o, q, anyState: true)!;
-      for (var s = 0; s < o.count; s++) {
-        if (s == o.seat || proposal.team.contains(s)) continue;
-        final approve = proposal.votes[s];
-        // Backing a team that then failed weighs most; turning down one
-        // that came back clean is a smaller hint the other way.
-        p[s] += (fails > 0 ? (approve ? .2 : -.125) : (approve ? 0 : .04)) *
-            difficulty.voteEvidence;
+    if (difficulty.voteEvidence == 0) return;
+    final odds = List.filled(o.count, 0.0); // log odds of being evil
+    for (final proposal in o.proposals) {
+      if (proposal.attempt >= 5) continue;
+      final q = proposal.quest - 1;
+      double? factor(int s) {
+        final on = proposal.team.contains(s), yes = proposal.votes[s];
+        if (!proposal.approved) {
+          if (yes) return on ? joinedRejectedTeam : backedRejectedTeam;
+          return on ? opposedOwnRejectedTeam : opposedRejectedTeam;
+        }
+        if (q >= o.history.length ||
+            o.history[q].excaliburTarget != null ||
+            _unexplained(o, q, anyState: true)! == 0) {
+          return null;
+        }
+        if (yes) return on ? null : backedFailedTeam;
+        return on ? opposedOwnFailedTeam : opposedFailedTeam;
       }
+
+      for (var s = 0; s < o.count; s++) {
+        if (s == o.seat || s == proposal.leader) continue;
+        if (factor(s) case final f?) odds[s] += log(f);
+      }
+    }
+    for (var s = 0; s < o.count; s++) {
+      if (odds[s] == 0 || p[s] <= 0 || p[s] >= 1) continue;
+      final before = p[s].clamp(.02, .98);
+      final after =
+          before / (1 - before) * exp(odds[s] * difficulty.voteEvidence);
+      p[s] = after / (1 + after);
     }
   }
 
@@ -360,7 +411,9 @@ class BotBrain {
         ],
         fails,
         // evil players hide more often on the first quest
-        q == 0 ? .6 : .8
+        q == 0
+            ? 1 - (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
+            : .8
       ));
     }
     // Percival: exactly one of his two candidates is Morgana.
@@ -442,7 +495,9 @@ class BotBrain {
             if (s != me) s
         ],
         _unexplained(o, q, anyState: true)!,
-        q == 0 ? .6 : .8,
+        q == 0
+            ? 1 - (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
+            : .8,
         _switchedAt(o, q)
       ));
     }
@@ -605,6 +660,11 @@ class BotBrain {
     // Mordred is the one evil player Merlin cannot warn against, so he
     // pushes himself forward.
     final selfBias = style.selfBias + (o.role == Role.mordred ? .1 : 0);
+    // An evil leader wants a team that fails and that the table will let
+    // through: the saboteur goes with the players nobody doubts, not with
+    // whoever comes to mind.
+    final looks =
+        o.evil && !pose ? (suspicion(o, asServant: true)..[o.seat] = 0) : null;
     final scored = [
       for (final team in candidates)
         (
@@ -615,6 +675,11 @@ class BotBrain {
               // ally on a failed quest is one more player exposed.
               -difficulty.stacking *
                   max(0, team.where(allies.contains).length - o.failsRequired) +
+              (looks == null
+                  ? 0
+                  : -evilLeaderCover *
+                      difficulty.rolePlay.clamp(0, 1.2) *
+                      _risk(o, looks, team)) +
               random.nextDouble() * style.noise * difficulty.noise
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
@@ -637,24 +702,36 @@ class BotBrain {
     if (o.rejections == 4) return decide(true, 'fifthProposal');
     if (o.evil) {
       if (risk > .45) {
-        // Backing every team an ally is on gives the whole side away. When
-        // an ally on it is already under suspicion, sometimes vote against
-        // it like a careful good player would, unless this quest matters.
-        final view = suspicion(o, asServant: true);
-        final exposed = o.team.any((s) =>
-            s != o.seat && _knownAllies(o).contains(s) && view[s] >= .55);
-        final critical = o.failures == 2 || o.successes == 2;
-        if (exposed &&
-            !critical &&
-            rng.nextDouble() < .35 * difficulty.rolePlay * style.blend) {
-          return decide(false, 'concealAlly');
+        // A team that should fail. Backing every such team gives the whole
+        // side away: the votes are public, and good players, who do not
+        // know where evil sits, turn most of these teams down. So vote as
+        // an uninformed player in this seat would, and go against that
+        // only now and then: more readily from inside the team, when
+        // proposals are running out, and when one more failed quest wins.
+        final view = suspicion(o, asServant: true)..[o.seat] = 0;
+        if (_goodVote(o, view)) return decide(true, 'sabotageOpportunity');
+        final push = o.failures == 2
+            ? evilPushDecisive
+            : o.team.contains(o.seat)
+                ? evilPushOwnTeam
+                : evilPush[min(o.rejections, evilPush.length - 1)];
+        // Hold back less by temperament, never more than the level allows.
+        final nerve = (push / (style.blend * difficulty.blend).clamp(.6, 1.4))
+            .clamp(0.0, 1.0);
+        if (rng.nextDouble() < nerve) {
+          return decide(true, 'sabotageOpportunity');
         }
-        return decide(true, 'sabotageOpportunity');
+        return decide(false, 'concealAlly');
       }
       // A team that will not fail: go along with it early to blend in, fight
       // it when it would be good's winning quest.
       // Nobody has a reason to object to the very first team yet; an evil
       // player who does stands out.
+      // A member who votes against his own team stands out; one who means
+      // to play Success on it has no reason to.
+      if (o.team.contains(o.seat) && rng.nextDouble() < .9) {
+        return decide(true, 'evilBlend');
+      }
       var blend = o.history.isEmpty
           ? .85
           : o.successes == 2
@@ -682,15 +759,15 @@ class BotBrain {
     // now and then he votes like a servant who knows nothing. Not when one
     // more failed quest would lose the game.
     // The less is at stake, the more he can afford to play the servant.
-    final disguise = style.disguise *
-        difficulty.rolePlay *
-        (o.failures == 0 ? merlinCover : merlinCover / 2);
+    final disguise = style.disguise * difficulty.rolePlay * merlinCover;
     if (o.role == Role.merlin &&
         (disguise > 0 || o.history.isEmpty) &&
         o.failures < 2) {
       final cover = _goodVote(o, suspicion(o, asServant: true));
       // letting a doubtful team through is the costlier act: do it less
       var chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
+      // once a quest has failed he can afford it half as often
+      if (o.failures == 1) chance /= 2;
       // Turning down the very first team, when nobody else has a reason
       // to, tells the Assassin who knows something.
       if (o.history.isEmpty) chance = max(chance, .6);
@@ -783,8 +860,24 @@ class BotBrain {
       // it when someone else on the team may well add the second one.
       return !o.team.any((s) => !knownAllies.contains(s) && p[s] >= .5);
     }
+    // Alone with Excalibur among good players: play Success and turn one
+    // of their cards over instead. The quest fails all the same, and the
+    // Fail on the table is not his.
+    if (o.expansions.excalibur &&
+        o.excaliburHolder == o.seat &&
+        allies.length == 1 &&
+        o.team.length > 1) {
+      return true;
+    }
     if (o.failures == 2 || o.successes == 2) return false;
-    var conceal = (o.quest == 1 ? .38 : .16) + style.conceal;
+    // On the first quest a lone saboteur usually lies low at small tables:
+    // a clean first quest buys trust for the rest of the game, and a Fail
+    // on a team of two or three points straight at him. At large tables
+    // there is more cover and less to gain from waiting.
+    var conceal = (o.quest == 1
+            ? (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
+            : .16) +
+        style.conceal;
     if (o.role == Role.morgana && o.quest <= 2) {
       conceal += .15 * difficulty.rolePlay;
     }
@@ -793,6 +886,14 @@ class BotBrain {
     // Oberon and evil Lancelot have no ally who knows to cover for them or
     // to fail in their place, so they hold back less.
     if (o.role == Role.oberon || o.role == Role.lancelotEvil) conceal -= .08;
+    // The evil Lancelot may be good before the game is over (the switch
+    // cards come up from the third quest on): until then he keeps his
+    // record clean, which serves him on either side.
+    if (o.role == Role.lancelotEvil &&
+        o.expansions.lancelot == 1 &&
+        o.quest <= 2) {
+      conceal += .6;
+    }
     final holder = o.excaliburHolder;
     if (holder != null && holder != o.seat && p[holder] <= .15) conceal += .2;
     return random.nextDouble() < conceal;
@@ -809,11 +910,15 @@ class BotBrain {
     if (!o.evil) return _goodSwordTarget(o);
     final p = suspicion(o);
     final baseline = _risk(o, p, o.team);
+    // Among cards equally worth turning over, the one whose owner the
+    // table already doubts: the Fail will be laid at his door.
+    final looks = suspicion(o, asServant: true);
     var bestGain = .000001;
     int? target;
     for (final seat in o.team.where((s) => s != o.seat)) {
       final flipped = _risk(o, p, o.team, flipped: seat);
-      final gain = o.evil ? flipped - baseline : baseline - flipped;
+      if (flipped - baseline <= .000001) continue; // nothing to gain
+      final gain = flipped - baseline + looks[seat] * .001;
       if (gain > bestGain) {
         bestGain = gain;
         target = seat;
@@ -881,33 +986,50 @@ class BotBrain {
     final p = suspicion(o);
     final evil = {o.seat, ...o.visible};
     // Merlin gives himself away by acting on what only he can know. A
-    // beginner only notices who leads clean teams; most players also count
-    // votes that match where evil sat; an expert weighs them: turning down
-    // a team with evil on it early, before the table had a reason to, says
-    // most, agreeing with a clean team says little, and leading or waving
-    // through evil speaks against.
+    // beginner only notices who leads clean teams. Most players also read
+    // the votes: turning down a team with evil on it, the more so from
+    // inside it, and never leading or waving such a team through. An
+    // expert adds that turning one down early, before the table had a
+    // reason to, says most.
+    //
+    // Merlin does not see Mordred, so a team whose only evil member may
+    // be Mordred counts as dirty only as far as that member may not be.
+    final blind = (o.configuredRoles?.contains(Role.mordred) ?? false) &&
+        o.role != Role.mordred;
+    double seenDirty(List<int> team) {
+      if (team.contains(o.seat)) return 1;
+      final allies = team.where(o.visible.contains).length;
+      if (allies == 0) return 0;
+      if (!blind || allies > 1 || o.visible.length < 2) return 1;
+      return (o.visible.length - 1) / o.visible.length;
+    }
+
     double merlinScore(int seat) {
       var score = 1 - p[seat];
       for (final proposal in o.proposals) {
         if (proposal.attempt >= 5) continue; // everyone approves the fifth
-        final dirty = proposal.team.any(evil.contains);
+        final dirty = seenDirty(proposal.team);
         final approved = proposal.votes[seat];
-        switch (difficulty) {
-          case BotDifficulty.novice:
-            if (proposal.leader == seat && !dirty) score += .25;
-          case BotDifficulty.normal:
-            if (proposal.leader == seat && !dirty) score += .25;
-            if (approved != dirty) score += .12;
-          case BotDifficulty.expert:
-            final early = proposal.quest <= 2 ? 1.3 : 1.0;
-            if (proposal.leader == seat) score += dirty ? -.3 : .2;
-            if (approved) {
-              score +=
-                  dirty ? (proposal.team.contains(seat) ? -.04 : -.12) : .05;
-            } else {
-              score += dirty ? .16 * early : -.08;
-            }
-        }
+        final leads = proposal.leader == seat;
+        final member = proposal.team.contains(seat);
+        // what this proposal says if the team was dirty / clean to Merlin
+        final (ifDirty, ifClean) = switch (difficulty) {
+          BotDifficulty.novice => (0.0, leads ? .25 : 0.0),
+          BotDifficulty.normal => (
+              leads ? -.1 : (approved ? -.06 : (member ? .12 : .08)),
+              leads ? .2 : (approved ? .06 : 0.0)
+            ),
+          BotDifficulty.expert => (
+              leads
+                  ? -.5
+                  : (approved
+                      ? -.35
+                      : (member ? .35 : .18) *
+                          (proposal.quest <= 2 ? 1.3 : 1.0)),
+              leads ? .25 : (approved ? .05 : -.05)
+            ),
+        };
+        score += dirty * ifDirty + (1 - dirty) * ifClean;
       }
       return score + random.nextDouble() * difficulty.assassinNoise;
     }

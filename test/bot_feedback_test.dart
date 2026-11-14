@@ -13,7 +13,10 @@ import 'support/bot_dialogue_fixtures.dart';
 void main() {
   test('new independent public claims can change an expert initial vote', () {
     final brain = BotBrain(Random(1), difficulty: BotDifficulty.expert);
+    // The clean quest is the second one: a clean first quest says little,
+    // since a lone evil player usually lies low on it.
     final history = [
+      QuestResult([4, 5], 0, true),
       QuestResult([0, 1, 2], 0, true)
     ];
     final before = observe(history: history, team: [0, 1, 3]);
@@ -25,7 +28,7 @@ void main() {
       for (final speaker in [1, 2])
         DiscussionStatement(
             speaker: speaker,
-            quest: 2,
+            quest: 3,
             generation: 4,
             attempt: 1,
             target: 3,

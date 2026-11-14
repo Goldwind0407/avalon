@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:fake_async/fake_async.dart';
@@ -25,8 +26,37 @@ class Tally {
   int dirtyApprovals = 0, dirtyGoodVoters = 0;
   // games in which someone claimed to be Percival, and two or more did
   int claimGames = 0, rivalGames = 0, claimGoodWins = 0;
+  // proposals without evil on them (the fifth aside): made, passed, and
+  // how the good players voted on them; the same for teams with evil
+  int cleanProposals = 0, cleanPassed = 0, cleanGoodVotes = 0, cleanGoodYes = 0;
+  int dirtyGoodVotes = 0, dirtyGoodYes = 0;
+  int ladyGood = 0, ladyGoodFound = 0;
+  int firstQuestFailed = 0;
   void add(SoloGameSession s) {
     games++;
+    if (!s.history.first.succeeded) firstQuestFailed++;
+    for (final p in s.proposalHistory.where((p) => p.attempt < 5)) {
+      final clean = !p.team.any((seat) => s.roleOf(seat)!.isEvil);
+      if (clean) {
+        cleanProposals++;
+        if (p.approved) cleanPassed++;
+      }
+      for (var i = 0; i < p.votes.length; i++) {
+        if (s.roleOf(i)!.isEvil) continue;
+        if (clean) {
+          cleanGoodVotes++;
+          if (p.votes[i]) cleanGoodYes++;
+        } else {
+          dirtyGoodVotes++;
+          if (p.votes[i]) dirtyGoodYes++;
+        }
+      }
+    }
+    for (final c in s.ladyChecks) {
+      if (s.roleOf(c.holder)!.isEvil) continue;
+      ladyGood++;
+      if (s.roleOf(c.target)!.isEvil) ladyGoodFound++;
+    }
     final claimants = {
       for (final st in s.statements)
         if (st.claimsPercival) st.speaker
@@ -78,7 +108,12 @@ class Tally {
       '三次失敗 ${pc(evilByFails, games)}五次否決 ${pc(evilByRejections, games)}'
       '| 好人隊長帶到壞人 ${pc(goodLedDirty, goodLed)}壞人隊長 ${pc(evilLedDirty, evilLed)}'
       '有壞人的隊平均 ${dirtyApprovals == 0 ? '-' : (dirtyGoodVoters / dirtyApprovals).toStringAsFixed(1)} 個好人贊成'
-      ' | 有人跳派西 ${pc(claimGames, games)}對跳 ${pc(rivalGames, games)}跳了之後好人勝 ${pc(claimGoodWins, claimGames)}';
+      ' | 有人跳派西 ${pc(claimGames, games)}對跳 ${pc(rivalGames, games)}跳了之後好人勝 ${pc(claimGoodWins, claimGames)}'
+      '| 乾淨提案通過 ${pc(cleanPassed, cleanProposals)}好人贊成乾淨隊 ${pc(cleanGoodYes, cleanGoodVotes)}'
+      '好人贊成有壞人的隊 ${pc(dirtyGoodYes, dirtyGoodVotes)}壞人隊長出隊 ${pc(evilLed, evilLed + goodLed)}'
+      '女神查到壞人 ${pc(ladyGoodFound, ladyGood)}'
+      '| 第一次任務失敗 ${pc(firstQuestFailed, games)}'
+      '壞人勝場靠刺殺 ${pc(stabHits, games - goodWins)}';
 }
 
 class Setup {
@@ -126,6 +161,47 @@ Setup randomSetup(Random r) {
               ? const [0, 0, 1, 2][r.nextInt(4)]
               : 0));
 }
+
+/// Everything public and private about a finished game.
+Map<String, dynamic> gameDump(Setup setup, SoloGameSession s) => {
+      'n': setup.count,
+      'exp': setup.label,
+      'roles': [
+        for (var i = 0; i < setup.count; i++) s.roleOf(i)!.name,
+      ],
+      'winner': s.winner,
+      'result': s.result,
+      'stab': s.assassinTarget,
+      'loyalty': s.loyalty,
+      'proposals': [
+        for (final p in s.proposalHistory)
+          {
+            'q': p.quest,
+            'a': p.attempt,
+            'leader': p.leader,
+            'team': p.team,
+            'votes': p.votes,
+            'ok': p.approved,
+          }
+      ],
+      'quests': [
+        for (final q in s.history)
+          {
+            'team': q.team,
+            'fails': q.fails,
+            'ok': q.succeeded,
+            'sword': q.excaliburHolder,
+            'flip': q.excaliburTarget,
+          }
+      ],
+      'lady': [
+        for (final c in s.ladyChecks) [c.holder, c.target, c.quest]
+      ],
+      'claims': [
+        for (final st in s.statements)
+          if (st.claimsPercival) [st.speaker, st.target, st.quest]
+      ],
+    };
 
 /// game, players, good won, quests completed, stabbed Merlin, then for the
 /// first Percival claim: quest, who made it (role), whether the player it
@@ -197,6 +273,9 @@ void main() {
     // BALANCE_LOG=file: one line a game, to compare two runs game by game
     final logPath = Platform.environment['BALANCE_LOG'];
     final log = logPath == null ? null : StringBuffer();
+    // BALANCE_DUMP=file: every game in full (JSON lines), for analysis
+    final dumpPath = Platform.environment['BALANCE_DUMP'];
+    final dump = dumpPath == null ? null : StringBuffer();
     // the same setups and seeds for both runs
     final setups = [for (var g = 0; g < games!; g++) randomSetup(r)];
     final seeds = [for (var g = 0; g < games; g++) r.nextInt(1 << 30)];
@@ -217,6 +296,7 @@ void main() {
         final setup = setups[g];
         play(setup, seeds[g], talk, (s) {
           log?.writeln(gameLine(g, setup, s));
+          dump?.writeln(jsonEncode(gameDump(setup, s)));
           all.add(s);
           byCount.putIfAbsent(setup.count, Tally.new).add(s);
           byExpansion.putIfAbsent(setup.label, Tally.new).add(s);
@@ -237,6 +317,7 @@ void main() {
       }
     }
     if (logPath != null) File(logPath).writeAsStringSync('$log');
+    if (dumpPath != null) File(dumpPath).writeAsStringSync('$dump');
     final path = Platform.environment['BALANCE_OUT'];
     if (path != null) File(path).writeAsStringSync('$out');
     // ignore: avoid_print
