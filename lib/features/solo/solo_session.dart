@@ -584,6 +584,8 @@ class SoloGameSession extends GameSession {
             PlayerSpeechKind.challengeVote =>
               '${who(t!)}，第${ballot!.quest}次遠征的第${ballot.attempt}次提案，你投${ballot.votes[t] ? '贊成' : '反對'}的理由是什麼？',
             PlayerSpeechKind.claimGood => '我是好人，請相信我。',
+            PlayerSpeechKind.claimPercival =>
+              '我是派西維爾。${t == null ? '' : '${who(t)}是莫甘娜。'}',
             PlayerSpeechKind.remark => '',
           };
     if (text.isEmpty) return;
@@ -608,6 +610,7 @@ class SoloGameSession extends GameSession {
           PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
           PlayerSpeechKind.challengeVote => BotSpeechIntent.challengeVote.name,
           PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
+          PlayerSpeechKind.claimPercival => DiscussionStatement.percivalClaim,
           PlayerSpeechKind.remark => 'opinion',
         },
         target: switch (speech.kind) {
@@ -616,6 +619,8 @@ class SoloGameSession extends GameSession {
         },
         position: switch (speech.kind) {
           PlayerSpeechKind.suspect => DiscussionPosition.suspect,
+          PlayerSpeechKind.claimPercival when t != null =>
+            DiscussionPosition.suspect,
           PlayerSpeechKind.trust => DiscussionPosition.defend,
           _ => null,
         },

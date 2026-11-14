@@ -9,6 +9,7 @@ import 'dialogue/bot_contract.dart';
 import 'memory/match_archive.dart';
 import 'memory/social_memory.dart';
 
+part 'bot_voice_claims.dart';
 part 'bot_voice_memory.dart';
 part 'bot_voice_points.dart';
 
@@ -31,6 +32,19 @@ class BotVoice {
   BotMemory? memory;
   int? _recalledGeneration;
   bool _asideUsed = false;
+
+  /// A role is claimed once a game, and a claim against oneself answered
+  /// once.
+  int? _claimGeneration;
+
+  /// How readily a role is claimed when the moment for it has come: by the
+  /// real Percival, by Morgana under pressure, by Merlin as a last resort.
+  /// Merlin's must stay the rarest: the bluff only works while the Assassin
+  /// takes a claimant for Percival. Zero switches that kind of claim off.
+  static double percivalClaimChance = .55;
+  static double morganaClaimChance = .3;
+  static double merlinClaimChance = .1;
+  final _answeredClaims = <String>{};
 
   /// People at a table say the seat number, not the full name plate.
   String _who(BotObservation o, int seat) => '${seat + 1}號';

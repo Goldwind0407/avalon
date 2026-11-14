@@ -7,6 +7,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
+import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 
@@ -22,8 +23,19 @@ class Tally {
   // quests sent out: by a good / evil leader, and how many carried evil
   int goodLed = 0, goodLedDirty = 0, evilLed = 0, evilLedDirty = 0;
   int dirtyApprovals = 0, dirtyGoodVoters = 0;
+  // games in which someone claimed to be Percival, and two or more did
+  int claimGames = 0, rivalGames = 0, claimGoodWins = 0;
   void add(SoloGameSession s) {
     games++;
+    final claimants = {
+      for (final st in s.statements)
+        if (st.claimsPercival) st.speaker
+    };
+    if (claimants.isNotEmpty) {
+      claimGames++;
+      if (s.winner == '正義') claimGoodWins++;
+    }
+    if (claimants.length > 1) rivalGames++;
     bool evil(int seat) => s.roleOf(seat)!.isEvil;
     for (final p in s.proposalHistory.where((p) => p.approved)) {
       final dirty = p.team.any(evil);
@@ -65,7 +77,8 @@ class Tally {
       '完成三任務 ${pc(completed, games)}刺中梅林 ${pc(stabHits, stabs)}'
       '三次失敗 ${pc(evilByFails, games)}五次否決 ${pc(evilByRejections, games)}'
       '| 好人隊長帶到壞人 ${pc(goodLedDirty, goodLed)}壞人隊長 ${pc(evilLedDirty, evilLed)}'
-      '有壞人的隊平均 ${dirtyApprovals == 0 ? '-' : (dirtyGoodVoters / dirtyApprovals).toStringAsFixed(1)} 個好人贊成';
+      '有壞人的隊平均 ${dirtyApprovals == 0 ? '-' : (dirtyGoodVoters / dirtyApprovals).toStringAsFixed(1)} 個好人贊成'
+      ' | 有人跳派西 ${pc(claimGames, games)}對跳 ${pc(rivalGames, games)}跳了之後好人勝 ${pc(claimGoodWins, claimGames)}';
 }
 
 class Setup {
@@ -114,6 +127,33 @@ Setup randomSetup(Random r) {
               : 0));
 }
 
+/// game, players, good won, quests completed, stabbed Merlin, then for the
+/// first Percival claim: quest, who made it (role), whether the player it
+/// named really is Morgana, and how many claimed in all.
+String gameLine(int g, Setup setup, SoloGameSession s) {
+  final first = s.statements.where((st) => st.claimsPercival).firstOrNull;
+  final claimants = {
+    for (final st in s.statements)
+      if (st.claimsPercival) st.speaker
+  };
+  final successes = s.history.where((q) => q.succeeded).length;
+  return [
+    g,
+    setup.count,
+    s.winner == '正義' ? 1 : 0,
+    successes >= 3 ? 1 : 0,
+    successes >= 3 && s.winner != '正義' ? 1 : 0,
+    first?.quest ?? 0,
+    first == null ? '-' : s.roleOf(first.speaker)!.name,
+    first?.target == null
+        ? '-'
+        : s.roleOf(first!.target!) == Role.morgana
+            ? 'right'
+            : s.roleOf(first.target!)!.name,
+    claimants.length,
+  ].join(',');
+}
+
 void play(
     Setup setup, int seed, bool talk, void Function(SoloGameSession) done) {
   final cast = BotPersona.deal(setup.count - 1, Random(seed));
@@ -154,10 +194,18 @@ void main() {
   test('balance', () {
     final r = Random(int.parse(Platform.environment['BALANCE_SEED'] ?? '1'));
     final out = StringBuffer();
+    // BALANCE_LOG=file: one line a game, to compare two runs game by game
+    final logPath = Platform.environment['BALANCE_LOG'];
+    final log = logPath == null ? null : StringBuffer();
     // the same setups and seeds for both runs
     final setups = [for (var g = 0; g < games!; g++) randomSetup(r)];
     final seeds = [for (var g = 0; g < games; g++) r.nextInt(1 << 30)];
     // BALANCE_TALK=on|off runs only that one; both by default
+    // BALANCE_CLAIMS=off: nobody claims a role
+    if (Platform.environment['BALANCE_CLAIMS'] == 'off') {
+      BotVoice.percivalClaimChance =
+          BotVoice.morganaClaimChance = BotVoice.merlinClaimChance = 0;
+    }
     final mode = Platform.environment['BALANCE_TALK'];
     for (final talk in [
       if (mode != 'off') true,
@@ -168,6 +216,7 @@ void main() {
       for (var g = 0; g < games; g++) {
         final setup = setups[g];
         play(setup, seeds[g], talk, (s) {
+          log?.writeln(gameLine(g, setup, s));
           all.add(s);
           byCount.putIfAbsent(setup.count, Tally.new).add(s);
           byExpansion.putIfAbsent(setup.label, Tally.new).add(s);
@@ -187,6 +236,7 @@ void main() {
         out.writeln(byExpansion[l]!.row(l));
       }
     }
+    if (logPath != null) File(logPath).writeAsStringSync('$log');
     final path = Platform.environment['BALANCE_OUT'];
     if (path != null) File(path).writeAsStringSync('$out');
     // ignore: avoid_print

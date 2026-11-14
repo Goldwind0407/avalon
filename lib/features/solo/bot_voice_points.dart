@@ -143,7 +143,8 @@ extension BotVoicePoints on BotVoice {
   }
 
   /// Everything this bot could say right now, best first is decided later.
-  List<_Point> _points(BotObservation o, bool approve, Set<int> allies) {
+  List<_Point> _points(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     final me = o.seat, team = o.team;
     bool mine(int s) => s == me || allies.contains(s);
     final others = [
@@ -463,6 +464,86 @@ extension BotVoicePoints on BotVoice {
       }
     }
     points.addAll(_ladyPoints(o, approve, allies));
+    points.addAll(_claimPoints(o, approve, allies, belief));
+    return points;
+  }
+
+  /// What to make of players who came out as Percival. One claimant is
+  /// taken at his word as far as the team goes; with two, one of them is
+  /// lying, and the cleaner record is believed.
+  List<_Point> _claimPoints(
+      BotObservation o, bool approve, Set<int> allies, List<double>? belief) {
+    final me = o.seat, claims = _claims(o);
+    final points = <_Point>[];
+    if (claims.isEmpty || claims.values.any((c) => c.target == me)) {
+      return points;
+    }
+    if (claims.length == 1) {
+      final c = claims.values.single, m = c.target;
+      if (m == null || allies.contains(m) && !allies.contains(c.speaker)) {
+        return points;
+      }
+      final who = _n(c.speaker), key = 'claim/${c.speaker}/$m';
+      if (o.team.contains(m) && !approve) {
+        points.add(_Point(
+            key,
+            _pick([
+              '$who跳派西維爾，說${_n(m)}是莫甘娜。分清楚之前，有${_n(m)}的隊我不跟。',
+              '$who都跳身分指${_n(m)}了，這隊還帶${_n(m)}，我反對。',
+            ]),
+            intent: 'opposeTeam',
+            target: m,
+            position: DiscussionPosition.suspect,
+            stance: true,
+            brief: '$who點名的人還在隊上，我也先不跟。',
+            weight: 4.2));
+      } else if (!o.team.contains(m) && approve) {
+        points.add(_Point(key, '$who點名的${_n(m)}不在這隊，我可以接受。',
+            intent: 'supportTeam',
+            stance: true,
+            brief: '沒有${_n(m)}，我也可以。',
+            weight: 2.6));
+      }
+      return points;
+    }
+    // Two claimants (any more are ignored). Taking a side is said a few
+    // times a game at the table, not by everyone in turn.
+    final sided = o.statements
+        .where((s) =>
+            s.generation == o.generation &&
+            (s.topic?.startsWith('claims/') ?? false))
+        .length;
+    if (sided >= 3) return points;
+    final [a, b] = (claims.keys.toList()..sort()).take(2).toList();
+    int dirt(int s) =>
+        _failedWith(o, s).length * 2 + _backedFailures(o, s).length;
+    // An evil player backs the ally. Everyone else goes by how far they
+    // doubt each of the two, which for Merlin is what he sees, and puts it
+    // as the record when the record says the same.
+    final backsAlly = allies.contains(a) != allies.contains(b);
+    final gap =
+        belief == null ? (dirt(b) - dirt(a)) * .2 : belief[b] - belief[a];
+    final int? believed = backsAlly
+        ? (allies.contains(a) ? a : b)
+        : gap.abs() < .1
+            ? null
+            : (gap > 0 ? a : b);
+    final both = '${_n(a)}和${_n(b)}都說自己是派西維爾，一定有一個在說謊。';
+    if (believed == null) {
+      points.add(_Point('claims/$a/$b', '$both兩邊我都還分不出來，先看這次怎麼投。',
+          intent: 'weighClaims', once: true, weight: 3.4));
+    } else {
+      final liar = believed == a ? b : a, who = _n(believed);
+      final cleaner = dirt(believed) < dirt(liar);
+      points.add(_Point('claims/$a/$b/$believed',
+          cleaner ? '$both$who的紀錄比較乾淨，我先信$who。' : '$both照兩個人前面的投票和說法，我比較信$who。',
+          intent: 'weighClaims',
+          target: liar,
+          position: DiscussionPosition.suspect,
+          once: true,
+          brief: '兩個派西維爾裡，我也比較信$who。',
+          weight: 4.4));
+    }
     return points;
   }
 
@@ -530,8 +611,10 @@ extension BotVoicePoints on BotVoice {
 
   /// A remark grounded in the record, or null when nothing specific is left
   /// to say (the caller then falls back on the line catalogue).
-  DiscussionStatement? evidence(
-      BotObservation o, bool approve, Set<int> allies) {
+  /// [belief] is how far this seat doubts each player, for the few lines
+  /// that take a side between two players.
+  DiscussionStatement? evidence(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     if (o.phase != GamePhase.discussion || o.history.isEmpty) return null;
     if (_topicsGeneration != o.generation) {
       _topicsGeneration = o.generation;
@@ -548,7 +631,7 @@ extension BotVoicePoints on BotVoice {
           (index, s)
     ];
     final scored = <(_Point, double, int?)>[];
-    for (final point in _points(o, approve, allies)) {
+    for (final point in _points(o, approve, allies, belief)) {
       if ((_topics[tally(point)] ?? 0) >= (point.once ? 1 : 2)) continue;
       final same = [
         for (final (index, s) in round)

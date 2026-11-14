@@ -51,6 +51,11 @@ class DiscussionStatement {
   final int? originalCardQuest, quotedFrom;
   final bool claimsOpeningKnowledge;
 
+  /// "I am Percival", true or not. [target], if any, is the player the
+  /// speaker says is Morgana. Like every claim, it proves nothing.
+  static const percivalClaim = 'claimPercival';
+  bool get claimsPercival => intent == percivalClaim;
+
   /// The same statement worded differently.
   DiscussionStatement copyWithText(String text) => DiscussionStatement(
       speaker: speaker,

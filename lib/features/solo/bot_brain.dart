@@ -185,11 +185,90 @@ class BotBrain {
         p[statement.speaker] += .025;
       }
     }
+    final knows = o.role == Role.percival && !asServant && !o.evil;
+    // An evil player knows who is who; a claim tells him nothing about
+    // the others, only (as the Assassin) about Merlin.
+    if (!knows && (!o.evil || asServant)) {
+      _weighClaims(o, p, credibility, pretending: asServant);
+    }
     for (final entry in {...certain, ...privateBeliefs}.entries) {
       p[entry.key] = entry.value;
     }
+    if (knows) _checkClaims(o, p);
     p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
+  }
+
+  /// The latest "I am Percival" of every other player this game.
+  Map<int, DiscussionStatement> _percivalClaims(BotObservation o) => {
+        for (final s in o.statements)
+          if (s.generation == o.generation &&
+              s.claimsPercival &&
+              s.quotedFrom == null &&
+              s.speaker != o.seat &&
+              (s.switched == null || s.switched == o.switched))
+            s.speaker: s
+      };
+
+  /// What a player who is not Percival makes of such claims. One claimant
+  /// is believed as far as his record allows, and the player he calls
+  /// Morgana is doubted that much more. Two claimants cannot both be
+  /// telling the truth: the one with the worse record is taken for the
+  /// liar. And whoever is called Morgana knows the claimant is lying.
+  void _weighClaims(BotObservation o, List<double> p, List<double> credibility,
+      {required bool pretending}) {
+    final claims = _percivalClaims(o);
+    if (claims.isEmpty) return;
+    final claimants = claims.keys.toList()
+      ..sort((a, b) => credibility[a].compareTo(credibility[b]));
+    final trust = difficulty.claimTrust * 2;
+    for (final (rank, c) in claimants.indexed) {
+      final named = claims[c]!.target;
+      if (named == o.seat) {
+        // Percival's two are Merlin and Morgana. A loyal servant named as
+        // one of them has caught a liar; Merlin may have met a Percival
+        // who mixed his two up, and he sees which it is anyway.
+        if (o.role != Role.merlin) p[c] = max(p[c], pretending ? .7 : .95);
+        continue;
+      }
+      if (rank > 0) {
+        // the less credible of several claimants
+        p[c] += .25 * trust;
+        continue;
+      }
+      final belief = max(0.0, .65 - credibility[c]) *
+          trust *
+          (claimants.length > 1 ? .7 : 1);
+      if (named != null) p[named] += belief;
+      if (claimants.length > 1) p[c] += .05;
+    }
+  }
+
+  /// The real Percival knows every other claimant is lying, and who his
+  /// two candidates are. A claimant outside the pair is plainly evil. One
+  /// of the pair who calls Percival himself Morgana is Morgana, which makes
+  /// the other one Merlin. One of the pair naming the other is most likely
+  /// Merlin helping out; one naming a third player could be either.
+  void _checkClaims(BotObservation o, List<double> p) {
+    if (o.visible.length != 2) return;
+    final [a, b] = o.visible;
+    for (final claim in _percivalClaims(o).values) {
+      final c = claim.speaker, named = claim.target;
+      if (!o.visible.contains(c)) {
+        p[c] = max(p[c], .9);
+        continue;
+      }
+      final other = c == a ? b : a;
+      if (named == o.seat) {
+        p[c] = 1;
+        p[other] = 0;
+      } else if (named == other) {
+        p[c] = max(0, p[c] - .3);
+        p[other] = min(1, p[other] + .3);
+      }
+      // Naming someone else: Morgana lying, or Merlin bluffing. Whichever
+      // of the two already looked worse stays the likelier Morgana.
+    }
   }
 
   /// Fail cards on quest number [index] + 1 that this player cannot explain
@@ -678,9 +757,30 @@ class BotBrain {
       return score + random.nextDouble() * difficulty.assassinNoise;
     }
 
+    // What a Percival claim gives away. A claimant who names another of
+    // us knows something; that is usually Percival, since Merlin seldom
+    // dares to pose as him. One who calls the Assassin himself Morgana
+    // knows he is evil but has the role wrong, which is Merlin's mistake.
+    // And a good claimant who names a good player has mixed his two
+    // candidates up: that player is Merlin.
+    final leaked = List.filled(o.count, 0.0);
+    if (difficulty != BotDifficulty.novice) {
+      for (final claim in _percivalClaims(o).values) {
+        final c = claim.speaker, named = claim.target;
+        if (evil.contains(c) || named == null) continue;
+        if (named == o.seat) {
+          leaked[c] += 1.2;
+        } else if (evil.contains(named)) {
+          leaked[c] -= .25;
+        } else {
+          leaked[named] += 1.5;
+        }
+      }
+    }
     final scored = [
       for (var s = 0; s < o.count; s++)
-        if (s != o.seat && !o.visible.contains(s)) (s, merlinScore(s))
+        if (s != o.seat && !o.visible.contains(s))
+          (s, merlinScore(s) + leaked[s])
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
   }
@@ -710,8 +810,15 @@ class BotBrain {
       return voice.reply(
           o, approve, question.$1, o.evil ? _knownAllies(o) : const <int>{});
     }
-    final direct = voice.speak(o, approve, suspicion(o, asServant: true),
-        suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
+    final view = suspicion(o, asServant: true), real = suspicion(o);
+    final allies = o.evil ? _knownAllies(o) : const <int>{};
+    if (voice.claim(o, approve, view, real, allies) case final claimed?) {
+      lastSpeechSource = claimed.claimsPercival
+          ? const SpeechSource.claim()
+          : SpeechSource.voice('defendSelf');
+      return claimed;
+    }
+    final direct = voice.speak(o, approve, view, real, allies);
     if (direct != null) {
       lastSpeechSource = SpeechSource.voice(direct.intent ?? '');
       return direct;
@@ -738,8 +845,7 @@ class BotBrain {
             : o.seat == o.leader
                 ? .9
                 : .75)) {
-      final cited =
-          voice.evidence(o, approve, o.evil ? _knownAllies(o) : const <int>{});
+      final cited = voice.evidence(o, approve, allies, o.evil ? view : real);
       if (cited != null) {
         lastSpeechSource = SpeechSource.evidence(cited.topic ?? '');
         return cited;
@@ -771,6 +877,9 @@ class BotBrain {
 /// Where a bot's line came from, so a review can say how to change it.
 class SpeechSource {
   const SpeechSource(this.label, this.where);
+  const SpeechSource.claim()
+      : label = '跳身分',
+        where = 'lib/features/solo/bot_voice_claims.dart 的 claim()';
   const SpeechSource.reply()
       : label = '回答提問',
         where = 'lib/features/solo/bot_voice.dart 的 reply()';
