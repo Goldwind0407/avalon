@@ -29,6 +29,18 @@ class BotBrain {
   /// at most this many proposals of the quest have been turned down.
   static const merlinFalseAlarm = .3;
   static const merlinSpareRejections = 2;
+
+  /// How often an evil player backs a team that should fail although an
+  /// uninformed player in his seat would turn it down: from outside the
+  /// team, by how many proposals of this quest were already voted down;
+  /// from inside it; and when one more failed quest wins the game.
+  static const evilPush = [.15, .15, .3, .5];
+  static const evilPushOwnTeam = .5;
+  static const evilPushDecisive = .85;
+
+  /// How much an evil leader cares that his team looks safe to a player who
+  /// knows nothing, next to how likely it is to fail.
+  static const evilLeaderCover = .6;
   final BotDialoguePlanner dialogue;
 
   /// With [asServant], what this seat would think without its opening role
@@ -311,28 +323,61 @@ class BotBrain {
   bool _switchedAt(BotObservation o, int index) =>
       o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
 
-  /// Who voted for the team that then failed is the table's main public clue:
-  /// approving it from outside is suspicious, rejecting it reassuring; turning
-  /// down a team that came back clean is a lesser hint. The forced fifth
-  /// proposal says nothing.
+  /// What the public votes say about each player, as odds. Evil players
+  /// know where their allies sit and vote for those teams; good players do
+  /// not. So, with the forced fifth proposal left out:
+  /// - backing a team from outside it that was voted down is the plainest
+  ///   tell: good players rarely do, the allies of someone on it often do;
+  /// - backing a team from outside it that then failed points the same
+  ///   way, and having turned that team down points strongly the other way,
+  ///   the more so for a member who voted against his own team.
+  /// Quests from before a Lancelot switch still count: everyone but the two
+  /// Lancelots is on the side he was on then.
+  ///
+  /// The factors are well short of what all-computer games measure (there
+  /// a player who backs a rejected team from outside is evil about nine
+  /// times in ten), so that a human who votes more freely is not condemned
+  /// for it.
+  static const backedRejectedTeam = 3.0,
+      joinedRejectedTeam = 2.2,
+      opposedRejectedTeam = .75,
+      opposedOwnRejectedTeam = .5,
+      backedFailedTeam = 1.5,
+      opposedFailedTeam = .4,
+      opposedOwnFailedTeam = .2;
+
   void _voteEvidence(BotObservation o, List<double> p) {
-    for (var q = 0; q < o.history.length; q++) {
-      final approved =
-          o.proposals.where((r) => r.quest == q + 1 && r.approved).toList();
-      if (approved.isEmpty || approved.last.attempt >= 5) continue;
-      final proposal = approved.last;
-      if (o.history[q].excaliburTarget != null) continue;
-      // A quest from before a Lancelot switch still counts: everyone but
-      // the two Lancelots is on the side he was on then.
-      final fails = _unexplained(o, q, anyState: true)!;
-      for (var s = 0; s < o.count; s++) {
-        if (s == o.seat || proposal.team.contains(s)) continue;
-        final approve = proposal.votes[s];
-        // Backing a team that then failed weighs most; turning down one
-        // that came back clean is a smaller hint the other way.
-        p[s] += (fails > 0 ? (approve ? .2 : -.125) : (approve ? 0 : .04)) *
-            difficulty.voteEvidence;
+    if (difficulty.voteEvidence == 0) return;
+    final odds = List.filled(o.count, 0.0); // log odds of being evil
+    for (final proposal in o.proposals) {
+      if (proposal.attempt >= 5) continue;
+      final q = proposal.quest - 1;
+      double? factor(int s) {
+        final on = proposal.team.contains(s), yes = proposal.votes[s];
+        if (!proposal.approved) {
+          if (yes) return on ? joinedRejectedTeam : backedRejectedTeam;
+          return on ? opposedOwnRejectedTeam : opposedRejectedTeam;
+        }
+        if (q >= o.history.length ||
+            o.history[q].excaliburTarget != null ||
+            _unexplained(o, q, anyState: true)! == 0) {
+          return null;
+        }
+        if (yes) return on ? null : backedFailedTeam;
+        return on ? opposedOwnFailedTeam : opposedFailedTeam;
       }
+
+      for (var s = 0; s < o.count; s++) {
+        if (s == o.seat || s == proposal.leader) continue;
+        if (factor(s) case final f?) odds[s] += log(f);
+      }
+    }
+    for (var s = 0; s < o.count; s++) {
+      if (odds[s] == 0 || p[s] <= 0 || p[s] >= 1) continue;
+      final before = p[s].clamp(.02, .98);
+      final after =
+          before / (1 - before) * exp(odds[s] * difficulty.voteEvidence);
+      p[s] = after / (1 + after);
     }
   }
 
@@ -605,6 +650,11 @@ class BotBrain {
     // Mordred is the one evil player Merlin cannot warn against, so he
     // pushes himself forward.
     final selfBias = style.selfBias + (o.role == Role.mordred ? .1 : 0);
+    // An evil leader wants a team that fails and that the table will let
+    // through: the saboteur goes with the players nobody doubts, not with
+    // whoever comes to mind.
+    final looks =
+        o.evil && !pose ? (suspicion(o, asServant: true)..[o.seat] = 0) : null;
     final scored = [
       for (final team in candidates)
         (
@@ -615,6 +665,11 @@ class BotBrain {
               // ally on a failed quest is one more player exposed.
               -difficulty.stacking *
                   max(0, team.where(allies.contains).length - o.failsRequired) +
+              (looks == null
+                  ? 0
+                  : -evilLeaderCover *
+                      difficulty.rolePlay.clamp(0, 1.2) *
+                      _risk(o, looks, team)) +
               random.nextDouble() * style.noise * difficulty.noise
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
@@ -637,24 +692,36 @@ class BotBrain {
     if (o.rejections == 4) return decide(true, 'fifthProposal');
     if (o.evil) {
       if (risk > .45) {
-        // Backing every team an ally is on gives the whole side away. When
-        // an ally on it is already under suspicion, sometimes vote against
-        // it like a careful good player would, unless this quest matters.
-        final view = suspicion(o, asServant: true);
-        final exposed = o.team.any((s) =>
-            s != o.seat && _knownAllies(o).contains(s) && view[s] >= .55);
-        final critical = o.failures == 2 || o.successes == 2;
-        if (exposed &&
-            !critical &&
-            rng.nextDouble() < .35 * difficulty.rolePlay * style.blend) {
-          return decide(false, 'concealAlly');
+        // A team that should fail. Backing every such team gives the whole
+        // side away: the votes are public, and good players, who do not
+        // know where evil sits, turn most of these teams down. So vote as
+        // an uninformed player in this seat would, and go against that
+        // only now and then: more readily from inside the team, when
+        // proposals are running out, and when one more failed quest wins.
+        final view = suspicion(o, asServant: true)..[o.seat] = 0;
+        if (_goodVote(o, view)) return decide(true, 'sabotageOpportunity');
+        final push = o.failures == 2
+            ? evilPushDecisive
+            : o.team.contains(o.seat)
+                ? evilPushOwnTeam
+                : evilPush[min(o.rejections, evilPush.length - 1)];
+        // Hold back less by temperament, never more than the level allows.
+        final nerve = (push / (style.blend * difficulty.blend).clamp(.6, 1.4))
+            .clamp(0.0, 1.0);
+        if (rng.nextDouble() < nerve) {
+          return decide(true, 'sabotageOpportunity');
         }
-        return decide(true, 'sabotageOpportunity');
+        return decide(false, 'concealAlly');
       }
       // A team that will not fail: go along with it early to blend in, fight
       // it when it would be good's winning quest.
       // Nobody has a reason to object to the very first team yet; an evil
       // player who does stands out.
+      // A member who votes against his own team stands out; one who means
+      // to play Success on it has no reason to.
+      if (o.team.contains(o.seat) && rng.nextDouble() < .9) {
+        return decide(true, 'evilBlend');
+      }
       var blend = o.history.isEmpty
           ? .85
           : o.successes == 2
