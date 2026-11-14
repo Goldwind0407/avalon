@@ -49,7 +49,10 @@ class BotBrain {
         opening[seat] = o.lancelotSeat != null
             ? (seat == o.lancelotSeat && o.switched ? 0 : 1)
             : (o.switched && o.expansions.lancelot > 0 ? .65 : 1);
-        privateBeliefs[seat] = opening[seat]!;
+        // only what is certain is fixed; the rest is left to be worked out
+        if (opening[seat] == 0 || opening[seat] == 1) {
+          privateBeliefs[seat] = opening[seat]!;
+        }
       }
     }
     if (o.role == Role.percival && !asServant) {
@@ -59,6 +62,8 @@ class BotBrain {
         if (o.visible.length == 1) privateBeliefs[seat] = 0;
       }
     }
+    // (seat, were the Lancelots switched then, was the seat evil then)
+    final stateFacts = <(int, bool, bool)>[];
     final facts = [...o.facts]..sort((a, b) => a.quest.compareTo(b.quest));
     for (final fact in facts) {
       final knownEvil = fact.evil ?? (fact.originalCard == false ? true : null);
@@ -70,8 +75,14 @@ class BotBrain {
           canBeLancelot;
       final estimate =
           knownEvil ? (uncertain ? .65 : 1.0) : (uncertain ? .35 : 0.0);
-      // An old uncertain clue must not dilute a current definite clue.
-      if (uncertain && [0.0, 1.0].contains(privateBeliefs[fact.target])) {
+      if (uncertain) {
+        // True of the side the player was on then. Only a Lancelot has
+        // changed since, which the deduction below takes into account.
+        stateFacts.add((fact.target, fact.switched, knownEvil));
+        // An old uncertain clue must not dilute a current definite clue.
+        if (![0.0, 1.0].contains(privateBeliefs[fact.target])) {
+          opening[fact.target] = estimate;
+        }
         continue;
       }
       opening[fact.target] = estimate;
@@ -109,16 +120,24 @@ class BotBrain {
         }
       }
     }
-    _voteEvidence(o, p);
     // Establish card/deal constraints first. Applying this afterwards used to
     // erase 90% of an expert's response to discussion, making expert listeners
     // less responsive than novices. Public claims remain soft and cannot
     // override deductions that hold in every legal deal.
-    _deduce(o, p, privateBeliefs);
+    if (o.expansions.lancelot > 0) {
+      _deduceLancelot(o, p, privateBeliefs,
+          informed: !asServant, stateFacts: stateFacts);
+    } else {
+      _deduce(o, p, privateBeliefs);
+    }
     final certain = <int, double>{
       for (var s = 0; s < p.length; s++)
         if (p[s] == 0 || p[s] == 1) s: p[s],
     };
+    // The votes come on top of what the cards allow. Folded in before the
+    // deduction they were mostly washed out by it, and who backed the
+    // teams that failed is the best public clue there is.
+    _voteEvidence(o, p);
     // A claim is not a private fact. It is remembered for the whole game
     // (a novice only minds the latest) and trusted according to the
     // observer's own current view of its author; claims from before a
@@ -274,17 +293,23 @@ class BotBrain {
   /// Fail cards on quest number [index] + 1 that this player cannot explain
   /// with a sword flip or their own card; null when the quest proves nothing
   /// now (the Lancelots have changed sides since).
-  int? _unexplained(BotObservation o, int index) {
+  int? _unexplained(BotObservation o, int index, {bool anyState = false}) {
     final result = o.history[index];
-    final switchedThen =
-        o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
-    if (o.expansions.lancelot > 0 && switchedThen != o.switched) return null;
+    if (!anyState &&
+        o.expansions.lancelot > 0 &&
+        _switchedAt(o, index) != o.switched) {
+      return null;
+    }
     var fails = result.fails - (result.excaliburTarget == null ? 0 : 1);
     if (o.ownCards[index + 1] == false && result.excaliburTarget != o.seat) {
       fails--;
     }
     return max(0, fails);
   }
+
+  /// Whether the Lancelots were on the other side during quest [index] + 1.
+  bool _switchedAt(BotObservation o, int index) =>
+      o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
 
   /// Who voted for the team that then failed is the table's main public clue:
   /// approving it from outside is suspicious, rejecting it reassuring; turning
@@ -297,14 +322,15 @@ class BotBrain {
       if (approved.isEmpty || approved.last.attempt >= 5) continue;
       final proposal = approved.last;
       if (o.history[q].excaliburTarget != null) continue;
-      final fails = _unexplained(o, q);
-      if (fails == null) continue;
+      // A quest from before a Lancelot switch still counts: everyone but
+      // the two Lancelots is on the side he was on then.
+      final fails = _unexplained(o, q, anyState: true)!;
       for (var s = 0; s < o.count; s++) {
         if (s == o.seat || proposal.team.contains(s)) continue;
         final approve = proposal.votes[s];
         // Backing a team that then failed weighs most; turning down one
         // that came back clean is a smaller hint the other way.
-        p[s] += (fails > 0 ? (approve ? .4 : -.25) : (approve ? 0 : .08)) *
+        p[s] += (fails > 0 ? (approve ? .2 : -.125) : (approve ? 0 : .04)) *
             difficulty.voteEvidence;
       }
     }
@@ -387,6 +413,135 @@ class BotBrain {
         // mostly the reasoned estimate, nudged by votes and claims
         final r = difficulty.reasoning;
         p[s] = (1 - r) * p[s].clamp(0.0, 1.0) + r * weightEvil[s] / weight;
+      }
+    }
+  }
+
+  /// The same reasoning with the two Lancelots in the game. The evil seats
+  /// as dealt are gone through together with who the evil and the good
+  /// Lancelot could be, because a quest speaks of the sides as they were
+  /// then: before a switch the evil Lancelot was evil, after it the good one
+  /// is. In the variant with the cards face up, a Lancelot on the evil side
+  /// has to play Fail, so a clean quest clears him of being that.
+  void _deduceLancelot(
+      BotObservation o, List<double> p, Map<int, double> privateBeliefs,
+      {required bool informed, required List<(int, bool, bool)> stateFacts}) {
+    final n = o.count, evils = Room.evilCount(n), me = o.seat;
+    final mustBe = <int, bool>{
+      for (final e in privateBeliefs.entries)
+        if (e.value == 0 || e.value == 1) e.key: e.value == 1,
+      me: o.evil,
+    };
+    // (other team members, Fail cards, how readily evil fails, switched)
+    final quests = <(List<int>, int, double, bool)>[];
+    for (var q = 0; q < o.history.length; q++) {
+      if (o.history[q].excaliburTarget != null) continue;
+      quests.add((
+        [
+          for (final s in o.history[q].team)
+            if (s != me) s
+        ],
+        _unexplained(o, q, anyState: true)!,
+        q == 0 ? .6 : .8,
+        _switchedAt(o, q)
+      ));
+    }
+    // The good Lancelot only matters once the sides have been switched.
+    final needGood =
+        o.switched || quests.any((q) => q.$4) || stateFacts.any((f) => f.$2);
+    // What this seat knows about the deal from its own role.
+    final wasEvil = o.role.isEvil; // the side dealt, whatever it is now
+    final knownEvilOne =
+        !informed ? null : (o.role == Role.lancelotEvil ? me : o.lancelotSeat);
+    final knownGoodOne = informed && o.role == Role.lancelotGood ? me : null;
+    final plain = <int>{
+      if (informed && !o.role.isLancelot) me,
+      // the two Percival sees are Merlin and Morgana
+      if (informed && o.role == Role.percival) ...o.visible,
+    };
+    final seen = informed &&
+            (o.role == Role.merlin ||
+                (wasEvil &&
+                    o.role != Role.oberon &&
+                    o.role != Role.lancelotEvil))
+        ? o.visible
+        : const <int>[];
+    final pair = informed && o.role == Role.percival && o.visible.length == 2
+        ? o.visible
+        : null;
+    final weightEvil = List.filled(n, 0.0);
+    var fits = 0, weight = 0.0;
+    final set = <int>[];
+    void score(int evilOne, int goodOne) {
+      // the side a seat was on while the Lancelots were switched or not
+      bool evilAt(int s, bool switched) => switched
+          ? s == goodOne || (s != evilOne && set.contains(s))
+          : set.contains(s);
+      for (final e in mustBe.entries) {
+        if (evilAt(e.key, o.switched) != e.value) return;
+      }
+      for (final (seat, switched, evil) in stateFacts) {
+        if (evilAt(seat, switched) != evil) return;
+      }
+      var likelihood = 1.0;
+      for (final (team, fails, f, switched) in quests) {
+        final lancelot = switched ? goodOne : evilOne;
+        var k = 0;
+        for (final s in team) {
+          if (evilAt(s, switched)) k++;
+        }
+        if (k < fails) return;
+        if (fails == 0) {
+          if (o.expansions.lancelot == 2 && team.contains(lancelot)) return;
+          likelihood *= pow(1 - f, k);
+        }
+      }
+      fits++;
+      weight += likelihood;
+      for (var s = 0; s < n; s++) {
+        if (evilAt(s, o.switched)) weightEvil[s] += likelihood;
+      }
+    }
+
+    void walk(int from) {
+      if (set.length == evils) {
+        if (informed && set.contains(me) != wasEvil) return;
+        if (!seen.every(set.contains)) return;
+        if (pair != null && set.contains(pair[0]) == set.contains(pair[1])) {
+          return;
+        }
+        for (final evilOne in set) {
+          if (knownEvilOne != null && evilOne != knownEvilOne) continue;
+          if (plain.contains(evilOne)) continue;
+          if (!needGood) {
+            score(evilOne, -1);
+            continue;
+          }
+          for (var goodOne = 0; goodOne < n; goodOne++) {
+            if (set.contains(goodOne) || plain.contains(goodOne)) continue;
+            if (knownGoodOne != null && goodOne != knownGoodOne) continue;
+            score(evilOne, goodOne);
+          }
+        }
+        return;
+      }
+      for (var s = from; s <= n - (evils - set.length); s++) {
+        set.add(s);
+        walk(s + 1);
+        set.removeLast();
+      }
+    }
+
+    walk(0);
+    if (fits == 0) return; // contradictory clues: keep the soft estimate
+    for (var s = 0; s < n; s++) {
+      if (s == me) continue;
+      final share = weightEvil[s] / weight;
+      if (share == 0 || share == 1) {
+        p[s] = share;
+      } else if (!privateBeliefs.containsKey(s)) {
+        final r = difficulty.reasoning;
+        p[s] = (1 - r) * p[s].clamp(0.0, 1.0) + r * share;
       }
     }
   }

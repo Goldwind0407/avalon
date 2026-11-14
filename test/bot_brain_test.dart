@@ -216,12 +216,14 @@ void main() {
         switched: false,
         evil: false);
     expect(brain.suspicion(view(facts: [fact]))[2], 0);
-    expect(
-        brain.suspicion(view(
-            facts: [fact],
-            switched: true,
-            expansions: const ExpansionSettings(lancelot: 1)))[2],
-        .35);
+    // Seen good before the switch: evil now only if he is the good
+    // Lancelot, so some doubt returns, well short of an unknown player.
+    final aged = brain.suspicion(view(
+        facts: [fact],
+        switched: true,
+        expansions: const ExpansionSettings(lancelot: 1)));
+    expect(aged[2], inExclusiveRange(.05, .45));
+    expect(aged[2], lessThan(aged[3]));
     expect(
         brain.suspicion(view(statements: [
           DiscussionStatement(

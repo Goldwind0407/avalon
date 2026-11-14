@@ -16,11 +16,11 @@ enum BotDifficulty {
   normal('一般', '會推理、記票，也會演一點戲'),
   expert('高手', '推理嚴謹，偽裝和配合都更到位',
       reasoning: .9,
-      voteEvidence: 1.5,
+      voteEvidence: 1,
       claimTrust: .6,
       rolePlay: 1.6,
       noise: .5,
-      doubt: .55,
+      doubt: .62,
       blend: 1.1,
       stacking: .6,
       assassinNoise: .2);
