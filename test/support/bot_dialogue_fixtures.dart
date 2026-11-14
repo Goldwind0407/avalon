@@ -30,6 +30,7 @@ BotObservation observe({
   Map<int, bool> ownCards = const {},
   bool? plannedQuestSuccess,
   Set<Role>? configuredRoles,
+  int? excaliburHolder,
 }) =>
     BotObservation(
         seat: seat,
@@ -52,6 +53,7 @@ BotObservation observe({
         ownCards: ownCards,
         plannedQuestSuccess: plannedQuestSuccess,
         configuredRoles: configuredRoles,
+        excaliburHolder: excaliburHolder,
         generation: generation,
         phase: phase,
         ladyChecks: ladyChecks,

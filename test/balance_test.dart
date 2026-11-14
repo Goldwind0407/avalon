@@ -31,8 +31,10 @@ class Tally {
   int cleanProposals = 0, cleanPassed = 0, cleanGoodVotes = 0, cleanGoodYes = 0;
   int dirtyGoodVotes = 0, dirtyGoodYes = 0;
   int ladyGood = 0, ladyGoodFound = 0;
+  int firstQuestFailed = 0;
   void add(SoloGameSession s) {
     games++;
+    if (!s.history.first.succeeded) firstQuestFailed++;
     for (final p in s.proposalHistory.where((p) => p.attempt < 5)) {
       final clean = !p.team.any((seat) => s.roleOf(seat)!.isEvil);
       if (clean) {
@@ -109,7 +111,9 @@ class Tally {
       ' | 有人跳派西 ${pc(claimGames, games)}對跳 ${pc(rivalGames, games)}跳了之後好人勝 ${pc(claimGoodWins, claimGames)}'
       '| 乾淨提案通過 ${pc(cleanPassed, cleanProposals)}好人贊成乾淨隊 ${pc(cleanGoodYes, cleanGoodVotes)}'
       '好人贊成有壞人的隊 ${pc(dirtyGoodYes, dirtyGoodVotes)}壞人隊長出隊 ${pc(evilLed, evilLed + goodLed)}'
-      '女神查到壞人 ${pc(ladyGoodFound, ladyGood)}';
+      '女神查到壞人 ${pc(ladyGoodFound, ladyGood)}'
+      '| 第一次任務失敗 ${pc(firstQuestFailed, games)}'
+      '壞人勝場靠刺殺 ${pc(stabHits, games - goodWins)}';
 }
 
 class Setup {
