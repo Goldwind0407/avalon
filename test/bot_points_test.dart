@@ -142,6 +142,37 @@ void main() {
     expect(topics.where((t) => t == 'mistaken/1').length, 1);
   });
 
+  test('the table asks about a doubted vote once a game', () {
+    final o = observe(seat: 0, history: cleanFirst, team: [
+      0,
+      3,
+      4
+    ], proposals: [
+      ProposalRecord(
+          quest: 1,
+          attempt: 1,
+          leader: 1,
+          team: [1, 2],
+          votes: [true, true, true, true, true, false, true])
+    ]);
+    final asked = [
+      for (var seed = 0; seed < 30; seed++)
+        voice(seed).evidence(o, true, const {})
+    ].firstWhere((s) => s?.topic == 'doubted/1')!;
+    for (var seed = 0; seed < 30; seed++) {
+      final said = voice(seed).evidence(
+          observe(
+              seat: 3,
+              history: cleanFirst,
+              team: [0, 3, 4],
+              proposals: o.proposals,
+              statements: [asked.copyWithText(asked.text)]),
+          true,
+          const {});
+      expect(said?.topic, isNot('doubted/1'));
+    }
+  });
+
   test('an accused player answers with who else was on that quest', () {
     final accusation = DiscussionStatement(
         speaker: 4,

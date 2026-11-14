@@ -30,7 +30,8 @@ class SoloGameSession extends GameSession {
       this.archive,
       DateTime Function()? now,
       this.botDelay = const Duration(milliseconds: 450),
-      this.speechDuration = const Duration(seconds: 7)})
+      this.speechDuration = const Duration(seconds: 7),
+      @visibleForTesting this.autopilot = false})
       : _random = random ?? Random.secure(),
         _now = now ?? DateTime.now,
         personas = personas == null ? null : List.unmodifiable(personas),
@@ -45,6 +46,11 @@ class SoloGameSession extends GameSession {
   final LocalGameSession _local;
   final Random _random;
   final Duration botDelay, speechDuration;
+
+  /// Simulation only: the player's seat is played by its own computer brain
+  /// too, so a whole game runs with nobody at the table.
+  final bool autopilot;
+  bool _human(int? seat) => !autopilot && seat == mySeat;
 
   /// How well every computer player reasons and acts in this game.
   final BotDifficulty difficulty;
@@ -215,8 +221,7 @@ class SoloGameSession extends GameSession {
                     'q${reveal.quest}/$owner/${reveal.target}')
                 .id
           ],
-          text:
-              '我用湖中女神查驗了 ${playerLabel(reveal.target, players[reveal.target])}，'
+          text: '我用湖中女神查驗了${reveal.target + 1}號，'
               '我宣稱他當時是${claim ? '邪惡' : '正義'}陣營。'));
     }
   }
@@ -257,7 +262,7 @@ class SoloGameSession extends GameSession {
                   e.$2.supportsTeam != null))
           .lastOrNull;
       if (source == null) continue;
-      final name = playerLabel(source.$2.speaker, players[source.$2.speaker]);
+      final name = '${source.$2.speaker + 1}號';
       _sources[_statements.length] = const SpeechSource(
           '改口', 'lib/features/solo/solo_session.dart 的 _reviewVotes()');
       _statements.add(DiscussionStatement(
@@ -298,17 +303,18 @@ class SoloGameSession extends GameSession {
       _plannedVotes.clear();
       _plannedCards.clear();
       // Initial intentions use private projections, not irrevocable ballots.
-      for (var seat = 1; seat < players.length; seat++) {
-        _plannedVote(seat);
+      for (var seat = 0; seat < players.length; seat++) {
+        if (!_human(seat)) _plannedVote(seat);
       }
       // Commit only each participant's own card policy. Speaking about hiding
       // must not randomly change the card once the proposal is approved.
-      for (final seat in team.where((s) => s != mySeat)) {
+      for (final seat in team.where((s) => !_human(s))) {
         _plannedCards[seat] = _brains[seat]!.questCard(_observe(seat));
       }
     }
     if (phase == GamePhase.vote) {
-      _reviewVotes(Iterable.generate(players.length - 1, (i) => i + 1),
+      _reviewVotes(
+          Iterable.generate(players.length, (i) => i).where((s) => !_human(s)),
           lock: true);
     }
     // the votes are in: keep why each bot cast its ballot
@@ -320,7 +326,7 @@ class SoloGameSession extends GameSession {
       };
     }
     final speech = '$generation/$speechVersion';
-    if (phase == GamePhase.discussion && speaker != mySeat) {
+    if (phase == GamePhase.discussion && !_human(speaker)) {
       if (_speechKey != speech) {
         _speechKey = speech;
         _reviewVotes([speaker!]);
@@ -394,7 +400,7 @@ class SoloGameSession extends GameSession {
     _botTimer?.cancel();
     if (_disposed || _paused) return;
     final actor = _botActor;
-    if (actor == null || actor == mySeat) return;
+    if (actor == null || _human(actor)) return;
     final deal = generation, version = speechVersion, stage = phase;
     final delay = phase == GamePhase.discussion
         ? _readingTime(_currentStatement)
@@ -578,6 +584,8 @@ class SoloGameSession extends GameSession {
             PlayerSpeechKind.challengeVote =>
               '${who(t!)}，第${ballot!.quest}次遠征的第${ballot.attempt}次提案，你投${ballot.votes[t] ? '贊成' : '反對'}的理由是什麼？',
             PlayerSpeechKind.claimGood => '我是好人，請相信我。',
+            PlayerSpeechKind.claimPercival =>
+              '我是派西維爾。${t == null ? '' : '${who(t)}是莫甘娜。'}',
             PlayerSpeechKind.remark => '',
           };
     if (text.isEmpty) return;
@@ -602,6 +610,7 @@ class SoloGameSession extends GameSession {
           PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
           PlayerSpeechKind.challengeVote => BotSpeechIntent.challengeVote.name,
           PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
+          PlayerSpeechKind.claimPercival => DiscussionStatement.percivalClaim,
           PlayerSpeechKind.remark => 'opinion',
         },
         target: switch (speech.kind) {
@@ -610,6 +619,8 @@ class SoloGameSession extends GameSession {
         },
         position: switch (speech.kind) {
           PlayerSpeechKind.suspect => DiscussionPosition.suspect,
+          PlayerSpeechKind.claimPercival when t != null =>
+            DiscussionPosition.suspect,
           PlayerSpeechKind.trust => DiscussionPosition.defend,
           _ => null,
         },

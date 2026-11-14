@@ -9,6 +9,10 @@ enum PlayerSpeechKind {
   challengeVote,
   claimGood,
 
+  /// "I am Percival", with [PlayerSpeech.target] the player called Morgana,
+  /// if one was named.
+  claimPercival,
+
   /// Free text the bots could not read anything definite from.
   remark,
 }
@@ -54,6 +58,13 @@ class PlayerSpeech {
     }
     if (seat == mySeat) seat = null;
     bool has(String pattern) => RegExp(pattern).hasMatch(t);
+    // "我是派西維爾，3號是莫甘娜": a role claim, and whom it points at.
+    // Naming someone as Merlin says nothing about who Morgana is.
+    if (has(r'我(是|跳|才是|就是)派西')) {
+      final names = has(r'莫甘娜|假梅林|壞人|邪惡') || !has(r'梅林');
+      return PlayerSpeech(PlayerSpeechKind.claimPercival,
+          target: names ? seat : null, text: t);
+    }
     final distrusts = has(r'不信|不相信|不是好人|不可信');
     final clears = !distrusts && has(r'不是(壞人|邪惡|爪牙)|沒問題|清白|可以信|相信|信任');
     final doubts =

@@ -93,13 +93,16 @@ extension BotVoicePoints on BotVoice {
     }
     cleanBy
         .forEach((quests, seats) => parts.add('${_ns(seats)}$quests出任務沒有失敗牌'));
+    final opposedBy = <String, List<int>>{};
     for (final s in others) {
       final opposed = _opposedFailures(o, s);
       if (opposed.isNotEmpty && !_clean(o, s) && _failedWith(o, s).isEmpty) {
-        parts.add('${_n(s)}當時反對了${_quests(opposed)}那支出失敗牌的隊');
+        opposedBy.putIfAbsent(_quests(opposed), () => []).add(s);
         cited.addAll(opposed);
       }
     }
+    opposedBy.forEach(
+        (quests, seats) => parts.add('${_ns(seats)}當時反對了$quests那支出失敗牌的隊'));
     final fresh = [
       for (final s in others)
         if (!_hasRecord(o, s) && _opposedFailures(o, s).isEmpty) s
@@ -125,7 +128,10 @@ extension BotVoicePoints on BotVoice {
     if (dropped.isNotEmpty) {
       final quests = {for (final s in dropped) ..._failedWith(o, s)}.toList()
         ..sort();
-      parts.add('${_ns(dropped)}在${_quests(quests)}出失敗牌的隊上，這次先不帶');
+      final alsoMe =
+          o.team.contains(me) && _failedWith(o, me).any(quests.contains);
+      parts.add('${_ns(dropped)}在${_quests(quests)}出失敗牌的隊上，這次先不帶'
+          '${alsoMe ? '（我也在那隊，但我那張是成功）' : ''}');
       cited.addAll(quests);
     }
     if (parts.isEmpty) return null;
@@ -137,7 +143,8 @@ extension BotVoicePoints on BotVoice {
   }
 
   /// Everything this bot could say right now, best first is decided later.
-  List<_Point> _points(BotObservation o, bool approve, Set<int> allies) {
+  List<_Point> _points(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     final me = o.seat, team = o.team;
     bool mine(int s) => s == me || allies.contains(s);
     final others = [
@@ -165,8 +172,8 @@ extension BotVoicePoints on BotVoice {
         points.add(_Point(
             'dropped/${dropped.join(',')}',
             _pick([
-              '這次把${_ns(dropped)}換掉了，${_quests(quests)}出失敗牌時他在隊上；現在這幾位我沒有具體的反對理由，可以過。',
-              '${_ns(dropped)}待過${_quests(quests)}出失敗牌的隊，這次沒帶他，我比較放心，這隊我贊成。',
+              '這次把${_ns(dropped)}換掉了，${_quests(quests)}出失敗牌時${dropped.length > 1 ? '他們' : '他'}在隊上；現在這幾位我沒有具體的反對理由，可以過。',
+              '${_ns(dropped)}待過${_quests(quests)}出失敗牌的隊，這次沒帶${dropped.length > 1 ? '他們' : '他'}，我比較放心，這隊我贊成。',
               '少了${_ns(dropped)}我就能接受，${_quests(quests)}那張失敗牌還沒算清楚。這隊我支持。',
             ]),
             intent: 'supportTeam',
@@ -205,7 +212,7 @@ extension BotVoicePoints on BotVoice {
             'risk/$t',
             _pick([
               '${_n(t)}待過${_quests(_failedWith(o, t))}出失敗牌的隊，這點我沒忘；但那隊不只他一個，這次我願意再看一次。',
-              '我知道${_n(t)}在${_quests(_failedWith(o, t))}出失敗牌的隊上，不過光憑那一次還定不了他，這隊我先過。',
+              '我知道${_n(t)}在${_quests(_failedWith(o, t))}出失敗牌的隊上，不過光憑這點還定不了他，這隊我先過。',
             ]),
             intent: 'supportTeam',
             target: t,
@@ -250,11 +257,14 @@ extension BotVoicePoints on BotVoice {
             if (past.team.contains(s)) s
         ];
         if (overlap.length >= 2 && !overlap.every(mine)) {
+          // a bot on that team says "我", never its own seat number
+          final rest = overlap.where((s) => s != me).toList();
+          final who = overlap.contains(me) ? '我和${_ns(rest)}' : _ns(overlap);
           points.add(_Point(
               'overlap/${q + 1}',
               _pick([
-                '這隊跟第${q + 1}次出失敗牌的那隊重複了${_ns(overlap)}，我不想原班人馬再試一次。',
-                '${_ns(overlap)}第${q + 1}次就一起出過任務，結果有失敗牌，這次又放在一起，我反對。',
+                '這隊跟第${q + 1}次出失敗牌的那隊重複了$who，我不想原班人馬再試一次。',
+                '$who第${q + 1}次就一起出過任務，結果有失敗牌，這次又放在一起，我反對。',
               ]),
               intent: 'opposeTeam',
               stance: true,
@@ -278,15 +288,17 @@ extension BotVoicePoints on BotVoice {
         final quests =
             _quests(_cleanWith(o, self ? me : leftOut.first).toList());
         points.add(_Point(
-            self ? 'leftOut/$me' : 'leftOut',
+            'leftOut',
             _pick([
               '$who$quests出任務沒有失敗牌，這次卻沒被帶上，反而帶了還沒出過任務的${_ns(unproven)}，我想不通。',
-              '有成功紀錄的$who不帶，改帶沒出過任務的${_ns(unproven)}？這個換法我不接受。',
+              self
+                  ? '我有成功紀錄卻沒被帶，改帶沒出過任務的${_ns(unproven)}？這個換法我不接受。'
+                  : '有成功紀錄的$who沒帶，改帶沒出過任務的${_ns(unproven)}？這個換法我不接受。',
             ]),
             intent: 'opposeTeam',
             questionTo: o.leader == me ? null : o.leader,
             stance: true,
-            brief: self ? null : '這個換法我也看不懂，反對。',
+            brief: self ? '我也有成功紀錄卻沒被帶，一樣反對。' : '這個換法我也看不懂，反對。',
             weight: 2.6,
             quests: _cleanWith(o, self ? me : leftOut.first)));
       }
@@ -352,7 +364,12 @@ extension BotVoicePoints on BotVoice {
         for (var s = 0; s < o.count; s++)
           if (!lastProposal.votes[s]) s
       ];
-      if (against.isNotEmpty && against.length <= 2 && !against.any(mine)) {
+      final asked = o.statements.any(
+          (s) => s.generation == o.generation && s.topic == 'doubted/$last');
+      if (against.isNotEmpty &&
+          against.length <= 2 &&
+          !against.any(mine) &&
+          !asked) {
         points.add(_Point(
             'doubted/$last',
             _pick([
@@ -373,11 +390,22 @@ extension BotVoicePoints on BotVoice {
         if (p.attempt < 5 && p.votes.contains(true) && p.votes.contains(false))
           p
     ];
-    if (contested.length >= 3) {
+    // pairing two voters up is said at most twice a game at the table
+    final paired = o.statements
+        .where((s) =>
+            s.generation == o.generation &&
+            (s.topic?.startsWith('pair/') ?? false))
+        .length;
+    if (contested.length >= 3 && paired < 2) {
       pairs:
       for (var a = 0; a < o.count; a++) {
         for (var b = a + 1; b < o.count; b++) {
           if (mine(a) || mine(b)) continue;
+          // someone at the table already pointed this pair out
+          if (o.statements.any(
+              (s) => s.generation == o.generation && s.topic == 'pair/$a/$b')) {
+            continue;
+          }
           final together = contested.every((p) => p.votes[a] == p.votes[b]);
           final minority = contested.any((p) => p.votes[a] != p.approved);
           if (together && minority) {
@@ -435,13 +463,158 @@ extension BotVoicePoints on BotVoice {
         }
       }
     }
+    points.addAll(_ladyPoints(o, approve, allies));
+    points.addAll(_claimPoints(o, approve, allies, belief));
+    return points;
+  }
+
+  /// What to make of players who came out as Percival. One claimant is
+  /// taken at his word as far as the team goes; with two, one of them is
+  /// lying, and the cleaner record is believed.
+  List<_Point> _claimPoints(
+      BotObservation o, bool approve, Set<int> allies, List<double>? belief) {
+    final me = o.seat, claims = _claims(o);
+    final points = <_Point>[];
+    if (claims.isEmpty || claims.values.any((c) => c.target == me)) {
+      return points;
+    }
+    if (claims.length == 1) {
+      final c = claims.values.single, m = c.target;
+      if (m == null || allies.contains(m) && !allies.contains(c.speaker)) {
+        return points;
+      }
+      final who = _n(c.speaker), key = 'claim/${c.speaker}/$m';
+      if (o.team.contains(m) && !approve) {
+        points.add(_Point(
+            key,
+            _pick([
+              '$who跳派西維爾，說${_n(m)}是莫甘娜。分清楚之前，有${_n(m)}的隊我不跟。',
+              '$who都跳身分指${_n(m)}了，這隊還帶${_n(m)}，我反對。',
+            ]),
+            intent: 'opposeTeam',
+            target: m,
+            position: DiscussionPosition.suspect,
+            stance: true,
+            brief: '$who點名的人還在隊上，我也先不跟。',
+            weight: 4.2));
+      } else if (!o.team.contains(m) && approve) {
+        points.add(_Point(key, '$who點名的${_n(m)}不在這隊，我可以接受。',
+            intent: 'supportTeam',
+            stance: true,
+            brief: '沒有${_n(m)}，我也可以。',
+            weight: 2.6));
+      }
+      return points;
+    }
+    // Two claimants (any more are ignored). Taking a side is said a few
+    // times a game at the table, not by everyone in turn.
+    final sided = o.statements
+        .where((s) =>
+            s.generation == o.generation &&
+            (s.topic?.startsWith('claims/') ?? false))
+        .length;
+    if (sided >= 3) return points;
+    final [a, b] = (claims.keys.toList()..sort()).take(2).toList();
+    int dirt(int s) =>
+        _failedWith(o, s).length * 2 + _backedFailures(o, s).length;
+    // An evil player backs the ally. Everyone else goes by how far they
+    // doubt each of the two, which for Merlin is what he sees, and puts it
+    // as the record when the record says the same.
+    final backsAlly = allies.contains(a) != allies.contains(b);
+    final gap =
+        belief == null ? (dirt(b) - dirt(a)) * .2 : belief[b] - belief[a];
+    final int? believed = backsAlly
+        ? (allies.contains(a) ? a : b)
+        : gap.abs() < .1
+            ? null
+            : (gap > 0 ? a : b);
+    final both = '${_n(a)}和${_n(b)}都說自己是派西維爾，一定有一個在說謊。';
+    if (believed == null) {
+      points.add(_Point('claims/$a/$b', '$both兩邊我都還分不出來，先看這次怎麼投。',
+          intent: 'weighClaims', once: true, weight: 3.4));
+    } else {
+      final liar = believed == a ? b : a, who = _n(believed);
+      final cleaner = dirt(believed) < dirt(liar);
+      points.add(_Point('claims/$a/$b/$believed',
+          cleaner ? '$both$who的紀錄比較乾淨，我先信$who。' : '$both照兩個人前面的投票和說法，我比較信$who。',
+          intent: 'weighClaims',
+          target: liar,
+          position: DiscussionPosition.suspect,
+          once: true,
+          brief: '兩個派西維爾裡，我也比較信$who。',
+          weight: 4.4));
+    }
+    return points;
+  }
+
+  /// What the Lady of the Lake was said to show, as announced at the table.
+  /// The holder may be lying, so it is quoted as their word, not as fact.
+  List<_Point> _ladyPoints(BotObservation o, bool approve, Set<int> allies) {
+    final me = o.seat;
+    final points = <_Point>[];
+    final claims = [
+      for (final s in o.statements)
+        if (s.generation == o.generation &&
+            s.intent == 'interpretLady' &&
+            s.claimedEvil != null &&
+            s.target != null &&
+            s.speaker != me)
+          s
+    ];
+    for (final c in claims) {
+      final t = c.target!, holder = _n(c.speaker), key = 'lady/${c.quest}/$t';
+      if (t == me) {
+        if (c.claimedEvil!) {
+          points.add(_Point(
+              key,
+              _pick([
+                '$holder說查到我是邪惡，這我不認。要嘛他看錯，要嘛他在說謊，請對照我的出牌紀錄。',
+                '$holder的女神結果說我是壞人？我不接受。他自己是什麼陣營，大家也該想一想。',
+              ]),
+              intent: 'defendSelf',
+              target: c.speaker,
+              position: DiscussionPosition.suspect,
+              once: true,
+              weight: 5));
+        }
+        continue;
+      }
+      // an evil player never repeats a check that exposes an ally
+      if (allies.contains(t) && c.claimedEvil!) continue;
+      final onTeam = o.team.contains(t);
+      if (c.claimedEvil! && onTeam && !approve) {
+        points.add(_Point(
+            key,
+            _pick([
+              '$holder用湖中女神查到${_n(t)}是邪惡，這隊有${_n(t)}，我不跟。',
+              '${_n(t)}被$holder查出是邪惡陣營，還放在隊上，我反對。',
+            ]),
+            intent: 'opposeTeam',
+            target: t,
+            position: DiscussionPosition.suspect,
+            stance: true,
+            brief: '女神的結果我也看到了，有${_n(t)}就不行。',
+            weight: 4.5));
+      } else if (c.claimedEvil! && !onTeam && approve) {
+        points.add(_Point(key, '$holder查出${_n(t)}是邪惡，這隊沒有他，我可以接受。',
+            intent: 'supportTeam',
+            stance: true,
+            brief: '沒有${_n(t)}，我也可以接受。',
+            weight: 3));
+      } else if (!c.claimedEvil! && onTeam && approve) {
+        points.add(_Point(key, '$holder說查過${_n(t)}是正義，雖然只能信他的說法，但這隊我比較放心。',
+            intent: 'supportTeam', stance: true, weight: 2.4));
+      }
+    }
     return points;
   }
 
   /// A remark grounded in the record, or null when nothing specific is left
   /// to say (the caller then falls back on the line catalogue).
-  DiscussionStatement? evidence(
-      BotObservation o, bool approve, Set<int> allies) {
+  /// [belief] is how far this seat doubts each player, for the few lines
+  /// that take a side between two players.
+  DiscussionStatement? evidence(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     if (o.phase != GamePhase.discussion || o.history.isEmpty) return null;
     if (_topicsGeneration != o.generation) {
       _topicsGeneration = o.generation;
@@ -458,7 +631,7 @@ extension BotVoicePoints on BotVoice {
           (index, s)
     ];
     final scored = <(_Point, double, int?)>[];
-    for (final point in _points(o, approve, allies)) {
+    for (final point in _points(o, approve, allies, belief)) {
       if ((_topics[tally(point)] ?? 0) >= (point.once ? 1 : 2)) continue;
       final same = [
         for (final (index, s) in round)
@@ -512,7 +685,8 @@ extension BotVoicePoints on BotVoice {
         topic: point.key,
         target: point.target,
         position: point.position,
-        questionTo: point.questionTo,
+        // agreeing with someone's question is not asking it again
+        questionTo: agreeWith == null ? point.questionTo : null,
         replyTo: agreeWith,
         certainty: point.ownCardQuest == null
             ? DiscussionCertainty.tentative
@@ -539,7 +713,10 @@ extension BotVoicePoints on BotVoice {
     if (question.topic?.startsWith('doubted/') ?? false) {
       final q = int.parse(question.topic!.split('/')[1]);
       final team = o.history[q - 1].team;
-      if (team.contains(me)) return null;
+      if (team.contains(me)) {
+        final others = team.where((s) => s != me).toList();
+        return ('那隊雖然有我，但${_ns(others)}我當時還沒把握，所以投了反對。結果沒問題，算我多慮。', false);
+      }
       return (
         _pick([
           '第$q次我不在隊上，${_ns(team)}我當時一個都沒辦法確定，所以沒跟。結果是好的，這幾位我會多信一點。',
@@ -553,6 +730,10 @@ extension BotVoicePoints on BotVoice {
         .toList()
       ..sort((a, b) => b.weight.compareTo(a.weight));
     final best = points.firstOrNull;
-    return best == null ? null : (best.text, true);
+    if (best == null) return null;
+    final text = best.key == 'leader'
+        ? best.text.replaceAll(_n(question.speaker), '你')
+        : best.text;
+    return (text, true);
   }
 }

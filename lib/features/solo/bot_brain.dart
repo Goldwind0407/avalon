@@ -24,6 +24,11 @@ class BotBrain {
   /// How readily Merlin votes like a servant while no quest has failed
   /// (times his style's disguise; halved after the first failed quest).
   static const merlinCover = 3.0;
+
+  /// How often Merlin turns down a team he knows is clean, and only while
+  /// at most this many proposals of the quest have been turned down.
+  static const merlinFalseAlarm = .3;
+  static const merlinSpareRejections = 2;
   final BotDialoguePlanner dialogue;
 
   /// With [asServant], what this seat would think without its opening role
@@ -44,7 +49,10 @@ class BotBrain {
         opening[seat] = o.lancelotSeat != null
             ? (seat == o.lancelotSeat && o.switched ? 0 : 1)
             : (o.switched && o.expansions.lancelot > 0 ? .65 : 1);
-        privateBeliefs[seat] = opening[seat]!;
+        // only what is certain is fixed; the rest is left to be worked out
+        if (opening[seat] == 0 || opening[seat] == 1) {
+          privateBeliefs[seat] = opening[seat]!;
+        }
       }
     }
     if (o.role == Role.percival && !asServant) {
@@ -54,6 +62,8 @@ class BotBrain {
         if (o.visible.length == 1) privateBeliefs[seat] = 0;
       }
     }
+    // (seat, were the Lancelots switched then, was the seat evil then)
+    final stateFacts = <(int, bool, bool)>[];
     final facts = [...o.facts]..sort((a, b) => a.quest.compareTo(b.quest));
     for (final fact in facts) {
       final knownEvil = fact.evil ?? (fact.originalCard == false ? true : null);
@@ -65,8 +75,14 @@ class BotBrain {
           canBeLancelot;
       final estimate =
           knownEvil ? (uncertain ? .65 : 1.0) : (uncertain ? .35 : 0.0);
-      // An old uncertain clue must not dilute a current definite clue.
-      if (uncertain && [0.0, 1.0].contains(privateBeliefs[fact.target])) {
+      if (uncertain) {
+        // True of the side the player was on then. Only a Lancelot has
+        // changed since, which the deduction below takes into account.
+        stateFacts.add((fact.target, fact.switched, knownEvil));
+        // An old uncertain clue must not dilute a current definite clue.
+        if (![0.0, 1.0].contains(privateBeliefs[fact.target])) {
+          opening[fact.target] = estimate;
+        }
         continue;
       }
       opening[fact.target] = estimate;
@@ -104,16 +120,24 @@ class BotBrain {
         }
       }
     }
-    _voteEvidence(o, p);
     // Establish card/deal constraints first. Applying this afterwards used to
     // erase 90% of an expert's response to discussion, making expert listeners
     // less responsive than novices. Public claims remain soft and cannot
     // override deductions that hold in every legal deal.
-    _deduce(o, p, privateBeliefs);
+    if (o.expansions.lancelot > 0) {
+      _deduceLancelot(o, p, privateBeliefs,
+          informed: !asServant, stateFacts: stateFacts);
+    } else {
+      _deduce(o, p, privateBeliefs);
+    }
     final certain = <int, double>{
       for (var s = 0; s < p.length; s++)
         if (p[s] == 0 || p[s] == 1) s: p[s],
     };
+    // The votes come on top of what the cards allow. Folded in before the
+    // deduction they were mostly washed out by it, and who backed the
+    // teams that failed is the best public clue there is.
+    _voteEvidence(o, p);
     // A claim is not a private fact. It is remembered for the whole game
     // (a novice only minds the latest) and trusted according to the
     // observer's own current view of its author; claims from before a
@@ -180,21 +204,102 @@ class BotBrain {
         p[statement.speaker] += .025;
       }
     }
+    final knows = o.role == Role.percival && !asServant && !o.evil;
+    // An evil player knows who is who; a claim tells him nothing about
+    // the others, only (as the Assassin) about Merlin.
+    if (!knows && (!o.evil || asServant)) {
+      _weighClaims(o, p, credibility, pretending: asServant);
+    }
     for (final entry in {...certain, ...privateBeliefs}.entries) {
       p[entry.key] = entry.value;
     }
+    if (knows) _checkClaims(o, p);
     p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
+  }
+
+  /// The latest "I am Percival" of every other player this game.
+  Map<int, DiscussionStatement> _percivalClaims(BotObservation o) => {
+        for (final s in o.statements)
+          if (s.generation == o.generation &&
+              s.claimsPercival &&
+              s.quotedFrom == null &&
+              s.speaker != o.seat &&
+              (s.switched == null || s.switched == o.switched))
+            s.speaker: s
+      };
+
+  /// What a player who is not Percival makes of such claims. One claimant
+  /// is believed as far as his record allows, and the player he calls
+  /// Morgana is doubted that much more. Two claimants cannot both be
+  /// telling the truth: the one with the worse record is taken for the
+  /// liar. And whoever is called Morgana knows the claimant is lying.
+  void _weighClaims(BotObservation o, List<double> p, List<double> credibility,
+      {required bool pretending}) {
+    final claims = _percivalClaims(o);
+    if (claims.isEmpty) return;
+    final claimants = claims.keys.toList()
+      ..sort((a, b) => credibility[a].compareTo(credibility[b]));
+    final trust = difficulty.claimTrust * 2;
+    for (final (rank, c) in claimants.indexed) {
+      final named = claims[c]!.target;
+      if (named == o.seat) {
+        // Percival's two are Merlin and Morgana. A loyal servant named as
+        // one of them has caught a liar; Merlin may have met a Percival
+        // who mixed his two up, and he sees which it is anyway.
+        if (o.role != Role.merlin) p[c] = max(p[c], pretending ? .7 : .95);
+        continue;
+      }
+      if (rank > 0) {
+        // the less credible of several claimants
+        p[c] += .25 * trust;
+        continue;
+      }
+      final belief = max(0.0, .65 - credibility[c]) *
+          trust *
+          (claimants.length > 1 ? .7 : 1);
+      if (named != null) p[named] += belief;
+      if (claimants.length > 1) p[c] += .05;
+    }
+  }
+
+  /// The real Percival knows every other claimant is lying, and who his
+  /// two candidates are. A claimant outside the pair is plainly evil. One
+  /// of the pair who calls Percival himself Morgana is Morgana, which makes
+  /// the other one Merlin. One of the pair naming the other is most likely
+  /// Merlin helping out; one naming a third player could be either.
+  void _checkClaims(BotObservation o, List<double> p) {
+    if (o.visible.length != 2) return;
+    final [a, b] = o.visible;
+    for (final claim in _percivalClaims(o).values) {
+      final c = claim.speaker, named = claim.target;
+      if (!o.visible.contains(c)) {
+        p[c] = max(p[c], .9);
+        continue;
+      }
+      final other = c == a ? b : a;
+      if (named == o.seat) {
+        p[c] = 1;
+        p[other] = 0;
+      } else if (named == other) {
+        p[c] = max(0, p[c] - .3);
+        p[other] = min(1, p[other] + .3);
+      }
+      // Naming someone else: Morgana lying, or Merlin bluffing. Whichever
+      // of the two already looked worse stays the likelier Morgana.
+    }
   }
 
   /// Fail cards on quest number [index] + 1 that this player cannot explain
   /// with a sword flip or their own card; null when the quest proves nothing
   /// now (the Lancelots have changed sides since).
-  int? _unexplained(BotObservation o, int index) {
+  int? _unexplained(BotObservation o, int index, {bool anyState = false}) {
     final result = o.history[index];
-    final switchedThen =
-        o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
-    if (o.expansions.lancelot > 0 && switchedThen != o.switched) return null;
+    if (!anyState &&
+        o.expansions.lancelot > 0 &&
+        _switchedAt(o, index) != o.switched) {
+      return null;
+    }
     var fails = result.fails - (result.excaliburTarget == null ? 0 : 1);
     if (o.ownCards[index + 1] == false && result.excaliburTarget != o.seat) {
       fails--;
@@ -202,9 +307,14 @@ class BotBrain {
     return max(0, fails);
   }
 
+  /// Whether the Lancelots were on the other side during quest [index] + 1.
+  bool _switchedAt(BotObservation o, int index) =>
+      o.loyalty.take(index + 1).where((v) => v == true).length.isOdd;
+
   /// Who voted for the team that then failed is the table's main public clue:
-  /// approving it from outside is a little suspicious, rejecting it a little
-  /// reassuring. The forced fifth proposal says nothing.
+  /// approving it from outside is suspicious, rejecting it reassuring; turning
+  /// down a team that came back clean is a lesser hint. The forced fifth
+  /// proposal says nothing.
   void _voteEvidence(BotObservation o, List<double> p) {
     for (var q = 0; q < o.history.length; q++) {
       final approved =
@@ -212,10 +322,16 @@ class BotBrain {
       if (approved.isEmpty || approved.last.attempt >= 5) continue;
       final proposal = approved.last;
       if (o.history[q].excaliburTarget != null) continue;
-      if ((_unexplained(o, q) ?? 0) == 0) continue;
+      // A quest from before a Lancelot switch still counts: everyone but
+      // the two Lancelots is on the side he was on then.
+      final fails = _unexplained(o, q, anyState: true)!;
       for (var s = 0; s < o.count; s++) {
         if (s == o.seat || proposal.team.contains(s)) continue;
-        p[s] += (proposal.votes[s] ? .08 : -.05) * difficulty.voteEvidence;
+        final approve = proposal.votes[s];
+        // Backing a team that then failed weighs most; turning down one
+        // that came back clean is a smaller hint the other way.
+        p[s] += (fails > 0 ? (approve ? .2 : -.125) : (approve ? 0 : .04)) *
+            difficulty.voteEvidence;
       }
     }
   }
@@ -297,6 +413,135 @@ class BotBrain {
         // mostly the reasoned estimate, nudged by votes and claims
         final r = difficulty.reasoning;
         p[s] = (1 - r) * p[s].clamp(0.0, 1.0) + r * weightEvil[s] / weight;
+      }
+    }
+  }
+
+  /// The same reasoning with the two Lancelots in the game. The evil seats
+  /// as dealt are gone through together with who the evil and the good
+  /// Lancelot could be, because a quest speaks of the sides as they were
+  /// then: before a switch the evil Lancelot was evil, after it the good one
+  /// is. In the variant with the cards face up, a Lancelot on the evil side
+  /// has to play Fail, so a clean quest clears him of being that.
+  void _deduceLancelot(
+      BotObservation o, List<double> p, Map<int, double> privateBeliefs,
+      {required bool informed, required List<(int, bool, bool)> stateFacts}) {
+    final n = o.count, evils = Room.evilCount(n), me = o.seat;
+    final mustBe = <int, bool>{
+      for (final e in privateBeliefs.entries)
+        if (e.value == 0 || e.value == 1) e.key: e.value == 1,
+      me: o.evil,
+    };
+    // (other team members, Fail cards, how readily evil fails, switched)
+    final quests = <(List<int>, int, double, bool)>[];
+    for (var q = 0; q < o.history.length; q++) {
+      if (o.history[q].excaliburTarget != null) continue;
+      quests.add((
+        [
+          for (final s in o.history[q].team)
+            if (s != me) s
+        ],
+        _unexplained(o, q, anyState: true)!,
+        q == 0 ? .6 : .8,
+        _switchedAt(o, q)
+      ));
+    }
+    // The good Lancelot only matters once the sides have been switched.
+    final needGood =
+        o.switched || quests.any((q) => q.$4) || stateFacts.any((f) => f.$2);
+    // What this seat knows about the deal from its own role.
+    final wasEvil = o.role.isEvil; // the side dealt, whatever it is now
+    final knownEvilOne =
+        !informed ? null : (o.role == Role.lancelotEvil ? me : o.lancelotSeat);
+    final knownGoodOne = informed && o.role == Role.lancelotGood ? me : null;
+    final plain = <int>{
+      if (informed && !o.role.isLancelot) me,
+      // the two Percival sees are Merlin and Morgana
+      if (informed && o.role == Role.percival) ...o.visible,
+    };
+    final seen = informed &&
+            (o.role == Role.merlin ||
+                (wasEvil &&
+                    o.role != Role.oberon &&
+                    o.role != Role.lancelotEvil))
+        ? o.visible
+        : const <int>[];
+    final pair = informed && o.role == Role.percival && o.visible.length == 2
+        ? o.visible
+        : null;
+    final weightEvil = List.filled(n, 0.0);
+    var fits = 0, weight = 0.0;
+    final set = <int>[];
+    void score(int evilOne, int goodOne) {
+      // the side a seat was on while the Lancelots were switched or not
+      bool evilAt(int s, bool switched) => switched
+          ? s == goodOne || (s != evilOne && set.contains(s))
+          : set.contains(s);
+      for (final e in mustBe.entries) {
+        if (evilAt(e.key, o.switched) != e.value) return;
+      }
+      for (final (seat, switched, evil) in stateFacts) {
+        if (evilAt(seat, switched) != evil) return;
+      }
+      var likelihood = 1.0;
+      for (final (team, fails, f, switched) in quests) {
+        final lancelot = switched ? goodOne : evilOne;
+        var k = 0;
+        for (final s in team) {
+          if (evilAt(s, switched)) k++;
+        }
+        if (k < fails) return;
+        if (fails == 0) {
+          if (o.expansions.lancelot == 2 && team.contains(lancelot)) return;
+          likelihood *= pow(1 - f, k);
+        }
+      }
+      fits++;
+      weight += likelihood;
+      for (var s = 0; s < n; s++) {
+        if (evilAt(s, o.switched)) weightEvil[s] += likelihood;
+      }
+    }
+
+    void walk(int from) {
+      if (set.length == evils) {
+        if (informed && set.contains(me) != wasEvil) return;
+        if (!seen.every(set.contains)) return;
+        if (pair != null && set.contains(pair[0]) == set.contains(pair[1])) {
+          return;
+        }
+        for (final evilOne in set) {
+          if (knownEvilOne != null && evilOne != knownEvilOne) continue;
+          if (plain.contains(evilOne)) continue;
+          if (!needGood) {
+            score(evilOne, -1);
+            continue;
+          }
+          for (var goodOne = 0; goodOne < n; goodOne++) {
+            if (set.contains(goodOne) || plain.contains(goodOne)) continue;
+            if (knownGoodOne != null && goodOne != knownGoodOne) continue;
+            score(evilOne, goodOne);
+          }
+        }
+        return;
+      }
+      for (var s = from; s <= n - (evils - set.length); s++) {
+        set.add(s);
+        walk(s + 1);
+        set.removeLast();
+      }
+    }
+
+    walk(0);
+    if (fits == 0) return; // contradictory clues: keep the soft estimate
+    for (var s = 0; s < n; s++) {
+      if (s == me) continue;
+      final share = weightEvil[s] / weight;
+      if (share == 0 || share == 1) {
+        p[s] = share;
+      } else if (!privateBeliefs.containsKey(s)) {
+        final r = difficulty.reasoning;
+        p[s] = (1 - r) * p[s].clamp(0.0, 1.0) + r * share;
       }
     }
   }
@@ -453,6 +698,18 @@ class BotBrain {
         return decide(cover, 'merlinDisguise');
       }
     }
+    // Turning down a clean team costs only a proposal, while every vote
+    // that matches where evil sits is counted by the Assassin. Now and
+    // then Merlin turns down a team he knows is clean, while there are
+    // proposals to spare.
+    if (o.role == Role.merlin &&
+        real &&
+        o.history.isNotEmpty &&
+        o.rejections <= merlinSpareRejections &&
+        o.team.every((s) => p[s] < .5) &&
+        rng.nextDouble() < merlinFalseAlarm * difficulty.rolePlay) {
+      return decide(false, 'merlinDisguise');
+    }
     return decide(real, real ? 'acceptableRisk' : 'unsafeTeam');
   }
 
@@ -549,6 +806,7 @@ class BotBrain {
   }
 
   int? swordTarget(BotObservation o) {
+    if (!o.evil) return _goodSwordTarget(o);
     final p = suspicion(o);
     final baseline = _risk(o, p, o.team);
     var bestGain = .000001;
@@ -558,6 +816,34 @@ class BotBrain {
       final gain = o.evil ? flipped - baseline : baseline - flipped;
       if (gain > bestGain) {
         bestGain = gain;
+        target = seat;
+      }
+    }
+    return target;
+  }
+
+  /// A good holder flips blind: the card turns over whatever it was. Evil
+  /// players often play Success when a trusted holder has the sword, and
+  /// only one of two evil members needs to fail, so a flip usually turns a
+  /// Success into a Fail. Flip only a card that very likely is a Fail, never
+  /// on the first quest, and Merlin judges by the record alone, so the
+  /// flip does not show what he knows.
+  int? _goodSwordTarget(BotObservation o) {
+    if (o.quest == 1) return null;
+    final p = suspicion(o, asServant: o.role == Role.merlin);
+    final others = o.team.where((s) => s != o.seat).toList();
+    final likely = others.where((s) => p[s] >= .5).length;
+    final baseline = _risk(o, p, o.team);
+    int? target;
+    var best = .55;
+    for (final seat in others) {
+      // a flip that cannot save the quest is not worth the risk
+      if (_risk(o, p, o.team, flipped: seat) >= baseline) continue;
+      // an evil player under a trusted sword fails a bit over half the time
+      var fail = p[seat] * .62;
+      if (likely >= 2) fail *= .6;
+      if (fail > best) {
+        best = fail;
         target = seat;
       }
     }
@@ -626,9 +912,30 @@ class BotBrain {
       return score + random.nextDouble() * difficulty.assassinNoise;
     }
 
+    // What a Percival claim gives away. A claimant who names another of
+    // us knows something; that is usually Percival, since Merlin seldom
+    // dares to pose as him. One who calls the Assassin himself Morgana
+    // knows he is evil but has the role wrong, which is Merlin's mistake.
+    // And a good claimant who names a good player has mixed his two
+    // candidates up: that player is Merlin.
+    final leaked = List.filled(o.count, 0.0);
+    if (difficulty != BotDifficulty.novice) {
+      for (final claim in _percivalClaims(o).values) {
+        final c = claim.speaker, named = claim.target;
+        if (evil.contains(c) || named == null) continue;
+        if (named == o.seat) {
+          leaked[c] += 1.2;
+        } else if (evil.contains(named)) {
+          leaked[c] -= .25;
+        } else {
+          leaked[named] += 1.5;
+        }
+      }
+    }
     final scored = [
       for (var s = 0; s < o.count; s++)
-        if (s != o.seat && !o.visible.contains(s)) (s, merlinScore(s))
+        if (s != o.seat && !o.visible.contains(s))
+          (s, merlinScore(s) + leaked[s])
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
   }
@@ -658,8 +965,15 @@ class BotBrain {
       return voice.reply(
           o, approve, question.$1, o.evil ? _knownAllies(o) : const <int>{});
     }
-    final direct = voice.speak(o, approve, suspicion(o, asServant: true),
-        suspicion(o), o.evil ? _knownAllies(o) : const <int>{});
+    final view = suspicion(o, asServant: true), real = suspicion(o);
+    final allies = o.evil ? _knownAllies(o) : const <int>{};
+    if (voice.claim(o, approve, view, real, allies) case final claimed?) {
+      lastSpeechSource = claimed.claimsPercival
+          ? const SpeechSource.claim()
+          : SpeechSource.voice('defendSelf');
+      return claimed;
+    }
+    final direct = voice.speak(o, approve, view, real, allies);
     if (direct != null) {
       lastSpeechSource = SpeechSource.voice(direct.intent ?? '');
       return direct;
@@ -686,8 +1000,7 @@ class BotBrain {
             : o.seat == o.leader
                 ? .9
                 : .75)) {
-      final cited =
-          voice.evidence(o, approve, o.evil ? _knownAllies(o) : const <int>{});
+      final cited = voice.evidence(o, approve, allies, o.evil ? view : real);
       if (cited != null) {
         lastSpeechSource = SpeechSource.evidence(cited.topic ?? '');
         return cited;
@@ -719,6 +1032,9 @@ class BotBrain {
 /// Where a bot's line came from, so a review can say how to change it.
 class SpeechSource {
   const SpeechSource(this.label, this.where);
+  const SpeechSource.claim()
+      : label = '跳身分',
+        where = 'lib/features/solo/bot_voice_claims.dart 的 claim()';
   const SpeechSource.reply()
       : label = '回答提問',
         where = 'lib/features/solo/bot_voice.dart 的 reply()';

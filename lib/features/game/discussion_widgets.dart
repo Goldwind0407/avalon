@@ -289,6 +289,8 @@ String speechReading(PlayerSpeech speech, List<String> players) {
     PlayerSpeechKind.ask => '你在問 $who，對方會回答',
     PlayerSpeechKind.challengeVote => '你在問 $who 的投票理由',
     PlayerSpeechKind.claimGood => '你說自己是好人',
+    PlayerSpeechKind.claimPercival =>
+      speech.target == null ? '你宣稱自己是派西維爾（電腦不一定相信）' : '你宣稱自己是派西維爾，並指 $who 是莫甘娜',
     PlayerSpeechKind.support => '你支持這隊',
     PlayerSpeechKind.oppose => '你想換人',
     PlayerSpeechKind.remark => '只是一句話（沒有點名，也沒有表態）',

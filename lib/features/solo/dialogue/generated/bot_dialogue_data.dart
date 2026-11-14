@@ -2047,7 +2047,7 @@ const String botDialogueData = r'''
       "templates": [
         "{{defender}}，你之前替{{target}}說話，看到新結果後還一樣想嗎？",
         "{{target}}這邊多了新紀錄，{{defender}}，你會怎麼調整判斷？",
-        "你先前保{{target}}的理由，現在還成立嗎？",
+        "{{defender}}，你先前保{{target}}的理由，現在還成立嗎？",
         "我想聽{{defender}}補一句，新結果出來，你對{{target}}有改看法嗎？"
       ]
     },
