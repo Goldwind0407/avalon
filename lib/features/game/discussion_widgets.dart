@@ -254,6 +254,7 @@ class PlayerSpeechBar extends StatelessWidget {
     final mine = [
       for (final s in game.statements)
         if (s.speaker == game.mySeat &&
+            !s.continues &&
             s.quest == game.questNumber &&
             s.attempt == game.rejections + 1)
           s.text
@@ -280,21 +281,32 @@ class PlayerSpeechBar extends StatelessWidget {
 
 /// What the computers will take from a typed line, in words.
 String speechReading(PlayerSpeech speech, List<String> players) {
-  final who = speech.target == null
-      ? ''
-      : playerLabel(speech.target!, players[speech.target!]);
-  return switch (speech.kind) {
-    PlayerSpeechKind.suspect => '你懷疑 $who',
-    PlayerSpeechKind.trust => '你相信 $who 是好人',
-    PlayerSpeechKind.ask => '你在問 $who，對方會回答',
-    PlayerSpeechKind.challengeVote => '你在問 $who 的投票理由',
-    PlayerSpeechKind.claimGood => '你說自己是好人',
-    PlayerSpeechKind.claimPercival =>
-      speech.target == null ? '你宣稱自己是派西維爾（電腦不一定相信）' : '你宣稱自己是派西維爾，並指 $who 是莫甘娜',
-    PlayerSpeechKind.support => '你支持這隊',
-    PlayerSpeechKind.oppose => '你想換人',
-    PlayerSpeechKind.remark => '只是一句話（沒有點名，也沒有表態）',
-  };
+  String one(PlayerSpeech point) {
+    final who = point.target == null
+        ? ''
+        : playerLabel(point.target!, players[point.target!]);
+    return switch (point.kind) {
+      PlayerSpeechKind.suspect => '你懷疑 $who',
+      PlayerSpeechKind.trust => '你相信 $who 是好人',
+      PlayerSpeechKind.ask => '你在問 $who，對方會回答',
+      PlayerSpeechKind.challengeVote => '你在問 $who 的投票理由',
+      PlayerSpeechKind.claimGood => '你說自己是好人',
+      PlayerSpeechKind.claimPercival => point.target == null
+          ? '你宣稱自己是派西維爾（電腦不一定相信）'
+          : '你宣稱自己是派西維爾，並指 $who 是莫甘娜',
+      PlayerSpeechKind.ladyClaim =>
+        '你說湖中女神查到 $who 是${point.claimsEvil == true ? '壞人' : '好人'}',
+      PlayerSpeechKind.support => '你支持這隊',
+      PlayerSpeechKind.oppose => '你想換人',
+      PlayerSpeechKind.remark => '只是一句話（沒有點名，也沒有表態）',
+    };
+  }
+
+  return [
+    for (final point in speech.points) one(point),
+    if (speech.supportsTeam == true) '你支持這隊',
+    if (speech.supportsTeam == false) '你想換人',
+  ].join('；');
 }
 
 /// Full screen so the field stays above the keyboard on a landscape phone.

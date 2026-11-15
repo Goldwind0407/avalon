@@ -40,6 +40,11 @@ class BotBrain {
   /// distrust, read from who turned down earlier teams on this quest.
   static const tableDoubtWeight = 1.0;
 
+  /// Up to this many rejections on a quest, a player votes against any
+  /// team with someone he has accused on it (and as leader leaves him
+  /// off); after that, getting a team out matters more.
+  static const stickToAccusations = 2;
+
   /// Merlin turns down a team he knows is clean, when a servant would,
   /// only while at most this many proposals of the quest have been
   /// turned down.
@@ -739,11 +744,15 @@ class BotBrain {
     final tableDoubt = o.rejections == 4 || o.evil
         ? List.filled(o.count, 0.0)
         : _tableDoubt(o, suspicion(o));
+    final accused = o.rejections > stickToAccusations
+        ? const <int>{}
+        : _accusedThisQuest(o);
     final scored = [
       for (final team in candidates)
         (
           team,
-          (o.evil && !pose ? 1 : -1) * _risk(o, p, team) +
+          -2.0 * team.where(accused.contains).length +
+              (o.evil && !pose ? 1 : -1) * _risk(o, p, team) +
               (team.contains(o.seat) ? selfBias : 0) +
               // An evil leader brings just enough saboteurs: every extra
               // ally on a failed quest is one more player exposed.
@@ -785,6 +794,12 @@ class BotBrain {
     // A leader who turns down the team he just picked makes no sense to
     // anyone at the table, whatever he is hiding.
     if (o.leader == o.seat) return decide(true, 'ownTeam');
+    // Having pointed at someone in front of everyone on this quest, backing
+    // a team with him makes no sense to the table, until proposals run out.
+    if (o.rejections <= stickToAccusations &&
+        o.team.any(_accusedThisQuest(o).contains)) {
+      return decide(false, 'accusedOnTeam');
+    }
     if (o.evil) {
       if (risk > .45) {
         // A team that should fail. Backing every such team gives the whole
@@ -952,6 +967,24 @@ class BotBrain {
 
   /// The vote of a good player who sees the table as [p]. [as] is the seat
   /// that player sits in, when it is somebody else's vote being guessed.
+  /// Players this seat has publicly called suspicious on the current quest
+  /// and not spoken up for since.
+  Set<int> _accusedThisQuest(BotObservation o) {
+    final accused = <int>{};
+    for (final s in o.statements) {
+      if (s.speaker != o.seat ||
+          s.generation != o.generation ||
+          s.quest != o.quest ||
+          s.target == null ||
+          s.target == o.seat) {
+        continue;
+      }
+      if (s.position == DiscussionPosition.suspect) accused.add(s.target!);
+      if (s.position == DiscussionPosition.defend) accused.remove(s.target!);
+    }
+    return accused;
+  }
+
   bool _goodVote(BotObservation o, List<double> p, {int? as}) {
     final seat = as ?? o.seat;
     final risk = _risk(o, p, o.team);

@@ -101,6 +101,18 @@ class BotDialoguePlanner {
           !o.publicLedger.permitsAll(context.references)) {
         continue;
       }
+      // Pointing at a member of the team one is about to back, or speaking
+      // up for one of the team one is about to turn down, says the
+      // opposite of the vote.
+      if (context.target != null &&
+          context.target != o.seat &&
+          o.team.contains(context.target) &&
+          (approve
+              ? rule.intent == BotSpeechIntent.accuse ||
+                  ['G04', 'RME02', 'RLS02', 'ROB05'].contains(rule.id)
+              : rule.intent == BotSpeechIntent.defendOther)) {
+        continue;
+      }
       // Private facts can only be expressed as claims with a matching public
       // action by THIS holder. Otherwise only public-grounded opinions render.
       if (rule.policy == BotClaimPolicy.privateTruthClaim &&

@@ -48,8 +48,12 @@ String reviewText(GameReview r, {String? difficulty, DateTime? endedAt}) {
       final p = round.record;
       out.writeln(
           '\n-- 提案${p.attempt}：${seat(p.leader)}當隊長，帶 ${seats(p.team)}');
-      for (final line in round.lines) {
+      for (final (i, line) in round.lines.indexed) {
+        if (line.statement.continues) continue;
         out.writeln(_line(line, seat));
+        if (line.source == null) {
+          out.writeln('     （電腦理解成：${lineReading(round.lines, i)}）');
+        }
       }
       out.writeln('   投票（${p.approved ? '通過' : '否決'}）：');
       for (var s = 0; s < p.votes.length; s++) {

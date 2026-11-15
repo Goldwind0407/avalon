@@ -24,6 +24,7 @@ class DiscussionStatement {
       this.originalCardQuest,
       this.quotedFrom,
       this.claimsOpeningKnowledge = false,
+      this.continues = false,
       List<String> evidenceIds = const [],
       List<int> team = const []})
       : team = List.unmodifiable(team),
@@ -51,6 +52,10 @@ class DiscussionStatement {
   final int? originalCardQuest, quotedFrom;
   final bool claimsOpeningKnowledge;
 
+  /// A further point of the speaker's previous statement: the same words,
+  /// read as saying something about another player. Not shown again.
+  final bool continues;
+
   /// "I am Percival", true or not. [target], if any, is the player the
   /// speaker says is Morgana. Like every claim, it proves nothing.
   static const percivalClaim = 'claimPercival';
@@ -77,6 +82,7 @@ class DiscussionStatement {
       originalCardQuest: originalCardQuest,
       quotedFrom: quotedFrom,
       claimsOpeningKnowledge: claimsOpeningKnowledge,
+      continues: continues,
       evidenceIds: evidenceIds,
       team: team);
 }

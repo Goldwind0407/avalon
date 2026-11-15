@@ -397,8 +397,11 @@ class BotVoice {
             null,
             replyTo: index);
       }
-      final defend = allies.contains(t) ||
-          (!o.evil && real[t] <= .2 && _cleanWith(o, t).isNotEmpty);
+      // speaking up for a member of the team one is about to turn down
+      // says the opposite of the vote
+      final defend = (approve || !o.team.contains(t)) &&
+          (allies.contains(t) ||
+              (!o.evil && real[t] <= .2 && _cleanWith(o, t).isNotEmpty));
       // someone already spoke up for this player this round
       final defenders = round
           .where((s) =>

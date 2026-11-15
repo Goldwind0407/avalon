@@ -587,54 +587,80 @@ class SoloGameSession extends GameSession {
             PlayerSpeechKind.claimGood => '我是好人，請相信我。',
             PlayerSpeechKind.claimPercival =>
               '我是派西維爾。${t == null ? '' : '${who(t)}是莫甘娜。'}',
+            PlayerSpeechKind.ladyClaim =>
+              '我用湖中女神查驗了${who(t!)}，他是${speech.claimsEvil == true ? '邪惡' : '正義'}陣營。',
             PlayerSpeechKind.remark => '',
           };
     if (text.isEmpty) return;
-    _statements.add(DiscussionStatement(
-        generation: generation,
-        attempt: rejections + 1,
-        speaker: me,
-        quest: questNumber,
-        switched: lancelotSwitched,
-        team: team,
-        text: text,
-        supportsTeam: switch (speech.kind) {
-          PlayerSpeechKind.support => true,
-          PlayerSpeechKind.oppose => false,
-          _ => null,
-        },
-        intent: switch (speech.kind) {
-          PlayerSpeechKind.support => BotSpeechIntent.supportTeam.name,
-          PlayerSpeechKind.oppose => BotSpeechIntent.opposeTeam.name,
-          PlayerSpeechKind.suspect => BotSpeechIntent.accuse.name,
-          PlayerSpeechKind.trust => BotSpeechIntent.defendOther.name,
-          PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
-          PlayerSpeechKind.challengeVote => BotSpeechIntent.challengeVote.name,
-          PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
-          PlayerSpeechKind.claimPercival => DiscussionStatement.percivalClaim,
-          PlayerSpeechKind.remark => 'opinion',
-        },
-        target: switch (speech.kind) {
-          PlayerSpeechKind.claimGood => me,
-          _ => t,
-        },
-        position: switch (speech.kind) {
-          PlayerSpeechKind.suspect => DiscussionPosition.suspect,
-          PlayerSpeechKind.claimPercival when t != null =>
-            DiscussionPosition.suspect,
-          PlayerSpeechKind.trust => DiscussionPosition.defend,
-          _ => null,
-        },
-        evidenceIds: [
-          if (ballot != null)
-            BotEvidenceId(generation, BotEvidenceKind.ballot,
-                    'q${ballot.quest}/a${ballot.attempt}')
-                .id
-        ],
-        questionTo: [PlayerSpeechKind.ask, PlayerSpeechKind.challengeVote]
-                .contains(speech.kind)
-            ? t
-            : null));
+    for (final (index, point) in speech.points.indexed) {
+      final t = point.target;
+      // A Lady result counts as one only from the holder who checked that
+      // player; otherwise it is a plain word for or against them.
+      final check = point.kind == PlayerSpeechKind.ladyClaim && t != null
+          ? ladyChecks.where((c) => c.holder == me && c.target == t).lastOrNull
+          : null;
+      final kind = point.kind != PlayerSpeechKind.ladyClaim || check != null
+          ? point.kind
+          : point.claimsEvil == true
+              ? PlayerSpeechKind.suspect
+              : PlayerSpeechKind.trust;
+      _statements.add(DiscussionStatement(
+          generation: generation,
+          attempt: rejections + 1,
+          speaker: me,
+          quest: questNumber,
+          switched: lancelotSwitched,
+          team: team,
+          text: text,
+          continues: index > 0,
+          supportsTeam: switch (kind) {
+            PlayerSpeechKind.support => true,
+            PlayerSpeechKind.oppose => false,
+            _ => index == 0 ? speech.supportsTeam : null,
+          },
+          intent: switch (kind) {
+            PlayerSpeechKind.support => BotSpeechIntent.supportTeam.name,
+            PlayerSpeechKind.oppose => BotSpeechIntent.opposeTeam.name,
+            PlayerSpeechKind.suspect => BotSpeechIntent.accuse.name,
+            PlayerSpeechKind.trust => BotSpeechIntent.defendOther.name,
+            PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
+            PlayerSpeechKind.challengeVote =>
+              BotSpeechIntent.challengeVote.name,
+            PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
+            PlayerSpeechKind.claimPercival => DiscussionStatement.percivalClaim,
+            PlayerSpeechKind.ladyClaim => BotSpeechIntent.interpretLady.name,
+            PlayerSpeechKind.remark => 'opinion',
+          },
+          target: switch (kind) {
+            PlayerSpeechKind.claimGood => me,
+            _ => t,
+          },
+          claimedEvil: check == null ? null : point.claimsEvil,
+          certainty: check == null
+              ? DiscussionCertainty.tentative
+              : DiscussionCertainty.certain,
+          position: switch (kind) {
+            PlayerSpeechKind.suspect => DiscussionPosition.suspect,
+            PlayerSpeechKind.claimPercival when t != null =>
+              DiscussionPosition.suspect,
+            PlayerSpeechKind.trust => DiscussionPosition.defend,
+            _ => null,
+          },
+          evidenceIds: [
+            if (ballot != null && index == 0)
+              BotEvidenceId(generation, BotEvidenceKind.ballot,
+                      'q${ballot.quest}/a${ballot.attempt}')
+                  .id,
+            if (check != null)
+              BotEvidenceId(generation, BotEvidenceKind.ladyUse,
+                      'q${check.quest}/$me/${check.target}')
+                  .id,
+          ],
+          questionTo: [PlayerSpeechKind.ask, PlayerSpeechKind.challengeVote]
+                  .contains(kind)
+              ? t
+              : null));
+    }
     notifyListeners();
   }
 

@@ -147,7 +147,8 @@ void main() {
           visible: [2],
           history: failed,
           statements: [accusation]),
-      true
+      // pointing at a member of the team goes with opposing it
+      false
     ),
     (
       'RME05',
@@ -229,7 +230,7 @@ void main() {
           evil: true,
           history: failed,
           statements: [accusation]),
-      true
+      false
     ),
     (
       'REV05',
@@ -335,7 +336,7 @@ void main() {
           statements: [selfAccusation]),
       true
     ),
-    ('RMG06', observe(role: Role.morgana, evil: true, history: failed), true),
+    ('RMG06', observe(role: Role.morgana, evil: true, history: failed), false),
     (
       'RMG07',
       observe(
@@ -386,7 +387,7 @@ void main() {
           statements: [selfBacking]),
       true
     ),
-    ('ROB05', observe(role: Role.oberon, evil: true, history: failed), true),
+    ('ROB05', observe(role: Role.oberon, evil: true, history: failed), false),
     (
       'ROB06',
       observe(
