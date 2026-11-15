@@ -16,6 +16,7 @@ import 'bot_vote_plan.dart';
 import 'dialogue/bot_contract.dart';
 import 'memory/match_archive.dart';
 import 'memory/match_repository.dart';
+import 'memory/player_model.dart';
 import 'memory/social_memory.dart';
 import 'persona/bot_persona.dart';
 
@@ -31,7 +32,9 @@ class SoloGameSession extends GameSession {
       DateTime Function()? now,
       this.botDelay = const Duration(milliseconds: 450),
       this.speechDuration = const Duration(seconds: 7),
-      @visibleForTesting this.autopilot = false})
+      @visibleForTesting this.autopilot = false,
+      @visibleForTesting this.playerBrain,
+      @visibleForTesting this.learnsPlayer = true})
       : _random = random ?? Random.secure(),
         _now = now ?? DateTime.now,
         personas = personas == null ? null : List.unmodifiable(personas),
@@ -51,6 +54,18 @@ class SoloGameSession extends GameSession {
   /// too, so a whole game runs with nobody at the table.
   final bool autopilot;
   bool _human(int? seat) => !autopilot && seat == mySeat;
+
+  /// Simulation only: with [autopilot], the brain that plays the player's
+  /// seat, so it can be given habits of its own.
+  final BotBrain Function(int seed)? playerBrain;
+
+  /// Simulation only: the side [seat] really plays for now.
+  @visibleForTesting
+  bool trulyEvil(int seat) => _rules.evilNow(seat);
+
+  /// Simulation only: false keeps what the regulars learned of the player
+  /// out of their decisions (their lines still remember past games).
+  final bool learnsPlayer;
 
   /// How well every computer player reasons and acts in this game.
   final BotDifficulty difficulty;
@@ -100,10 +115,12 @@ class SoloGameSession extends GameSession {
         : [BotStyle.balanced, for (final p in personas!) p.style];
     for (var s = 0; s < players.length; s++) {
       final seed = _random.nextInt(1 << 30);
-      _brains[s] = BotBrain(Random(seed),
-          dialogueRandom: Random(seed ^ 0x5a17),
-          style: styles[s],
-          difficulty: difficulty);
+      _brains[s] = autopilot && s == mySeat && playerBrain != null
+          ? playerBrain!(seed)
+          : BotBrain(Random(seed),
+              dialogueRandom: Random(seed ^ 0x5a17),
+              style: styles[s],
+              difficulty: difficulty);
       _facts[s] = [];
       _ownCards[s] = {};
     }
@@ -126,6 +143,11 @@ class SoloGameSession extends GameSession {
     for (var s = 1; s < players.length; s++) {
       _brains[s]?.voice.memory =
           BotMemory.of(personas![s - 1].id, past, mySeat!);
+      // what this regular has learned of the player's habits
+      _brains[s]
+        ?..playerModel =
+            learnsPlayer ? PlayerModel.of(personas![s - 1].id, past) : null
+        ..playerSeat = mySeat;
     }
   }
 
