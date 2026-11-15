@@ -33,7 +33,8 @@ String reviewText(GameReview r, {String? difficulty, DateTime? endedAt}) {
   out.writeln('\n== 身分');
   for (var s = 0; s < r.players.length; s++) {
     out.writeln('${seat(s)}：${r.roles[s].label}'
-        '${r.evil(s) ? '（邪惡）' : '（正義）'}'
+        '${r.evil(s) ? '（邪惡' : '（正義'}'
+        '${r.roles[s].isLancelot && r.switchedAtEnd ? '，結束時已換邊' : ''}）'
         '${s == r.mySeat ? '　← 你' : r.styles[s] == null ? '' : '　${r.styles[s]}'}');
   }
 
@@ -80,7 +81,7 @@ String reviewText(GameReview r, {String? difficulty, DateTime? endedAt}) {
     }
     for (final c in r.ladyChecks.where((c) => c.quest == q.number)) {
       out.writeln('>> 湖中女神：${seat(c.holder)}查驗${seat(c.target)}'
-          '（實際：${r.evil(c.target) ? '邪惡' : '正義'}）');
+          '（實際：${r.evilIn(c.target, c.quest) ? '邪惡' : '正義'}）');
     }
   }
 

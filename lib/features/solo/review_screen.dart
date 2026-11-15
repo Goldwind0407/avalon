@@ -306,7 +306,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
                 '湖中女神：${_seat(check.holder)} 查驗 ${_seat(check.target)}，'
-                '實際是${r.evil(check.target) ? '邪惡' : '正義'}',
+                '實際是${r.evilIn(check.target, check.quest) ? '邪惡' : '正義'}',
                 style: _muted),
           ),
       ];

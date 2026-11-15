@@ -695,7 +695,19 @@ class SoloGameSession extends GameSession {
           cardsBySeat: Map.unmodifiable(_ownCards),
           ladyChecks: ladyChecks,
           assassinTarget: assassinTarget,
-          expansions: expansions);
+          expansions: expansions,
+          switchedDuring: _switchedDuring(),
+          switchedAtEnd: lancelotSwitched);
+
+  /// Whether the Lancelots had switched during each quest played: a
+  /// "switch" loyalty card turned over at the start of a quest flips it.
+  List<bool> _switchedDuring() {
+    var switched = false;
+    return [
+      for (var q = 0; q < history.length; q++)
+        if (loyalty[q] == true) switched = !switched else switched
+    ];
+  }
 
   /// How each computer player liked to play; shown once the game is over.
   @override

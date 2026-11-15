@@ -54,6 +54,10 @@ List<String> memoryLines(EpisodeKind kind, String when, String who) =>
           '$when被$who騙得很慘，這局我不會那麼好說話。',
           '$when我太相信$who了，結果任務就壞在他手上。這次我先看紀錄。',
         ],
+      EpisodeKind.letYouThrough => [
+          '$who，$when你是壞人，我還讓你上了隊，只是那次沒出事。這局我會多看你兩眼。',
+          '$when我放$who出了任務，事後才知道他是壞人。這次我先看紀錄。',
+        ],
       EpisodeKind.sawThrough => [
           '$when我就說$who有問題，後來證明沒看錯。這局我一樣盯著紀錄。',
           '$who，$when你的壞人牌被我看穿了，這局別想用同一套。',
@@ -81,6 +85,10 @@ List<String> memoryLines(EpisodeKind kind, String when, String who) =>
       EpisodeKind.usedYou => [
           '$when$who讓我出了任務，結果我是壞人，謝謝你的信任。',
           '$who，$when你讓我出了任務，結果任務失敗了，因為我是壞人。這局別太快相信人。',
+        ],
+      EpisodeKind.slippedPastYou => [
+          '$when$who讓我上了隊，其實我是壞人，只是那次我沒動手。',
+          '$who，$when你放我出了任務，那時我是壞人。這局別太快相信人。',
         ],
       EpisodeKind.stabbedYou => [
           '$when我一刀就找到$who這個梅林。這局我也會留意誰知道得太多。',
