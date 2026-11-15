@@ -340,7 +340,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
       ),
       if (round.lines.isNotEmpty) ...[
         const Text('討論', style: _muted),
-        for (final l in round.lines) _line(l),
+        for (final (i, l) in round.lines.indexed)
+          if (!l.statement.continues) _line(l, round.lines, i),
       ],
       const SizedBox(height: 4),
       const Text('投票', style: _muted),
@@ -349,7 +350,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     ];
   }
 
-  Widget _line(ReviewLine l) {
+  Widget _line(ReviewLine l, List<ReviewLine> lines, int index) {
     final s = l.statement;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -380,6 +381,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
               ),
             ),
           ),
+        // the player's own line: how the computers took it
+        if (l.source == null)
+          TextSpan(
+              text: '\n電腦理解成：${lineReading(lines, index)}',
+              style: const TextStyle(fontSize: 12, color: AvalonTheme.muted)),
       ])),
     );
   }
@@ -421,7 +427,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   List<Widget> _ending() => [
         _heading('結局'),
-        for (final l in r.endLines) _line(l),
+        for (final (i, l) in r.endLines.indexed) _line(l, r.endLines, i),
         if (r.assassinTarget case final t?)
           Padding(
             padding: const EdgeInsets.only(top: 6),

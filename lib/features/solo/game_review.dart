@@ -8,6 +8,7 @@ import 'bot_vote_plan.dart';
 const voteReasonLabels = {
   'fifthProposal': '第五次提案，避免直接落敗',
   'ownTeam': '自己選的隊伍',
+  'accusedOnTeam': '隊上有自己點名懷疑過的人',
   'concealAlly': '暫時與可疑隊友切割',
   'sabotageOpportunity': '隊伍有機會破壞任務',
   'evilBlend': '邪惡方評估偽裝與阻擋收益',
@@ -23,6 +24,30 @@ class ReviewLine {
 
   /// Where a bot's line came from; null for the player's own lines.
   final SpeechSource? source;
+}
+
+/// What the computers took from the line at [index] of [lines] and the
+/// points that continue it, in words: "懷疑5號；湖中女神查到2號是好人".
+String lineReading(List<ReviewLine> lines, int index) {
+  final parts = <String>[];
+  for (var i = index; i < lines.length; i++) {
+    final s = lines[i].statement;
+    if (i > index && !s.continues) break;
+    final who = s.target == null ? '' : '${s.target! + 1}號';
+    if (s.claimsPercival) {
+      parts.add(s.target == null ? '跳派西維爾' : '跳派西維爾，指$who是莫甘娜');
+    } else if (s.claimedEvil != null && s.target != null) {
+      parts.add('湖中女神查到$who是${s.claimedEvil! ? '壞人' : '好人'}');
+    } else if (s.position == DiscussionPosition.suspect && s.target != null) {
+      parts.add('懷疑$who');
+    } else if (s.position == DiscussionPosition.defend && s.target != null) {
+      parts.add('相信$who');
+    } else if (s.questionTo != null) {
+      parts.add('問${s.questionTo! + 1}號');
+    }
+    if (s.supportsTeam != null) parts.add(s.supportsTeam! ? '支持這隊' : '反對這隊');
+  }
+  return parts.isEmpty ? '沒有點名也沒有表態' : parts.join('；');
 }
 
 class ReviewProposal {

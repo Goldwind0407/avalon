@@ -317,4 +317,73 @@ void main() {
       expect(withOne / 300, greaterThan(.3));
     });
   });
+
+  group('a player stands by whom he accused on this quest', () {
+    // seat 0 said earlier on the second quest that seat 3 is suspicious
+    final accusation = DiscussionStatement(
+        speaker: 0,
+        quest: 2,
+        generation: 4,
+        attempt: 1,
+        text: '3號很可疑',
+        target: 3,
+        position: DiscussionPosition.suspect);
+    BotObservation at(int rejections, {int leader = 1}) => observe(
+            seat: 0,
+            leader: leader,
+            rejections: rejections,
+            phase: leader == 0 ? GamePhase.team : GamePhase.vote,
+            team: [
+              0,
+              4,
+              3
+            ],
+            history: [
+              QuestResult([4, 5], 0, true)
+            ],
+            statements: [
+              accusation
+            ]);
+
+    test('he does not back a team with him while proposals are to spare', () {
+      expect(share((b) => b.vote(at(1))), 0);
+      // once proposals run short, getting a team out comes first
+      expect(share((b) => b.vote(at(3))), greaterThan(0));
+    });
+
+    test('nor does he put him on his own team', () {
+      for (var seed = 0; seed < 50; seed++) {
+        expect(BotBrain(Random(seed)).chooseTeam(at(1, leader: 0), 3),
+            isNot(contains(3)));
+      }
+    });
+
+    test('speaking up for him later lifts it', () {
+      final o = observe(
+          seat: 0,
+          leader: 1,
+          rejections: 1,
+          phase: GamePhase.vote,
+          team: [
+            0,
+            4,
+            3
+          ],
+          history: [
+            QuestResult([4, 5], 0, true)
+          ],
+          statements: [
+            accusation,
+            DiscussionStatement(
+                speaker: 0,
+                quest: 2,
+                generation: 4,
+                attempt: 2,
+                text: '3號先別急著定',
+                target: 3,
+                position: DiscussionPosition.defend)
+          ]);
+      expect(share((b) => b.vote(o)), greaterThan(0));
+    });
+  });
 }

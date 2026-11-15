@@ -36,6 +36,120 @@ void main() {
     expect(read('懷疑大家').kind, PlayerSpeechKind.remark);
   });
 
+  test('each player named gets what is said about them', () {
+    List<(PlayerSpeechKind, int?, bool?)> read(String text) => [
+          for (final p in PlayerSpeech.parse(text, names, 0).points)
+            (p.kind, p.target, p.claimsEvil)
+        ];
+    const suspect = PlayerSpeechKind.suspect,
+        trust = PlayerSpeechKind.trust,
+        lady = PlayerSpeechKind.ladyClaim,
+        ask = PlayerSpeechKind.ask;
+    // the line that was read as "2 is evil"
+    expect(read('湖中女神驗出2號是好人所以5號是壞人'), [(lady, 1, false), (suspect, 4, null)]);
+    expect(read('我查驗了3號，他是壞人'), [(lady, 2, true)]);
+    expect(read('女神查到4號是正義的，我比較懷疑6號'), [(lady, 3, false), (suspect, 5, null)]);
+    expect(read('2號是好人，我懷疑5號'), [(trust, 1, null), (suspect, 4, null)]);
+    expect(read('我相信2號，但5號很可疑'), [(trust, 1, null), (suspect, 4, null)]);
+    expect(read('我覺得3號和5號都很可疑'), [(suspect, 2, null), (suspect, 4, null)]);
+    expect(read('上次5號投贊成，很可疑'), [(suspect, 4, null)]);
+    expect(read('3號，你為什麼反對？'), [(ask, 2, null)]);
+    expect(read('5號是壞人，2號沒問題'), [(suspect, 4, null), (trust, 1, null)]);
+    // the Lady word goes with the first player after it, not the rest
+    expect(read('我驗了2號是好人，5號是壞人'), [(lady, 1, false), (suspect, 4, null)]);
+    // a team vote alongside, only when the line is about this team
+    final both = PlayerSpeech.parse('5號是壞人，這隊我反對', names, 0);
+    expect(both.kind, suspect);
+    expect(both.supportsTeam, isFalse);
+    expect(PlayerSpeech.parse('我同意3號說的，5號可疑', names, 0).supportsTeam, isNull);
+    // a Percival claim names Morgana only when the line does
+    final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
+    expect(claim.kind, PlayerSpeechKind.claimPercival);
+    expect(claim.target, 3);
+  });
+
+  test('a Lady result the player saw is a claim; one they did not is not', () {
+    fakeAsync((time) {
+      var checked = 0;
+      for (var seed = 0; seed < 200 && checked < 3; seed++) {
+        final s = SoloGameSession(
+            soloRoom(7, const ExpansionSettings(lady: true)),
+            random: Random(seed),
+            botDelay: const Duration(milliseconds: 1),
+            speechDuration: const Duration(milliseconds: 1));
+        var steps = 0;
+        bool ready() =>
+            s.phase == GamePhase.discussion &&
+            s.speaker == 0 &&
+            s.ladyChecks.any((c) => c.holder == 0);
+        while (!ready() && s.phase != GamePhase.finished && steps++ < 3000) {
+          if (s.phase == GamePhase.discussion && s.speaker == 0) {
+            // not yet holding a result: pass this turn
+            s.expressOpinion(true);
+          } else if (s.hasPrivateInput) {
+            switch (s.phase) {
+              case GamePhase.identity:
+                s.confirmIdentity(0);
+              case GamePhase.team:
+                s.proposeTeam(List.generate(s.requiredTeam, (i) => i));
+              case GamePhase.vote:
+                s.vote(0, true);
+              case GamePhase.quest:
+                s.playQuest(0, !s.evilNow(0)!);
+              case GamePhase.lady:
+                s.useLady([1, 2, 3, 4, 5, 6]
+                    .firstWhere((t) => !s.ladyPast.contains(t)));
+              case GamePhase.ladyResult:
+                s.continueLady();
+              case GamePhase.assassination:
+                s.assassinate(1);
+              default:
+                break;
+            }
+          } else if ([GamePhase.voteResult, GamePhase.questResult]
+              .contains(s.phase)) {
+            s.phase == GamePhase.voteResult
+                ? s.continueVote()
+                : s.continueQuest();
+          } else {
+            time.elapse(const Duration(milliseconds: 1));
+          }
+          time.flushMicrotasks();
+        }
+        if (!ready()) {
+          s.dispose();
+          continue;
+        }
+        checked++;
+        final seen = s.ladyChecks.lastWhere((c) => c.holder == 0).target;
+        final other = [1, 2, 3, 4, 5, 6].firstWhere(
+            (t) => t != seen && !s.ladyChecks.any((c) => c.target == t));
+        final before = s.statements.length;
+        s.say(PlayerSpeech.parse(
+            '湖中女神驗出${seen + 1}號是好人所以${other + 1}號是壞人', s.players, 0));
+        final said = s.statements.sublist(before);
+        expect(said, hasLength(2));
+        expect(said[0].target, seen);
+        expect(said[0].claimedEvil, isFalse);
+        expect(said[0].certainty, DiscussionCertainty.certain);
+        expect(said[0].continues, isFalse);
+        expect(said[1].target, other);
+        expect(said[1].position, DiscussionPosition.suspect);
+        expect(said[1].continues, isTrue);
+        // the player never checked [other]: calling that a Lady result
+        // makes it only a word against them
+        final again = s.statements.length;
+        s.say(PlayerSpeech.parse('女神查到${other + 1}號是壞人', s.players, 0));
+        final plain = s.statements[again];
+        expect(plain.claimedEvil, isNull);
+        expect(plain.position, DiscussionPosition.suspect);
+        expect(plain.target, other);
+        s.dispose();
+      }
+      expect(checked, greaterThan(0));
+    });
+  });
+
   test('the player speaks several times, bots weigh it and answer questions',
       () {
     fakeAsync((time) {

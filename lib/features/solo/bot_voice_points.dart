@@ -286,9 +286,11 @@ extension BotVoicePoints on BotVoice {
       ];
       if (leftOut.isNotEmpty && unproven.isNotEmpty) {
         final self = leftOut.contains(me);
-        final who = self ? '我' : _ns(leftOut.take(2));
-        final quests =
-            _quests(_cleanWith(o, self ? me : leftOut.first).toList());
+        final named = self ? [me] : leftOut.take(2).toList();
+        final who = self ? '我' : _ns(named);
+        // every quest any of them went on cleanly, not just the first one's
+        final quests = _quests(
+            ({for (final s in named) ..._cleanWith(o, s)}.toList()..sort()));
         points.add(_Point(
             'leftOut',
             _pick([

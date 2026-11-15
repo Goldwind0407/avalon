@@ -608,10 +608,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     ? const Text('尚無發言紀錄。')
                     : ListView(children: [
                         for (final line in game.statements)
-                          Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Text(
-                                  '第 ${line.quest} 次遠征・${player(line.speaker)}\n${line.text}'))
+                          if (!line.continues)
+                            Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                    '第 ${line.quest} 次遠征・${player(line.speaker)}\n${line.text}'))
                       ])),
             actions: [
               if (kDebugMode && game is SoloGameSession)

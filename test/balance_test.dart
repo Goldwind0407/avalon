@@ -202,6 +202,43 @@ Map<String, dynamic> gameDump(Setup setup, SoloGameSession s) => {
         for (final st in s.statements)
           if (st.claimsPercival) [st.speaker, st.target, st.quest]
       ],
+      // what was said and why each computer voted as it did, by proposal
+      if (s.review case final review?)
+        'rounds': [
+          for (final q in review.quests)
+            for (final p in q.proposals)
+              {
+                'q': p.record.quest,
+                'a': p.record.attempt,
+                'talk': [
+                  for (final l in p.lines)
+                    {
+                      's': l.statement.speaker,
+                      't': l.statement.text,
+                      if (l.statement.supportsTeam != null)
+                        'st': l.statement.supportsTeam,
+                      if (l.statement.target != null) 'tg': l.statement.target,
+                      if (l.statement.position != null)
+                        'pos': l.statement.position!.name,
+                      if (l.statement.intent != null) 'in': l.statement.intent,
+                      if (l.statement.claimedEvil != null)
+                        'ce': l.statement.claimedEvil,
+                      if (l.statement.questionTo != null)
+                        'qt': l.statement.questionTo,
+                      if (l.source != null) 'src': l.source!.label,
+                    }
+                ],
+                'why': {
+                  for (final d in p.decisions.entries)
+                    '${d.key}': d.value.reason
+                },
+              }
+        ],
+      'cards': [
+        if (s.review case final review?)
+          for (final q in review.quests)
+            {for (final c in q.cards.entries) '${c.key}': c.value}
+      ],
     };
 
 /// game, players, good won, quests completed, stabbed Merlin, then for the
@@ -252,8 +289,8 @@ void play(
         random: Random(seed),
         personas: cast,
         // BALANCE_LEVEL=novice|normal|expert: how well the computers play
-        difficulty: BotDifficulty.values.byName(
-            Platform.environment['BALANCE_LEVEL'] ?? 'normal'),
+        difficulty: BotDifficulty.values
+            .byName(Platform.environment['BALANCE_LEVEL'] ?? 'normal'),
         botDelay: const Duration(milliseconds: 1),
         speechDuration: const Duration(milliseconds: 1),
         autopilot: true);
