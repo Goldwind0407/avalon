@@ -190,4 +190,31 @@ void main() {
       expect(BotBrain(Random(seed)).chooseTeam(o, 3), isNot([1, 2, 3]));
     }
   });
+
+  test('a leader leaves out the player the table keeps turning down', () {
+    // seat 1 sat on both rejected teams; most of the table voted against
+    ProposalRecord rejected(int attempt, int leader, List<int> team) =>
+        ProposalRecord(
+            quest: 2,
+            attempt: attempt,
+            leader: leader,
+            team: team,
+            votes: [
+              for (var s = 0; s < 7; s++) team.contains(s) && s == leader
+            ]);
+    final o = observe(
+        seat: 0,
+        leader: 0,
+        rejections: 2,
+        phase: GamePhase.team,
+        history: [
+          QuestResult([3, 4], 0, true)
+        ],
+        proposals: [
+          rejected(1, 5, [1, 3, 5]),
+          rejected(2, 6, [1, 4, 6]),
+        ]);
+    final kept = share((b) => b.chooseTeam(o, 3).contains(1));
+    expect(kept, lessThan(.1));
+  });
 }
