@@ -21,7 +21,7 @@ import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
 import { voiceIceServers } from './voice_ice';
-import { roomHasExpired } from './room_lifecycle';
+import { gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
 
 initializeApp();
 // Callable functions must be reachable by the app; who is calling is
@@ -61,6 +61,8 @@ interface Room {
   notice?: string | null;
   /** The step at which [notice] was written, so devices show it once. */
   noticeStep?: number;
+  /** When the players' private documents of the current game expire. */
+  privateExpireAt?: Timestamp;
 }
 
 const roomRef = (code: string) => db.collection('rooms').doc(code);
@@ -292,6 +294,7 @@ export const startGame = onCall((req) =>
       room.status = 'playing';
       room.gen += 1;
       room.game = open;
+      room.privateExpireAt = expiry();
       tx.set(roomRef(code), touch(room));
       tx.set(secretRef(code), { gen: room.gen, ...secret, expireAt: expiry() });
       room.playerUids.forEach((playerUid, seat) => {
@@ -366,6 +369,15 @@ async function applyMove(
   if (move(state, seat, room) === false) return;
   const split = rules.split(state);
   room.game = split.open;
+  // The room and the secret state are renewed on every move; the players'
+  // private documents (their roles) must not run out before them.
+  if (gameDocsRenewalDue(room.privateExpireAt)) {
+    room.privateExpireAt = expiry();
+    for (const playerUid of room.playerUids) {
+      tx.set(privateRef(code, playerUid), { expireAt: room.privateExpireAt },
+        { merge: true });
+    }
+  }
   tx.set(roomRef(code), touch(room));
   tx.set(secretRef(code), { gen: room.gen, ...split.secret, expireAt: expiry() });
   // what the Lady or Excalibur showed goes only to the player who used it

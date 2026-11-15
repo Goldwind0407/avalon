@@ -631,7 +631,10 @@ class SoloGameSession extends GameSession {
           attempt: rejections + 1,
           speaker: me,
           quest: questNumber,
-          switched: lancelotSwitched,
+          // a Lady result is about the sides when the check was made
+          switched: check == null
+              ? lancelotSwitched
+              : _switchedWhenChecked(check.quest),
           team: team,
           text: text,
           continues: index > 0,
@@ -721,15 +724,18 @@ class SoloGameSession extends GameSession {
           switchedDuring: _switchedDuring(),
           switchedAtEnd: lancelotSwitched);
 
+  /// Whether the Lancelots had switched when a Lady check was made after
+  /// quest [quest] (before the next quest's loyalty card).
+  bool _switchedWhenChecked(int quest) {
+    final during = switchStates(loyalty, history.length);
+    return quest >= 1 && quest <= during.length
+        ? during[quest - 1]
+        : lancelotSwitched;
+  }
+
   /// Whether the Lancelots had switched during each quest played: a
   /// "switch" loyalty card turned over at the start of a quest flips it.
-  List<bool> _switchedDuring() {
-    var switched = false;
-    return [
-      for (var q = 0; q < history.length; q++)
-        if (loyalty[q] == true) switched = !switched else switched
-    ];
-  }
+  List<bool> _switchedDuring() => switchStates(loyalty, history.length);
 
   /// How each computer player liked to play; shown once the game is over.
   @override
@@ -835,4 +841,18 @@ class SoloGameSession extends GameSession {
     _local.dispose();
     super.dispose();
   }
+}
+
+/// Whether the Lancelots had switched during each of the first [quests]
+/// quests: a "switch" loyalty card turned over at the start of a quest
+/// flips it for that quest and the ones after.
+List<bool> switchStates(List<bool?> loyalty, int quests) {
+  var switched = false;
+  return [
+    for (var q = 0; q < quests; q++)
+      if (q < loyalty.length && loyalty[q] == true)
+        switched = !switched
+      else
+        switched
+  ];
 }

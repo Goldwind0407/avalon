@@ -43,6 +43,8 @@ abstract final class Trait {
 Map<String, int> playerTraits(GameReview r) {
   final me = r.mySeat;
   final t = <String, int>{};
+  // nothing is learned from a game whose sides cannot all be told
+  if (!r.sidesKnown) return t;
   void add(String key, [bool counts = true]) {
     if (counts) t[key] = (t[key] ?? 0) + 1;
   }
@@ -51,6 +53,10 @@ Map<String, int> playerTraits(GameReview r) {
   final merlin = r.roles[me] == Role.merlin;
   if (merlin) add(Trait.gamesMerlin);
   var claimedPercival = false;
+  // Said again is not seen again: each player the player called counts
+  // once per quest (the last call stands), each Lady check once.
+  final calls = <String, (bool right, bool asEvil)>{};
+  final ladyResults = <String, bool>{};
   for (final q in r.quests) {
     final iEvil = r.evilIn(me, q.number);
     bool evil(int s) => r.evilIn(s, q.number);
@@ -84,24 +90,32 @@ Map<String, int> playerTraits(GameReview r) {
               .where((c) => c.holder == me && c.target == target)
               .lastOrNull;
           if (check != null) {
-            add(Trait.ladyClaims);
-            add(Trait.ladyClaimsTrue,
-                s.claimedEvil == r.evilIn(target, check.quest));
+            ladyResults['${check.quest}/$target'] =
+                s.claimedEvil == r.evilIn(target, check.quest);
           }
           continue;
         }
         if (s.position == null) continue;
-        final right = (s.position == DiscussionPosition.suspect) ==
-            r.evilIn(target, s.quest);
-        if (r.evilIn(me, s.quest)) {
-          add(Trait.evilCalls);
-          add(Trait.evilCallsMisleading, !right);
-        } else {
-          add(Trait.goodCalls);
-          add(Trait.goodCallsRight, right);
-        }
+        calls['${s.quest}/$target'] = (
+          (s.position == DiscussionPosition.suspect) ==
+              r.evilIn(target, s.quest),
+          r.evilIn(me, s.quest)
+        );
       }
     }
+  }
+  for (final (right, asEvil) in calls.values) {
+    if (asEvil) {
+      add(Trait.evilCalls);
+      add(Trait.evilCallsMisleading, !right);
+    } else {
+      add(Trait.goodCalls);
+      add(Trait.goodCallsRight, right);
+    }
+  }
+  for (final right in ladyResults.values) {
+    add(Trait.ladyClaims);
+    add(Trait.ladyClaimsTrue, right);
   }
   if (claimedPercival) {
     add(Trait.percivalClaims);

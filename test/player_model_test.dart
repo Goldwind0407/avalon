@@ -188,9 +188,13 @@ void main() {
     // make the saved index look like it came from the version before
     const key = 'avalon.solo.matches.v1';
     final index = jsonDecode(storage.values[key]!) as List;
-    (index.single as Map).remove('traits');
+    (index.single as Map)
+      ..remove('traits')
+      ..remove('sv');
     // and one more game whose full record is gone
-    index.add(summary('lost', null).toMap()..remove('traits'));
+    index.add(summary('lost', null).toMap()
+      ..remove('traits')
+      ..remove('sv'));
     storage.values[key] = jsonEncode(index);
 
     final list = await repository.summaries();
@@ -199,6 +203,33 @@ void main() {
     // written back: the next read does not count again
     final saved = jsonDecode(storage.values[key]!) as List;
     expect(saved.every((s) => (s as Map).containsKey('traits')), isTrue);
+    expect(saved.every((s) => (s as Map)['sv'] == MatchSummary.currentVersion),
+        isTrue);
     expect(PlayerModel.of('kai', list)!.rate(Trait.goodCallsRight).games, 1);
+  });
+
+  test('saying it again is not seeing it again', () {
+    final t = playerTraits(review(me: Role.loyal, proposals: [
+      proposal(1, 1, 1, [1, 2], myVote: true),
+      proposal(1, 2, 2, [2, 4], myVote: true),
+      proposal(2, 1, 4, [2, 4, 6], myVote: true),
+    ], history: [
+      QuestResult([2, 4], 0, true),
+      QuestResult([2, 4, 6], 0, true),
+    ], statements: [
+      for (var i = 0; i < 100; i++)
+        said(1, 1, '3號可疑', target: 3, position: DiscussionPosition.suspect),
+      // changed their mind about 2 on the same quest: the last call stands
+      said(1, 1, '2號可疑', target: 2, position: DiscussionPosition.suspect),
+      said(1, 2, '2號沒問題', target: 2, position: DiscussionPosition.defend),
+      for (var i = 0; i < 5; i++)
+        said(2, 1, '女神查到5號是壞人', target: 5, claimedEvil: true),
+    ], lady: const [
+      LadyCheck(0, 5, 1)
+    ]));
+    expect(t[Trait.goodCalls], 2);
+    expect(t[Trait.goodCallsRight], 2);
+    expect(t[Trait.ladyClaims], 1);
+    expect(t[Trait.ladyClaimsTrue], 1);
   });
 }

@@ -62,6 +62,20 @@ void main() {
     expect(both.kind, suspect);
     expect(both.supportsTeam, isFalse);
     expect(PlayerSpeech.parse('我同意3號說的，5號可疑', names, 0).supportsTeam, isNull);
+    // negations, questions and other people's words are not accusations
+    expect(read('我不懷疑3號'), [(trust, 2, null)]);
+    expect(read('我不覺得3號可疑'), [(trust, 2, null)]);
+    expect(read('我不同意3號是壞人'), [(trust, 2, null)]);
+    expect(read('我不相信3號是好人'), [(suspect, 2, null)]);
+    expect(read('3號是壞人嗎？'), [(ask, 2, null)]);
+    // ruling out one role says nothing about the side
+    expect(PlayerSpeech.parse('3號不是刺客', names, 0).kind,
+        PlayerSpeechKind.remark);
+    expect(read('3號不是壞人'), [(trust, 2, null)]);
+    expect(PlayerSpeech.parse('4號說3號是壞人', names, 0).kind,
+        PlayerSpeechKind.remark);
+    expect(PlayerSpeech.parse('有人認為3號有問題', names, 0).kind,
+        PlayerSpeechKind.remark);
     // a Percival claim names Morgana only when the line does
     final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
     expect(claim.kind, PlayerSpeechKind.claimPercival);

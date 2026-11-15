@@ -77,7 +77,7 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final matches = _matches;
-    final wins = matches?.where((m) => m.won).length ?? 0;
+    final wins = matches?.where((m) => m.won == true).length ?? 0;
     return Scaffold(
         body: FantasyBackground(
             child: SafeArea(
@@ -149,9 +149,19 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
         key: ValueKey('match_${m.id}'),
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-        leading: Icon(m.won ? Icons.emoji_events : Icons.close,
-            color: m.won ? AvalonTheme.gold : AvalonTheme.muted),
-        title: Text('${m.won ? '勝' : '敗'}・${m.myRole.label}・${m.players} 人',
+        leading: Icon(
+            switch (m.won) {
+              true => Icons.emoji_events,
+              false => Icons.close,
+              null => Icons.help_outline,
+            },
+            color: m.won == true ? AvalonTheme.gold : AvalonTheme.muted),
+        title: Text(
+            '${switch (m.won) {
+              true => '勝',
+              false => '敗',
+              null => '勝負不明',
+            }}・${m.myRole.label}・${m.players} 人',
             style: const TextStyle(fontSize: 14)),
         subtitle: Text(
             '${_date(m.endedAt)}・${m.winner}獲勝${m.difficulty.isEmpty ? '' : '・${m.difficulty}'}',

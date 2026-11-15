@@ -91,6 +91,7 @@ class GameReview {
     required this.expansions,
     List<bool> switchedDuring = const [],
     this.switchedAtEnd = false,
+    this.sidesKnown = true,
   }) : switchedDuring = List.unmodifiable(switchedDuring);
 
   final List<String> players;
@@ -111,6 +112,14 @@ class GameReview {
   /// without the Lancelot expansion.
   final List<bool> switchedDuring;
   final bool switchedAtEnd;
+
+  /// False for a Lancelot game saved before the switch timeline was kept:
+  /// the Lancelots' sides cannot be told, and are read as never switched
+  /// only for showing the record, never for learning from it.
+  final bool sidesKnown;
+
+  /// Whether [seat]'s side can be told at every point of the game.
+  bool sideKnown(int seat) => sidesKnown || !roles[seat].isLancelot;
 
   /// Builds the review from what a solo session recorded.
   factory GameReview.build({
@@ -190,6 +199,11 @@ class GameReview {
           : switchedAtEnd);
 
   bool get iAmEvil => evil(mySeat);
+
+  /// The player is a Lancelot whose side changed during the game, so one
+  /// side's wording would not fit all of it.
+  bool get switchedSides =>
+      roles[mySeat].isLancelot && {...switchedDuring, switchedAtEnd}.length > 1;
   bool get iWon => winner != null && (winner == '邪惡') == iAmEvil;
 
   /// Something about a bot's vote worth a second look, or null.
@@ -260,17 +274,21 @@ class GameReview {
       ReviewScore(
           '投票',
           pct(helpful, votes),
-          mine
-              ? '$votes 次投票中，$helpful 次對邪惡有利（贊成有壞人的隊、反對乾淨的隊）。'
-              : '$votes 次投票中，$helpful 次判斷正確（贊成乾淨的隊、反對有壞人的隊）。第五次提案不計。'),
+          switchedSides
+              ? '$votes 次投票中，$helpful 次符合你當時陣營的利益（換邊前後各照當時的陣營算）。第五次提案不計。'
+              : mine
+                  ? '$votes 次投票中，$helpful 次對邪惡有利（贊成有壞人的隊、反對乾淨的隊）。'
+                  : '$votes 次投票中，$helpful 次判斷正確（贊成乾淨的隊、反對有壞人的隊）。第五次提案不計。'),
       ReviewScore(
           '當隊長',
           led == 0 ? '—' : '$ledClean／$led',
           led == 0
               ? '這局你沒有當過隊長。'
-              : mine
-                  ? '你帶的 $led 支隊伍中，$ledClean 支有壞人上隊。'
-                  : '你帶的 $led 支隊伍中，$ledClean 支完全沒有壞人。'),
+              : switchedSides
+                  ? '你帶的 $led 支隊伍中，$ledClean 支符合你當時陣營的目標（當好人時沒有壞人、當壞人時有壞人上隊）。'
+                  : mine
+                      ? '你帶的 $led 支隊伍中，$ledClean 支有壞人上隊。'
+                      : '你帶的 $led 支隊伍中，$ledClean 支完全沒有壞人。'),
       ReviewScore(
           '點名',
           pct(rightCalls, calls),
