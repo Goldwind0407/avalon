@@ -14,6 +14,7 @@ import '../lobby/room_model.dart';
 import '../solo/bot_difficulty.dart';
 import '../solo/memory/match_history_screen.dart';
 import '../solo/memory/match_repository.dart';
+import '../solo/memory/player_model.dart';
 import '../solo/memory/social_memory.dart';
 import '../solo/persona/bot_persona.dart';
 
@@ -132,6 +133,12 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                         key: const ValueKey('personaRecord'),
                         style: const TextStyle(
                             fontSize: 12.5, color: AvalonTheme.muted)),
+                    // what this computer player has learned of your habits
+                    for (final line
+                        in playerModelLines(PlayerModel.of(persona.id, past)))
+                      Text('・$line',
+                          style: const TextStyle(
+                              fontSize: 12, color: AvalonTheme.muted)),
                     const SizedBox(height: 4),
                     const Text('每一局都會重新抽角色；他記得的是以前打完的局。',
                         style: TextStyle(

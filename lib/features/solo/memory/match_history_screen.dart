@@ -5,6 +5,7 @@ import '../persona/bot_persona.dart';
 import '../review_screen.dart';
 import 'match_archive.dart';
 import 'match_repository.dart';
+import 'player_model.dart';
 import 'social_memory.dart';
 
 /// Past solo games on this device, and the computer players who remember
@@ -176,6 +177,9 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
             style: const TextStyle(fontSize: 13, color: Color(0xFFE8E2D2))),
         Text(memorySummary(memory),
             style: const TextStyle(fontSize: 11.5, color: AvalonTheme.muted)),
+        for (final line in playerModelLines(PlayerModel.of(p.id, matches)))
+          Text('・$line',
+              style: const TextStyle(fontSize: 11.5, color: AvalonTheme.muted)),
         if (last != null && personal.isNotEmpty)
           Text(
               '「${memoryLines(personal.first, last.ago == 0 ? '上一局' : '之前', '你').first.replaceFirst(RegExp('^你，'), '')}」',

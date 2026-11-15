@@ -4,6 +4,7 @@ import '../../game/game_model.dart';
 import '../bot_brain.dart';
 import '../bot_vote_plan.dart';
 import '../game_review.dart';
+import 'player_model.dart';
 
 /// Something that happened between the player and one computer player in a
 /// finished game. Every kind can be checked against that game's record.
@@ -73,8 +74,10 @@ class MatchSummary {
       required this.won,
       required this.winner,
       required this.difficulty,
-      required Map<String, List<EpisodeKind>> episodes})
-      : episodes = Map.unmodifiable(episodes);
+      required Map<String, List<EpisodeKind>> episodes,
+      Map<String, int>? traits})
+      : episodes = Map.unmodifiable(episodes),
+        traits = traits == null ? null : Map.unmodifiable(traits);
   final String id;
   final DateTime endedAt;
   final int players;
@@ -84,6 +87,22 @@ class MatchSummary {
 
   /// Persona id → what happened between that bot and the player.
   final Map<String, List<EpisodeKind>> episodes;
+
+  /// What the game showed about how the player plays ([playerTraits]);
+  /// null for a game saved before these were counted.
+  final Map<String, int>? traits;
+
+  /// The same summary with [traits] counted from the full record.
+  MatchSummary withTraits(Map<String, int> traits) => MatchSummary(
+      id: id,
+      endedAt: endedAt,
+      players: players,
+      myRole: myRole,
+      won: won,
+      winner: winner,
+      difficulty: difficulty,
+      episodes: episodes,
+      traits: traits);
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -97,25 +116,31 @@ class MatchSummary {
           for (final e in episodes.entries)
             e.key: [for (final k in e.value) k.name]
         },
+        if (traits != null) 'traits': traits,
       };
 
   factory MatchSummary.fromMap(Map<String, dynamic> m) => MatchSummary(
-          id: m['id'] as String,
-          endedAt:
-              DateTime.fromMillisecondsSinceEpoch((m['at'] as num).toInt()),
-          players: (m['n'] as num).toInt(),
-          myRole: Role.values.byName(m['role'] as String),
-          won: m['won'] == true,
-          winner: m['winner'] as String? ?? '',
-          difficulty: m['level'] as String? ?? '',
-          episodes: {
-            for (final e in (m['episodes'] as Map? ?? const {}).entries)
-              e.key as String: [
-                for (final k in e.value as List)
-                  // a kind this version does not know is simply forgotten
-                  ...EpisodeKind.values.where((v) => v.name == k)
-              ]
-          });
+      id: m['id'] as String,
+      endedAt: DateTime.fromMillisecondsSinceEpoch((m['at'] as num).toInt()),
+      players: (m['n'] as num).toInt(),
+      myRole: Role.values.byName(m['role'] as String),
+      won: m['won'] == true,
+      winner: m['winner'] as String? ?? '',
+      difficulty: m['level'] as String? ?? '',
+      episodes: {
+        for (final e in (m['episodes'] as Map? ?? const {}).entries)
+          e.key as String: [
+            for (final k in e.value as List)
+              // a kind this version does not know is simply forgotten
+              ...EpisodeKind.values.where((v) => v.name == k)
+          ]
+      },
+      traits: m['traits'] == null
+          ? null
+          : {
+              for (final e in (m['traits'] as Map).entries)
+                e.key as String: (e.value as num).toInt()
+            });
 }
 
 /// One finished solo game: the full review plus who sat where.
@@ -137,18 +162,19 @@ class MatchArchive {
   final GameReview review;
 
   MatchSummary get summary => MatchSummary(
-          id: id,
-          endedAt: endedAt,
-          players: review.players.length,
-          myRole: review.roles[review.mySeat],
-          won: review.iWon,
-          winner: review.winner ?? '',
-          difficulty: difficulty,
-          episodes: {
-            for (final (seat, persona) in personas.indexed)
-              if (persona != null && seat != review.mySeat)
-                persona: episodesWith(review, seat)
-          });
+      id: id,
+      endedAt: endedAt,
+      players: review.players.length,
+      myRole: review.roles[review.mySeat],
+      won: review.iWon,
+      winner: review.winner ?? '',
+      difficulty: difficulty,
+      episodes: {
+        for (final (seat, persona) in personas.indexed)
+          if (persona != null && seat != review.mySeat)
+            persona: episodesWith(review, seat)
+      },
+      traits: playerTraits(review));
 
   Map<String, dynamic> toMap() => {
         'v': schemaVersion,

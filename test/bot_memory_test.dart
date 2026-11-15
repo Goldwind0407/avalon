@@ -16,6 +16,7 @@ import 'package:avalon_shadow_council/features/solo/game_review.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_history_screen.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_repository.dart';
+import 'package:avalon_shadow_council/features/solo/memory/player_model.dart';
 import 'package:avalon_shadow_council/features/solo/memory/social_memory.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
@@ -117,6 +118,12 @@ void main() {
         jsonDecode(jsonEncode(match.toMap())) as Map<String, dynamic>)!;
     expect(jsonEncode(again.toMap()), jsonEncode(match.toMap()));
     expect(list.single.won, match.review.iWon);
+    // what the game showed about the player is counted when it is saved
+    final traits = list.single.traits!;
+    expect((traits[Trait.gamesGood] ?? 0) + (traits[Trait.gamesEvil] ?? 0), 1);
+    expect(traits, playerTraits(match.review));
+    final someone = match.personas.whereType<String>().first;
+    expect(PlayerModel.of(someone, list)!.gamesTogether, 1);
     expect(list.single.myRole, match.review.roles[0]);
     // every regular at the table has something to remember
     expect(list.single.episodes.keys.toSet(),
