@@ -2328,7 +2328,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         primary: false,
                         onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                                builder: (_) => ReviewScreen(review: review)))),
+                                builder: (_) => ReviewScreen(
+                                    review: review,
+                                    difficulty: widget.difficulty.label)))),
                     SizedBox(width: 14 * s),
                   ],
                   TableButton(game.isOnline ? '回到房間' : '返回設定',

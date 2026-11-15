@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/discussion_model.dart' show ProposalRecord;
@@ -6,6 +9,7 @@ import '../game/game_model.dart';
 import 'bot_brain.dart';
 import 'bot_vote_plan.dart';
 import 'game_review.dart';
+import 'review_export.dart';
 
 const _goodColor = Color(0xFF8FD0FF);
 const _evilColor = Color(0xFFFF8A7E);
@@ -15,8 +19,13 @@ const _muted = TextStyle(fontSize: 11.5, color: AvalonTheme.muted);
 /// Looking back at a finished solo game: how the player did, every vote with
 /// its reasons, every line with where it came from, every card played.
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.review});
+  const ReviewScreen(
+      {super.key, required this.review, this.difficulty, this.endedAt});
   final GameReview review;
+
+  /// For the exported text: the level played and when the game ended.
+  final String? difficulty;
+  final DateTime? endedAt;
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
 }
@@ -32,6 +41,43 @@ class _ReviewScreenState extends State<ReviewScreen> {
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  String get _text => reviewText(r,
+      difficulty: widget.difficulty, endedAt: widget.endedAt ?? _opened);
+  final _opened = DateTime.now();
+
+  /// The whole game as a text file, through the phone's share sheet: save
+  /// it to Files, AirDrop it, or send it to a chat.
+  Future<void> _share(BuildContext button) async {
+    final box = button.findRenderObject() as RenderBox?;
+    final t = (widget.endedAt ?? _opened).toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final name = 'avalon_${t.year}${two(t.month)}${two(t.day)}_'
+        '${two(t.hour)}${two(t.minute)}.txt';
+    try {
+      await SharePlus.instance.share(ShareParams(
+          files: [
+            XFile.fromData(utf8.encode(_text),
+                name: name, mimeType: 'text/plain')
+          ],
+          fileNameOverrides: [
+            name
+          ],
+          subject: '阿瓦隆復盤',
+          sharePositionOrigin:
+              box == null ? null : box.localToGlobal(Offset.zero) & box.size));
+    } catch (_) {
+      // no share sheet here (some desktops): copy instead
+      await _copy();
+    }
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: _text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('已複製整局復盤文字')));
   }
 
   void _show(int p) {
@@ -118,6 +164,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                 ]),
                               ),
                             ),
+                            const SizedBox(height: 6),
+                            Builder(
+                                builder: (button) => OutlinedButton.icon(
+                                    key: const ValueKey('reviewShare'),
+                                    onPressed: () => _share(button),
+                                    icon: const Icon(Icons.ios_share, size: 16),
+                                    label: const Text('分享整局'))),
+                            const SizedBox(height: 4),
+                            OutlinedButton.icon(
+                                key: const ValueKey('reviewCopy'),
+                                onPressed: _copy,
+                                icon: const Icon(Icons.copy, size: 16),
+                                label: const Text('複製文字')),
                           ]),
                     ),
                     const SizedBox(width: 10),
