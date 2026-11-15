@@ -7,6 +7,7 @@ import 'bot_vote_plan.dart';
 /// Why a bot voted the way it did, in words.
 const voteReasonLabels = {
   'fifthProposal': '第五次提案，避免直接落敗',
+  'ownTeam': '自己選的隊伍',
   'concealAlly': '暫時與可疑隊友切割',
   'sabotageOpportunity': '隊伍有機會破壞任務',
   'evilBlend': '邪惡方評估偽裝與阻擋收益',

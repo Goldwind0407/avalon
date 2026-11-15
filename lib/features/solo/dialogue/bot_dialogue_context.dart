@@ -351,7 +351,14 @@ class BotDialogueContext {
                           s.speaker == o.seat &&
                           s.intent == BotSpeechIntent.interpretLady.name)
                       .length <
-                  2,
+                  2 &&
+              // not again in the round where the result was just announced
+              !o.statements.any((s) =>
+                  s.generation == o.generation &&
+                  s.quest == o.quest &&
+                  s.attempt == o.rejections + 1 &&
+                  s.speaker == o.seat &&
+                  s.intent == BotSpeechIntent.interpretLady.name),
         _ => true,
       };
 

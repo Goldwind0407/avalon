@@ -25,6 +25,14 @@ class BotBrain {
   /// (times his style's disguise; halved after the first failed quest).
   static const merlinCover = 6.0;
 
+  /// How much a leader holds back from proposing a team that was already
+  /// turned down on this quest.
+  static const repeatRejectedTeam = 2.0;
+
+  /// How much a leader steers away from players the table seems to
+  /// distrust, read from who turned down earlier teams on this quest.
+  static const tableDoubtWeight = 1.0;
+
   /// How often Merlin turns down a team he knows is clean, and only while
   /// at most this many proposals of the quest have been turned down.
   static const merlinFalseAlarm = .5;
@@ -606,6 +614,30 @@ class BotBrain {
     return _risk(o, suspicion(o), team);
   }
 
+  /// Whom the table seems to distrust on this quest. Each rejected team is
+  /// blamed on its members, more on those this seat already doubts, and
+  /// the blame grows with how many players this seat trusts voted against
+  /// it (a rejection by a likely evil player says little). Members who
+  /// voted against their own team are not counted as rejectors.
+  List<double> _tableDoubt(BotObservation o, List<double> p) {
+    final doubt = List.filled(o.count, 0.0);
+    for (final r in o.proposals) {
+      if (r.quest != o.quest || r.approved) continue;
+      var trusted = 0.0;
+      for (var v = 0; v < r.votes.length && v < o.count; v++) {
+        if (r.votes[v] || r.team.contains(v)) continue;
+        trusted += v == o.seat ? 1 : 1 - p[v];
+      }
+      final members = r.team.where((s) => s != o.seat).toList();
+      final total = members.fold(0.0, (sum, s) => sum + p[s] + .1);
+      if (total == 0) continue;
+      for (final s in members) {
+        doubt[s] += trusted / o.count * (p[s] + .1) / total * members.length;
+      }
+    }
+    return doubt;
+  }
+
   double _risk(BotObservation o, List<double> p, List<int> team,
       {int? flipped}) {
     final counts = List.filled(team.length + 1, 0.0)..[0] = 1;
@@ -665,6 +697,22 @@ class BotBrain {
     // whoever comes to mind.
     final looks =
         o.evil && !pose ? (suspicion(o, asServant: true)..[o.seat] = 0) : null;
+    // Sending again the very team the table has just turned down only
+    // wastes a proposal (the fifth one passes whatever it is).
+    final turnedDown = o.rejections == 4
+        ? const <String>{}
+        : {
+            for (final r in o.proposals)
+              if (r.quest == o.quest && !r.approved)
+                ([...r.team]..sort()).join(',')
+          };
+    // A team must pass before it can do anything: keep the players the
+    // table objected to off it, unless the fifth proposal passes anyway.
+    // Evil already picks a team the table will pass (see [evilLeaderCover]);
+    // steering him away from blamed good players only crowds in allies.
+    final tableDoubt = o.rejections == 4 || o.evil
+        ? List.filled(o.count, 0.0)
+        : _tableDoubt(o, suspicion(o));
     final scored = [
       for (final team in candidates)
         (
@@ -680,7 +728,9 @@ class BotBrain {
                   : -evilLeaderCover *
                       difficulty.rolePlay.clamp(0, 1.2) *
                       _risk(o, looks, team)) +
-              random.nextDouble() * style.noise * difficulty.noise
+              random.nextDouble() * style.noise * difficulty.noise +
+              (turnedDown.contains(team.join(',')) ? -repeatRejectedTeam : 0) -
+              tableDoubtWeight * team.fold(0.0, (sum, s) => sum + tableDoubt[s])
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
@@ -700,6 +750,9 @@ class BotBrain {
     // The fifth proposal passes whatever a minority does (a tie or less is
     // needed to reject), and votes are public: rejecting only exposes evil.
     if (o.rejections == 4) return decide(true, 'fifthProposal');
+    // A leader who turns down the team he just picked makes no sense to
+    // anyone at the table, whatever he is hiding.
+    if (o.leader == o.seat) return decide(true, 'ownTeam');
     if (o.evil) {
       if (risk > .45) {
         // A team that should fail. Backing every such team gives the whole

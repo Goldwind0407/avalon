@@ -22,13 +22,16 @@ BotObservation view(
         Map<int, bool> ownCards = const {},
         ExpansionSettings expansions = const ExpansionSettings(),
         List<DiscussionStatement> statements = const [],
-        List<int> team = const [0, 1]}) =>
+        List<int> team = const [0, 1],
+        // a leader always backs his own team, so the voter is not the
+        // leader unless a test says so
+        int? leader}) =>
     BotObservation(
         seat: seat,
         role: role,
         evil: evil,
         count: count,
-        leader: 0,
+        leader: leader ?? (seat == count - 1 ? 0 : count - 1),
         quest: history.length + 1,
         rejections: rejects,
         failsRequired: failsRequired,
@@ -624,7 +627,7 @@ void main() {
       expect(gap(BotDifficulty.normal), lessThan(gap(BotDifficulty.expert)));
       // Merlin sees evil on the team: only a beginner ever lets it through
       // by mistake (the balanced test style never disguises)
-      final dirty = seen(Role.merlin, visible: [
+      final dirty = seen(Role.merlin, leader: 6, visible: [
         1
       ], history: [
         QuestResult([2, 3], 1, false),

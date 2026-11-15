@@ -165,18 +165,27 @@ class _ReviewScreenState extends State<ReviewScreen> {
                               ),
                             ),
                             const SizedBox(height: 6),
-                            Builder(
-                                builder: (button) => OutlinedButton.icon(
-                                    key: const ValueKey('reviewShare'),
-                                    onPressed: () => _share(button),
-                                    icon: const Icon(Icons.ios_share, size: 16),
-                                    label: const Text('分享整局'))),
-                            const SizedBox(height: 4),
-                            OutlinedButton.icon(
-                                key: const ValueKey('reviewCopy'),
-                                onPressed: _copy,
-                                icon: const Icon(Icons.copy, size: 16),
-                                label: const Text('複製文字')),
+                            Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Builder(
+                                      builder: (button) => IconButton(
+                                          key: const ValueKey('reviewShare'),
+                                          tooltip: '分享整局',
+                                          visualDensity: VisualDensity.compact,
+                                          iconSize: 18,
+                                          color: AvalonTheme.gold,
+                                          onPressed: () => _share(button),
+                                          icon: const Icon(Icons.ios_share))),
+                                  IconButton(
+                                      key: const ValueKey('reviewCopy'),
+                                      tooltip: '複製文字',
+                                      visualDensity: VisualDensity.compact,
+                                      iconSize: 18,
+                                      color: AvalonTheme.gold,
+                                      onPressed: _copy,
+                                      icon: const Icon(Icons.copy)),
+                                ]),
                           ]),
                     ),
                     const SizedBox(width: 10),
