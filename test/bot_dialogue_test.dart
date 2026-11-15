@@ -429,4 +429,125 @@ void main() {
     expect(BotBrain(Random(1)).speech(o, true).text,
         BotBrain(Random(1)).speech(observe(), true).text);
   });
+
+  group('wording follows who is speaking and what is being quoted', () {
+    BotSpeechRule rule(String id) =>
+        BotDialogueCatalog.bundled.rules.firstWhere((r) => r.id == id);
+
+    test('"my card was a Success" names the team of the failed quest', () {
+      // seat 0 also holds a Lady result from after the third quest; that
+      // check must not change which quest the line is about
+      final o = observe(expansions: const ExpansionSettings(lady: true), team: [
+        0,
+        2,
+        3,
+        6
+      ], ownCards: const {
+        2: true
+      }, history: [
+        QuestResult([0, 1], 0, true),
+        QuestResult([0, 2, 3], 1, false),
+        QuestResult([0, 4, 5], 0, true)
+      ], ladyChecks: const [
+        LadyCheck(0, 6, 3)
+      ], facts: const [
+        BotFact(
+            quest: 3,
+            target: 6,
+            switched: false,
+            owner: 0,
+            generation: 4,
+            evil: false)
+      ]);
+      final context =
+          BotDialogueContext(o, true, rule('G12'), (_) => .3, false);
+      expect(context.bindings['quest'], '2');
+      expect(context.bindings['otherMembers'], '3號、4號');
+    });
+
+    test('asking about a swap says "me" and "yourself"', () {
+      ProposalRecord before(List<int> team) => ProposalRecord(
+          quest: 2,
+          attempt: 1,
+          leader: 6,
+          team: team,
+          votes: List.filled(7, false));
+      final history = [
+        QuestResult([3, 4], 0, true)
+      ];
+      // the leader (seat 1) took the speaker (seat 0) out for seat 5
+      final dropped = BotDialogueContext(
+          observe(
+              leader: 1,
+              rejections: 1,
+              team: [1, 2, 5],
+              history: history,
+              proposals: [
+                before([0, 1, 2])
+              ]),
+          false,
+          rule('G10'),
+          (_) => .3,
+          false);
+      expect(dropped.bindings['oldMember'], '我');
+      expect(dropped.bindings['newMember'], '6號');
+      // the leader put himself in for seat 5
+      final himself = BotDialogueContext(
+          observe(
+              leader: 1,
+              rejections: 1,
+              team: [1, 2, 3],
+              history: history,
+              proposals: [
+                before([2, 3, 5])
+              ]),
+          false,
+          rule('G10'),
+          (_) => .3,
+          false);
+      expect(himself.bindings['oldMember'], '6號');
+      expect(himself.bindings['newMember'], '你自己');
+    });
+
+    test('the shared-failure line is about a quest that had a Fail', () {
+      final o = observe(team: [
+        0,
+        1,
+        2
+      ], history: [
+        QuestResult([0, 1, 2], 0, true),
+        QuestResult([3, 4, 5], 1, false)
+      ]);
+      final context =
+          BotDialogueContext(o, true, rule('XQT02'), (_) => .3, false);
+      expect(context.bindings['quest'], '2');
+    });
+  });
+
+  test('a remark the table has just heard gives way to a plain word', () {
+    final planner = plannerFor('G15');
+    final o = observe(team: [
+      0,
+      1,
+      2
+    ], history: [
+      QuestResult([3, 4], 0, true)
+    ], statements: [
+      for (final (seat, text) in [
+        (3, '第1次沒有失敗牌是好事，但先別急著把整隊都認成好人。'),
+        (4, '第1次的成功能加一點分，還不到保證身分的程度。')
+      ])
+        DiscussionStatement(
+            speaker: seat,
+            quest: 2,
+            generation: 4,
+            attempt: 1,
+            text: text,
+            intent: 'quoteQuest')
+    ]);
+    final said = planner.speak(o, true, (_) => .3);
+    expect(planner.lastTrace, isNull);
+    expect(said.text, isNot(contains('第1次')));
+    expect(said.supportsTeam, isTrue);
+  });
 }

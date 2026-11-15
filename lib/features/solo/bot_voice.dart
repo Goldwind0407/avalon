@@ -133,7 +133,7 @@ class BotVoice {
           '$who參與的${_quests(failed)}遠征出了失敗牌',
         ],
         '${_quests(failed)}遠征出現失敗牌時$who就在隊上',
-        '我想追${_quests(failed)}的失敗牌，$who那時也在隊上',
+        '${_quests(failed)}的失敗牌還沒人交代，$who那時就在隊上',
       ]));
     }
     if (backed.isNotEmpty) {
@@ -141,7 +141,7 @@ class BotVoice {
       parts.add(_pick([
         '${_quests(backed)}那支出過失敗牌的隊伍$subject不在隊上卻投了贊成',
         '$subject不在隊上還支持了${_quests(backed)}出過失敗牌的那隊',
-        '$subject當時沒在隊上，但${_quests(backed)}出過失敗牌的隊伍他投了贊成',
+        '${_quests(backed)}那隊後來出了失敗牌，$subject人不在隊上卻投贊成',
         '回頭看${_quests(backed)}，$subject在隊外支持的組合後來有失敗牌',
       ]));
     }
@@ -318,13 +318,13 @@ class BotVoice {
             attempt: o.proposalId.attempt,
             text: '$text${approve ? _pick([
                     '這隊我先贊成。',
-                    '這次組隊我支持。',
+                    '這隊我支持。',
                     '這隊我願意試。',
                     '這票我會投贊成。'
                   ]) : _pick([
                     '這隊我投反對。',
                     '這次我想換個組合。',
-                    '目前這份名單我不支持。',
+                    '這份名單我不支持。',
                     '這票我會反對。'
                   ])}',
             team: o.team,
@@ -368,6 +368,24 @@ class BotVoice {
       final speaker = _who(o, said.speaker);
       if (t == o.seat) {
         plan = BotStrategyPlan(BotGoal.defendSelf, t, o.generation, o.switched);
+        // answered once on this quest already: nothing new has happened
+        // since, so do not give the whole defence again
+        final answered = o.statements.any((s) =>
+            s.speaker == o.seat &&
+            s.generation == o.generation &&
+            s.quest == o.quest &&
+            s.intent == 'defendSelf');
+        if (answered) {
+          return line(
+              _pick([
+                '$speaker，這件事我剛才解釋過了，我的說法沒變。',
+                '同一件事我回答過了。$speaker，除了這個，你還有別的理由嗎？',
+                '我還是那句話：紀錄大家都看得到，該解釋的不是只有我。',
+              ]),
+              t,
+              null,
+              replyTo: index);
+        }
         return line(
             '${_aside(o, accusedBy: said.speaker)}${_defence(o, allies) ?? _pick([
                       '$speaker，我有聽到你的懷疑。你卡在哪一票，還是哪次遠征？',
@@ -488,7 +506,7 @@ class BotVoice {
         _pick([
               '$_opener$who很可疑：${_reasons(o, t)!.replaceFirst(who, '他')}。',
               '$_opener$reasons，我目前最懷疑他。',
-              '$_opener我想請大家注意$who，${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$_opener大家注意一下$who：${_reasons(o, t)!.replaceFirst(who, '他')}。',
               '$reasons。$who，你怎麼看這幾段紀錄？',
             ]) +
             _aside(o, accusing: t),

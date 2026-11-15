@@ -5,6 +5,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
+import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 import 'support/bot_dialogue_fixtures.dart';
 
 /// How many of 300 differently seeded bots do [act].
@@ -162,7 +163,11 @@ void main() {
           seat: 0,
           leader: 0,
           phase: GamePhase.vote,
-          team: [0, 6, 2],
+          team: [
+            0,
+            6,
+            2
+          ],
           history: [
             QuestResult([3, 4], 0, true)
           ]);
@@ -185,7 +190,9 @@ void main() {
         history: [
           QuestResult([1, 2], 0, true)
         ],
-        proposals: [rejected]);
+        proposals: [
+          rejected
+        ]);
     for (var seed = 0; seed < 50; seed++) {
       expect(BotBrain(Random(seed)).chooseTeam(o, 3), isNot([1, 2, 3]));
     }
@@ -216,5 +223,98 @@ void main() {
         ]);
     final kept = share((b) => b.chooseTeam(o, 3).contains(1));
     expect(kept, lessThan(.1));
+  });
+
+  group('Merlin plays the servant where it costs nothing', () {
+    /// How many of 300 Merlins with a taste for acting do [act].
+    double actors(bool Function(BotBrain) act) {
+      var n = 0;
+      for (var seed = 0; seed < 300; seed++) {
+        if (act(BotBrain(Random(seed), style: BotStyle.actor))) n++;
+      }
+      return n / 300;
+    }
+
+    test('he can tell when his vote will not decide a proposal', () {
+      final merlin = BotBrain(Random(1), style: BotStyle.actor);
+      // nobody turns the first team down
+      expect(
+          merlin.voteDecides(observe(
+              role: Role.merlin,
+              count: 5,
+              visible: [3, 4],
+              leader: 1,
+              phase: GamePhase.vote,
+              team: [1, 3])),
+          0);
+      // Five players, both evil players on the leader's team: with the
+      // leader they carry it, whatever Merlin and the last player do.
+      final carried = observe(
+          role: Role.merlin,
+          count: 5,
+          visible: [3, 4],
+          leader: 1,
+          phase: GamePhase.vote,
+          team: [1, 3, 4],
+          history: [
+            QuestResult([1, 2], 0, true)
+          ]);
+      expect(merlin.voteDecides(carried), lessThan(.15));
+      // Two players on a team of strangers: every vote may be the one.
+      final open = observe(
+          role: Role.merlin,
+          count: 5,
+          visible: [3, 4],
+          leader: 2,
+          phase: GamePhase.vote,
+          team: [0, 2, 3],
+          history: [
+            QuestResult([1, 2], 0, true)
+          ]);
+      expect(
+          merlin.voteDecides(open), greaterThan(merlin.voteDecides(carried)));
+    });
+
+    test('he never lets evil through when one more failed quest loses', () {
+      // six players, so the fourth quest still fails on a single card
+      final o = observe(
+          role: Role.merlin,
+          count: 6,
+          visible: [4, 5],
+          leader: 1,
+          phase: GamePhase.vote,
+          team: [0, 1, 4],
+          history: [
+            QuestResult([3, 5], 1, false),
+            QuestResult([0, 1, 4], 0, true),
+            QuestResult([2, 3, 5], 1, false)
+          ]);
+      expect(actors((b) => b.vote(o)), 0);
+    });
+
+    test('leading a quest that needs two Fails he may bring one of them', () {
+      // fourth quest at seven players: one evil player cannot fail it
+      final o = observe(
+          role: Role.merlin,
+          visible: [5, 6],
+          seat: 0,
+          leader: 0,
+          phase: GamePhase.team,
+          history: [
+            QuestResult([0, 1], 0, true),
+            QuestResult([1, 2, 6], 1, false),
+            QuestResult([0, 1, 5], 0, true)
+          ]);
+      var withOne = 0;
+      for (var seed = 0; seed < 300; seed++) {
+        final team =
+            BotBrain(Random(seed), style: BotStyle.actor).chooseTeam(o, 4);
+        final evil = team.where([5, 6].contains).length;
+        expect(evil, lessThan(2), reason: 'seed $seed: $team');
+        if (evil == 1) withOne++;
+      }
+      // seat 5 has two clean quests on the record: a servant would take him
+      expect(withOne / 300, greaterThan(.3));
+    });
   });
 }

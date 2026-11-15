@@ -39,6 +39,8 @@ class BotDialogueContext {
         continue;
       }
       if (rule.id.startsWith('XSW') && q.excaliburTarget == null) continue;
+      // "the Fail is somewhere on that team" needs a team with a Fail
+      if (rule.id == 'XQT02' && q.fails == 0) continue;
       referenceQuest = index + 1;
       break;
     }
@@ -90,8 +92,12 @@ class BotDialogueContext {
           e.quest == fact.quest);
       if (proof.isNotEmpty) {
         disclosure = fact;
-        if (rule.policy == BotClaimPolicy.privateTruthClaim ||
-            rule.policy == BotClaimPolicy.explicitPrivateClaimLie) {
+        // only a line about the check or the sword itself is about that
+        // quest; "my own card was a Success" keeps the quest it answers for
+        if ((rule.policy == BotClaimPolicy.privateTruthClaim ||
+                rule.policy == BotClaimPolicy.explicitPrivateClaimLie) &&
+            (rule.intent == BotSpeechIntent.interpretLady ||
+                rule.intent == BotSpeechIntent.discussSword)) {
           target = fact.target;
           referenceQuest = fact.quest;
           _references.add(proof.first.id);
@@ -341,38 +347,49 @@ class BotDialogueContext {
         BotSpeechIntent.discussLancelot =>
           (!_afterSwitch.contains(rule.id) || o.loyalty.contains(true)) &&
               _saidThisGame(BotSpeechIntent.discussLancelot) < 2,
-        BotSpeechIntent.interpretLady when rule.id.startsWith('XLD') =>
-          o.ladyChecks.any(
-                  (c) => c.holder == o.seat && c.quest == o.history.length) &&
-              o.statements
-                      .where((s) =>
-                          s.generation == o.generation &&
-                          s.quest == o.quest &&
-                          s.speaker == o.seat &&
-                          s.intent == BotSpeechIntent.interpretLady.name)
-                      .length <
-                  2 &&
-              // not again in the round where the result was just announced
-              !o.statements.any((s) =>
-                  s.generation == o.generation &&
-                  s.quest == o.quest &&
-                  s.attempt == o.rejections + 1 &&
-                  s.speaker == o.seat &&
-                  s.intent == BotSpeechIntent.interpretLady.name),
+        BotSpeechIntent.interpretLady when rule.id.startsWith('XLD') => o
+                .ladyChecks
+                .any(
+                    (c) => c.holder == o.seat && c.quest == o.history.length) &&
+            o.statements
+                    .where((s) =>
+                        s.generation == o.generation &&
+                        s.quest == o.quest &&
+                        s.speaker == o.seat &&
+                        s.intent == BotSpeechIntent.interpretLady.name)
+                    .length <
+                2 &&
+            // not again in the round where the result was just announced
+            !o.statements.any((s) =>
+                s.generation == o.generation &&
+                s.quest == o.quest &&
+                s.attempt == o.rejections + 1 &&
+                s.speaker == o.seat &&
+                s.intent == BotSpeechIntent.interpretLady.name),
         _ => true,
       };
 
   bool get matchesTrigger =>
       _expansionTalkLeft &&
       (rule.id != 'G10' ||
-          (previous != null && added.isNotEmpty && !added.contains(o.seat))) &&
+          (previous != null &&
+              added.isNotEmpty &&
+              !added.contains(o.seat) &&
+              // one person asking the leader about the swap is enough
+              !o.statements.any((s) =>
+                  s.generation == o.generation &&
+                  s.quest == o.quest &&
+                  s.attempt == o.proposalId.attempt &&
+                  s.questionTo == o.leader &&
+                  s.intent == BotSpeechIntent.questionTeam.name))) &&
       (_evaluateTrigger ?? false);
   bool? get _evaluateTrigger => social.supported
       ? social.matches
       : switch (rule.id) {
           'G01' || 'RLS01' || 'ROB01' => o.quest == 1 && o.history.isEmpty,
           'G02' => true,
-          'G03' => o.history.isEmpty,
+          // a plain "I am fine with this team" fits any proposal
+          'G03' => true,
           'G04' => !approve && publicTarget,
           'G05' => !approve && !publicTarget,
           'G06' ||
@@ -431,6 +448,12 @@ class BotDialogueContext {
 
   Map<String, String> get bindings {
     String label(int s) => '${s + 1}號';
+    // asking the leader about a swap: the speaker is "me", the leader "you"
+    String member(int s) => s == o.seat
+        ? '我'
+        : s == o.leader && rule.id == 'G10'
+            ? '你自己'
+            : label(s);
     final values = <String, String>{
       if (target != null) 'target': label(target!),
       if (q != null) 'quest': '$referenceQuest',
@@ -442,8 +465,8 @@ class BotDialogueContext {
       if (rule.id == 'RLS05' && reused.isNotEmpty)
         'oldMember': reused.map(label).join('、')
       else if (removed.length == 1)
-        'oldMember': label(removed.single),
-      if (added.length == 1) 'newMember': label(added.single),
+        'oldMember': member(removed.single),
+      if (added.length == 1) 'newMember': member(added.single),
       if (reused.isNotEmpty) 'reusedMembers': reused.map(label).join('、'),
       if (declaredAlignment != null && disclosure?.evil != null)
         'claimedAlignment': declaredAlignment! ? '邪惡陣營' : '正義陣營',
