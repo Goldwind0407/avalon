@@ -25,6 +25,10 @@ class BotBrain {
   /// (times his style's disguise; halved after the first failed quest).
   static const merlinCover = 6.0;
 
+  /// How much a leader holds back from proposing a team that was already
+  /// turned down on this quest.
+  static const repeatRejectedTeam = 2.0;
+
   /// How often Merlin turns down a team he knows is clean, and only while
   /// at most this many proposals of the quest have been turned down.
   static const merlinFalseAlarm = .5;
@@ -665,6 +669,14 @@ class BotBrain {
     // whoever comes to mind.
     final looks =
         o.evil && !pose ? (suspicion(o, asServant: true)..[o.seat] = 0) : null;
+    // Sending again the very team the table has just turned down only
+    // wastes a proposal (the fifth one passes whatever it is).
+    final turnedDown = o.rejections == 4
+        ? const <String>{}
+        : {
+            for (final r in o.proposals)
+              if (r.quest == o.quest && !r.approved) ([...r.team]..sort()).join(',')
+          };
     final scored = [
       for (final team in candidates)
         (
@@ -680,7 +692,8 @@ class BotBrain {
                   : -evilLeaderCover *
                       difficulty.rolePlay.clamp(0, 1.2) *
                       _risk(o, looks, team)) +
-              random.nextDouble() * style.noise * difficulty.noise
+              random.nextDouble() * style.noise * difficulty.noise +
+              (turnedDown.contains(team.join(',')) ? -repeatRejectedTeam : 0)
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
@@ -700,6 +713,9 @@ class BotBrain {
     // The fifth proposal passes whatever a minority does (a tie or less is
     // needed to reject), and votes are public: rejecting only exposes evil.
     if (o.rejections == 4) return decide(true, 'fifthProposal');
+    // A leader who turns down the team he just picked makes no sense to
+    // anyone at the table, whatever he is hiding.
+    if (o.leader == o.seat) return decide(true, 'ownTeam');
     if (o.evil) {
       if (risk > .45) {
         // A team that should fail. Backing every such team gives the whole

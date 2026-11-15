@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
@@ -146,5 +147,47 @@ void main() {
           QuestResult([3, 4, 5], 0, true)
         ]);
     expect(share((b) => b.questCard(late)), lessThan(early - .3));
+  });
+
+  test('a leader always backs the team he picked', () {
+    for (final (role, evil, visible) in [
+      (Role.merlin, false, [5, 6]),
+      (Role.minion, true, [6]),
+      (Role.loyal, false, <int>[]),
+    ]) {
+      final o = observe(
+          role: role,
+          evil: evil,
+          visible: visible,
+          seat: 0,
+          leader: 0,
+          phase: GamePhase.vote,
+          team: [0, 6, 2],
+          history: [
+            QuestResult([3, 4], 0, true)
+          ]);
+      expect(share((b) => b.vote(o)), 1, reason: '$role');
+    }
+  });
+
+  test('a leader does not send again the team just turned down', () {
+    final rejected = ProposalRecord(
+        quest: 2,
+        attempt: 1,
+        leader: 6,
+        team: [1, 2, 3],
+        votes: [false, true, true, false, false, false, false]);
+    final o = observe(
+        seat: 0,
+        leader: 0,
+        rejections: 1,
+        phase: GamePhase.team,
+        history: [
+          QuestResult([1, 2], 0, true)
+        ],
+        proposals: [rejected]);
+    for (var seed = 0; seed < 50; seed++) {
+      expect(BotBrain(Random(seed)).chooseTeam(o, 3), isNot([1, 2, 3]));
+    }
   });
 }
