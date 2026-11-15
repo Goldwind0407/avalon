@@ -13,7 +13,10 @@ Room soloRoom(int count, ExpansionSettings expansions) => Room(
     code: '',
     players: List.generate(count,
         (i) => Player(id: '$i', name: i == 0 ? '你' : '電腦$i', isReady: true)))
-  ..specialRoles.addAll([for (final role in rolePreset(count)!) role.label])
+  ..specialRoles.addAll([
+    for (final role in rolePreset(count, lancelot: expansions.lancelot > 0)!)
+      role.label
+  ])
   ..discussion = DiscussionSettings.recommended
   ..expansions = expansions;
 

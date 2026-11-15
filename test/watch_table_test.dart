@@ -40,7 +40,10 @@ void main() {
       for (final (i, p) in cast.indexed)
         Player(id: '${i + 1}', name: p.name, isReady: true)
     ])
-      ..specialRoles.addAll([for (final r in rolePreset(count)!) r.label])
+      ..specialRoles.addAll([
+        for (final r in rolePreset(count, lancelot: expansions.lancelot > 0)!)
+          r.label
+      ])
       ..discussion = DiscussionSettings.recommended
       ..expansions = expansions;
     fakeAsync((time) {

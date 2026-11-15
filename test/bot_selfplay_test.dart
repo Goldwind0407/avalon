@@ -43,7 +43,10 @@ void main() {
         expect(stats.stabRate, lessThan(.7), reason: '$where: Merlin');
         expect(stats.proposalsPerQuest, lessThan(2.5), reason: where);
         expect(stats.hammerEvilRejects, 0, reason: where);
-        expect(stats.uselessLoneFails, 0, reason: where);
+        // Oberon (in the ten-player preset) knows no ally, so now and then
+        // he or a partner plays a Fail that the other does not join.
+        expect(stats.uselessLoneFails, n == 10 ? lessThan(10) : 0,
+            reason: where);
         expect(stats.certainMissed, 0, reason: where);
         if (level != novice) {
           expect(stats.evilLeadsStacked / stats.evilLeads, lessThan(.4),

@@ -238,7 +238,11 @@ void play(
     for (final (i, p) in cast.indexed)
       Player(id: '${i + 1}', name: p.name, isReady: true)
   ])
-    ..specialRoles.addAll([for (final r in rolePreset(setup.count)!) r.label])
+    ..specialRoles.addAll([
+      for (final r
+          in rolePreset(setup.count, lancelot: setup.expansions.lancelot > 0)!)
+        r.label
+    ])
     ..discussion =
         talk ? DiscussionSettings.recommended : const DiscussionSettings()
     ..expansions = setup.expansions;
