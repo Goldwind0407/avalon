@@ -7,6 +7,7 @@ import '../game/game_model.dart';
 import '../game/game_screen.dart';
 import '../game/game_session.dart';
 import '../game/discussion_widgets.dart';
+import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
@@ -136,7 +137,8 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     final count = room.players.length, last = _lastCount;
     _lastCount = count;
     if (last == null || last == count || room.inGame || !session.isHost) return;
-    final preset = rolePreset(count);
+    final preset =
+        rolePreset(count, lancelot: session.room!.expansions.lancelot > 0);
     if (preset == null) return;
     _presets = _presets.then((_) async {
       if (!mounted || session.room?.players.length != count) return;
@@ -146,6 +148,28 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         }
       } catch (_) {/* The host can still set the roles by hand. */}
     });
+  }
+
+  /// New expansion settings. Lancelot needs an evil place: switching it on
+  /// first drops evil roles to make room; switching it off brings the
+  /// preset back if the roles were only the preset made to fit.
+  Future<void> _setExpansions(OnlineRoom room, ExpansionSettings value) async {
+    final count = room.players.length;
+    final was = room.expansions.lancelot > 0, now = value.lancelot > 0;
+    final roles = room.optionalRoles;
+    if (now && !was) {
+      final fitted = fitForLancelot(count, roles);
+      if (!setEquals(fitted, roles)) await session.setRoles(fitted);
+      await session.setExpansions(value);
+      return;
+    }
+    await session.setExpansions(value);
+    if (was && !now) {
+      final fitted = rolePreset(count, lancelot: true);
+      if (fitted != null && setEquals(fitted, roles)) {
+        await session.setRoles(rolePreset(count)!);
+      }
+    }
   }
 
   void _updateVoiceFloor() {
@@ -392,7 +416,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                         final value =
                             await editExpansions(context, room.expansions);
                         if (mounted && value != null) {
-                          await _run(() => session.setExpansions(value));
+                          await _run(() => _setExpansions(room, value));
                         }
                       }
                     : null),

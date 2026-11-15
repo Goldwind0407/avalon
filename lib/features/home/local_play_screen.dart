@@ -1,10 +1,12 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/game_screen.dart';
 import '../game/discussion_model.dart';
 import '../game/discussion_widgets.dart';
+import '../game/game_model.dart';
 import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
@@ -65,11 +67,36 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     if (count < lancelotMinPlayers) {
       expansions = expansions.copyWith(lancelot: 0);
     }
-    final preset = rolePreset(count);
+    final preset = rolePreset(count, lancelot: expansions.lancelot > 0);
     if (preset == null) return;
     roles
       ..clear()
       ..addAll(['梅林', '刺客', for (final r in preset) r.label]);
+  }
+
+  /// New expansion settings. Switching Lancelot on makes room for the evil
+  /// Lancelot by dropping evil roles; switching it off brings the preset
+  /// back if the roles were only the preset made to fit.
+  void _setExpansions(ExpansionSettings value) {
+    final was = expansions.lancelot > 0, now = value.lancelot > 0;
+    expansions = value;
+    if (was == now) return;
+    final extra = {
+      for (final r in Role.values)
+        if (roles.contains(r.label) && r != Role.merlin && r != Role.assassin) r
+    };
+    final Set<Role> next;
+    if (now) {
+      next = fitForLancelot(playerCount, extra);
+    } else {
+      final fitted = rolePreset(playerCount, lancelot: true);
+      next = fitted != null && setEquals(fitted, extra)
+          ? rolePreset(playerCount)!
+          : extra;
+    }
+    roles
+      ..clear()
+      ..addAll(['梅林', '刺客', for (final r in next) r.label]);
   }
 
   Room get setup {
@@ -458,7 +485,7 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                               context, expansions,
                               players: playerCount);
                           if (mounted && value != null) {
-                            setState(() => expansions = value);
+                            setState(() => _setExpansions(value));
                           }
                         })),
                 const SizedBox(width: 12),
