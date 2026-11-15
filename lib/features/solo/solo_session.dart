@@ -565,7 +565,7 @@ class SoloGameSession extends GameSession {
         (t == null || t < 0 || t == me || t >= players.length)) {
       throw const GameMoveException('請選擇另一位玩家');
     }
-    String who(int seat) => playerLabel(seat, players[seat]);
+    String who(int seat) => '${seat + 1}號';
     final ballot = speech.kind == PlayerSpeechKind.challengeVote
         ? proposalHistory.lastOrNull
         : null;

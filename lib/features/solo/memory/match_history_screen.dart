@@ -41,7 +41,10 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
       return;
     }
     await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => ReviewScreen(review: match.review)));
+        builder: (_) => ReviewScreen(
+            review: match.review,
+            difficulty: match.difficulty,
+            endedAt: match.endedAt)));
   }
 
   Future<void> _clear() async {

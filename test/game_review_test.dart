@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:fake_async/fake_async.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
@@ -8,6 +10,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/game/player_speech.dart';
 import 'package:avalon_shadow_council/features/solo/game_review.dart';
+import 'package:avalon_shadow_council/features/solo/review_export.dart';
 import 'package:avalon_shadow_council/features/solo/review_screen.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 import 'solo_session_test.dart' show soloRoom;
@@ -134,5 +137,62 @@ void main() {
         expect(tester.takeException(), isNull, reason: 'page $p at $size');
       }
     }
+  });
+
+  test('the whole game can be written out as text', () {
+    final r = played(5,
+        count: 8, e: const ExpansionSettings(lady: true, excalibur: true));
+    final text =
+        reviewText(r, difficulty: '一般', endedAt: DateTime(2026, 11, 15, 21, 5));
+    expect(text, contains('時間：2026-11-15 21:05'));
+    expect(text, contains('難度：一般'));
+    expect(text, contains('擴充：湖中女神、王者之劍'));
+    for (var s = 0; s < r.players.length; s++) {
+      expect(text, contains('${s + 1}號${r.players[s]}：${r.roles[s].label}'));
+    }
+    expect(text, contains('← 你'));
+    for (final q in r.quests) {
+      expect(text, contains('== 第${q.number}次遠征'));
+      for (final round in q.proposals) {
+        expect(text, contains('提案${round.record.attempt}：'));
+        for (final line in round.lines) {
+          expect(text, contains(line.statement.text));
+        }
+      }
+    }
+    // where a computer line came from, and the player's own
+    expect(text, contains('［你］'));
+    expect(text, contains('［'));
+    // every vote, with the computer's reason
+    expect(RegExp(r'   \d+[○✕]').allMatches(text).length,
+        r.quests.expand((q) => q.proposals).length * r.players.length);
+    expect(text, contains('隊伍風險'));
+    final out = Platform.environment['REVIEW_SAMPLE'];
+    if (out != null) File(out).writeAsStringSync(text);
+  });
+
+  testWidgets('the review copies the whole game as text', (tester) async {
+    final r = played(3);
+    tester.view.physicalSize = const Size(932, 430);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    String? copied;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    await tester.pumpWidget(MaterialApp(
+        theme: AvalonTheme.dark,
+        home: ReviewScreen(review: r, difficulty: '一般')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('reviewShare')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('reviewCopy')));
+    await tester.pumpAndSettle();
+    expect(copied, contains('阿瓦隆 單人模式 復盤'));
+    expect(copied, contains('== 第1次遠征'));
+    expect(find.text('已複製整局復盤文字'), findsOneWidget);
   });
 }

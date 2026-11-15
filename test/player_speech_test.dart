@@ -86,7 +86,7 @@ void main() {
         final accuse = s.statements[s.statements.length - 2];
         expect(accuse.position, DiscussionPosition.suspect);
         expect(accuse.target, 2);
-        expect(accuse.text, contains('3 號'));
+        expect(accuse.text, contains('3號'));
         final question = s.statements.last;
         expect(question.questionTo, 3);
         final asked = s.statements.length - 1;
