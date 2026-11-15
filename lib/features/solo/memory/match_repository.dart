@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'match_archive.dart';
+import 'player_model.dart';
 
 abstract class MatchStorage {
   Future<String?> read(String key);
@@ -75,8 +76,29 @@ class MatchRepository {
     }
   }
 
-  /// Newest first.
-  Future<List<MatchSummary>> summaries() => _serial(_read);
+  /// Newest first. Games saved before the player's habits were counted
+  /// get them counted from their full record, once.
+  Future<List<MatchSummary>> summaries() => _serial(() async {
+        final list = await _read();
+        if (list.every((s) => s.traits != null)) return list;
+        try {
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].traits != null) continue;
+            final text = await _storage.read(_matchKey(list[i].id));
+            final match = text == null
+                ? null
+                : MatchArchive.fromMap(
+                    Map<String, dynamic>.from(jsonDecode(text) as Map));
+            // without a readable record there is nothing to count: an empty
+            // count, so it is not tried again
+            list[i] = list[i].withTraits(
+                match == null ? const {} : playerTraits(match.review));
+          }
+          await _storage.write(
+              _indexKey, jsonEncode([for (final s in list) s.toMap()]));
+        } catch (_) {}
+        return list;
+      });
 
   /// Saving the same game twice keeps one copy.
   Future<void> save(MatchArchive match) => _serial(() async {
