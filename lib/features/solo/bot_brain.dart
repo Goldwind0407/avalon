@@ -7,6 +7,7 @@ import 'bot_difficulty.dart';
 import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'bot_voice.dart';
+import 'memory/player_model.dart';
 import 'bot_vote_plan.dart';
 import 'dialogue/bot_dialogue_planner.dart';
 
@@ -206,8 +207,9 @@ class BotBrain {
           (claim.switched != null && claim.switched != o.switched)) {
         continue;
       }
-      final trust =
-          max(0.0, .5 - credibility[claim.speaker]) * difficulty.claimTrust;
+      final trust = max(0.0, .5 - credibility[claim.speaker]) *
+          difficulty.claimTrust *
+          _ladyWeight(claim.speaker);
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
     }
     // Who doubts or vouches for whom: weak, weighted by how far this seat
@@ -230,7 +232,9 @@ class BotBrain {
           statement.generation != o.generation) {
         continue;
       }
-      final trust = max(0.0, .55 - credibility[statement.speaker]) * .2;
+      final trust = max(0.0, .55 - credibility[statement.speaker]) *
+          .2 *
+          _callWeight(statement.speaker);
       p[target] +=
           statement.position == DiscussionPosition.suspect ? trust : -trust;
     }
@@ -306,7 +310,8 @@ class BotBrain {
       }
       final belief = max(0.0, .65 - credibility[c]) *
           trust *
-          (claimants.length > 1 ? .7 : 1);
+          (claimants.length > 1 ? .7 : 1) *
+          _percivalWeight(c);
       if (named != null) p[named] += belief;
       if (claimants.length > 1) p[c] += .05;
     }
@@ -400,8 +405,12 @@ class BotBrain {
             _unexplained(o, q, anyState: true)! == 0) {
           return null;
         }
-        if (yes) return on ? null : backedFailedTeam;
-        return on ? opposedOwnFailedTeam : opposedFailedTeam;
+        if (yes) {
+          return on ? null : backedFailedTeam * _failedTeamVote(s, true);
+        }
+        return on
+            ? opposedOwnFailedTeam
+            : opposedFailedTeam * _failedTeamVote(s, false);
       }
 
       for (var s = 0; s < o.count; s++) {
@@ -1204,6 +1213,9 @@ class BotBrain {
 
     double merlinScore(int seat) {
       var score = 1 - p[seat];
+      // a player known to lead like a servant even as Merlin gives less
+      // away by leading; one known to lead spotless teams, more
+      final tell = _merlinLeadTell(seat);
       for (final proposal in o.proposals) {
         if (proposal.attempt >= 5) continue; // everyone approves the fifth
         final dirty = seenDirty(proposal.team);
@@ -1227,7 +1239,7 @@ class BotBrain {
               leads ? .25 : (approved ? .05 : -.05)
             ),
         };
-        score += dirty * ifDirty + (1 - dirty) * ifClean;
+        score += (dirty * ifDirty + (1 - dirty) * ifClean) * (leads ? tell : 1);
       }
       return score + random.nextDouble() * difficulty.assassinNoise;
     }
@@ -1261,6 +1273,78 @@ class BotBrain {
   }
 
   late final voice = BotVoice(dialogue.random, style, difficulty);
+
+  /// What this computer player has learned of the human's habits in past
+  /// games, and where the human sits now. It only changes how much weight
+  /// the human's own words and votes get, within limits; it never says
+  /// which side the human is on in this game, and certain conclusions
+  /// always win over it.
+  PlayerModel? playerModel;
+  int? playerSeat;
+
+  /// How much to scale a piece of evidence coming from [speaker]: 1 for
+  /// anyone but the human, or without a record; otherwise moved from 1
+  /// toward [learned] as far as the record carries ([confidence]), and
+  /// kept within [low]..[high].
+  double _habit(int speaker, double Function(PlayerModel) learned,
+      double Function(PlayerModel) confidence,
+      {double low = .4, double high = 1.6}) {
+    final model = playerModel;
+    if (model == null || speaker != playerSeat || !difficulty.remembersClaims) {
+      return 1;
+    }
+    final c = confidence(model).clamp(0.0, 1.0);
+    return (1 + c * (learned(model) - 1)).clamp(low, high).toDouble();
+  }
+
+  /// The human's suspect/vouch calls: how much more (or less) they hit
+  /// the mark than the computers' own.
+  double _callWeight(int speaker) => _habit(speaker, (m) {
+        final r = m.rate(Trait.goodCallsRight);
+        return (r.value - .5) / (r.prior - .5);
+      }, (m) => m.rate(Trait.goodCallsRight).confidence);
+
+  /// The human's Lady results: how often they were true.
+  double _ladyWeight(int speaker) => _habit(speaker, (m) {
+        final r = m.rate(Trait.ladyClaimsTrue);
+        return (r.value - .5) / (r.prior - .5);
+      }, (m) => m.rate(Trait.ladyClaimsTrue).confidence, low: .2);
+
+  /// The human's Percival claims: how often they were true.
+  double _percivalWeight(int speaker) => _habit(speaker, (m) {
+        final r = m.rate(Trait.percivalClaimsTrue);
+        return r.value / r.prior;
+      }, (m) => m.rate(Trait.percivalClaimsTrue).confidence);
+
+  /// How telling the human's vote for (or against) a team that turned out
+  /// to have evil on it is: their own evil-to-good ratio against the
+  /// computers' ratio, as a factor on the usual odds.
+  double _failedTeamVote(int voter, bool backed) => _habit(voter, (m) {
+        final evil = m.rate(Trait.evilBackedDirty).value,
+            good = m.rate(Trait.goodBackedDirty).value;
+        const priorEvil = .56, priorGood = .3;
+        final own = backed ? evil / good : (1 - evil) / (1 - good);
+        final usual =
+            backed ? priorEvil / priorGood : (1 - priorEvil) / (1 - priorGood);
+        return own / usual;
+      },
+          (m) => min(m.rate(Trait.evilBackedDirty).confidence,
+              m.rate(Trait.goodBackedDirty).confidence),
+          low: .5,
+          high: 2);
+
+  /// For the Assassin: how much the human's leads give away Merlin, from
+  /// how much cleaner their teams were as Merlin than as another good one.
+  double _merlinLeadTell(int seat) => _habit(seat, (m) {
+        final gap = m.rate(Trait.merlinLeadsClean).value -
+            m.rate(Trait.goodLeadsClean).value;
+        const usual = .64 - .42;
+        return gap / usual;
+      },
+          (m) => min(m.rate(Trait.merlinLeadsClean).confidence,
+              m.rate(Trait.goodLeadsClean).confidence),
+          low: 0,
+          high: 2);
 
   DiscussionStatement speech(BotObservation o, bool approve) {
     // A question put to this seat in this round is answered first (the
