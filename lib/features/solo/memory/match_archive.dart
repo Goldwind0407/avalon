@@ -72,6 +72,7 @@ class MatchSummary {
       required this.players,
       required this.myRole,
       required this.won,
+      this.version = MatchSummary.currentVersion,
       required this.winner,
       required this.difficulty,
       required Map<String, List<EpisodeKind>> episodes,
@@ -82,7 +83,15 @@ class MatchSummary {
   final DateTime endedAt;
   final int players;
   final Role myRole;
-  final bool won;
+
+  /// Null when it cannot be told (a Lancelot game from before the switch
+  /// timeline was kept).
+  final bool? won;
+
+  /// How the summary was worked out; older ones are worked out again from
+  /// the full record when it is still kept.
+  final int version;
+  static const currentVersion = 2;
   final String winner, difficulty;
 
   /// Persona id → what happened between that bot and the player.
@@ -92,7 +101,8 @@ class MatchSummary {
   /// null for a game saved before these were counted.
   final Map<String, int>? traits;
 
-  /// The same summary with [traits] counted from the full record.
+  /// The same summary with [traits] set, as worked out by this version
+  /// (as far as it can be: an old game whose record is gone keeps the rest).
   MatchSummary withTraits(Map<String, int> traits) => MatchSummary(
       id: id,
       endedAt: endedAt,
@@ -102,14 +112,16 @@ class MatchSummary {
       winner: winner,
       difficulty: difficulty,
       episodes: episodes,
-      traits: traits);
+      traits: traits,
+      version: currentVersion);
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'at': endedAt.millisecondsSinceEpoch,
         'n': players,
         'role': myRole.name,
-        'won': won,
+        if (won != null) 'won': won,
+        'sv': version,
         'winner': winner,
         'level': difficulty,
         'episodes': {
@@ -124,7 +136,8 @@ class MatchSummary {
       endedAt: DateTime.fromMillisecondsSinceEpoch((m['at'] as num).toInt()),
       players: (m['n'] as num).toInt(),
       myRole: Role.values.byName(m['role'] as String),
-      won: m['won'] == true,
+      won: m['won'] as bool?,
+      version: (m['sv'] as num?)?.toInt() ?? 1,
       winner: m['winner'] as String? ?? '',
       difficulty: m['level'] as String? ?? '',
       episodes: {
@@ -166,7 +179,7 @@ class MatchArchive {
       endedAt: endedAt,
       players: review.players.length,
       myRole: review.roles[review.mySeat],
-      won: review.iWon,
+      won: review.sideKnown(review.mySeat) ? review.iWon : null,
       winner: review.winner ?? '',
       difficulty: difficulty,
       episodes: {
@@ -206,7 +219,9 @@ class MatchArchive {
 List<EpisodeKind> episodesWith(GameReview r, int seat) {
   final me = r.mySeat;
   final kinds = <EpisodeKind>{};
-  for (final q in r.quests) {
+  // with a side that cannot be told, only what does not depend on it
+  final sides = r.sideKnown(me) && r.sideKnown(seat);
+  for (final q in sides ? r.quests : const <ReviewQuest>[]) {
     final result = q.result;
     final iEvil = r.evilIn(me, q.number), botEvil = r.evilIn(seat, q.number);
     for (final round in q.proposals) {
@@ -214,13 +229,16 @@ List<EpisodeKind> episodesWith(GameReview r, int seat) {
       // the fifth proposal goes whatever anyone votes; its leader still chose
       bool backed(int s) => p.leader == s || (p.attempt < 5 && p.votes[s]);
       if (result != null && p.approved) {
+        // a Fail that counted: played, and not turned over by the sword
+        bool failed(int s) =>
+            q.cards[s] == false && result.excaliburTarget != s;
         if (iEvil && !botEvil && p.team.contains(me) && backed(seat)) {
-          kinds.add(!result.succeeded && q.cards[me] == false
+          kinds.add(!result.succeeded && failed(me)
               ? EpisodeKind.fooled
               : EpisodeKind.letYouThrough);
         }
         if (botEvil && !iEvil && p.team.contains(seat) && backed(me)) {
-          kinds.add(!result.succeeded && q.cards[seat] == false
+          kinds.add(!result.succeeded && failed(seat)
               ? EpisodeKind.usedYou
               : EpisodeKind.slippedPastYou);
         }
@@ -273,7 +291,7 @@ List<EpisodeKind> episodesWith(GameReview r, int seat) {
           : EpisodeKind.dodgedYou);
     }
   }
-  if (r.winner != null) {
+  if (r.winner != null && sides) {
     // who won goes by the side each played for at the end
     final iEvil = r.evil(me), botEvil = r.evil(seat);
     final botWon = (r.winner == '邪惡') == botEvil;
@@ -425,6 +443,12 @@ GameReview reviewFromMap(Map<String, dynamic> m) => GameReview(
     assassinTarget: (m['stab'] as num?)?.toInt(),
     expansions: ExpansionSettings.fromMap(
         Map<String, dynamic>.from(m['expansions'] as Map)),
+    // a Lancelot game saved without its switch timeline
+    sidesKnown: m.containsKey('switches') ||
+        ExpansionSettings.fromMap(
+                    Map<String, dynamic>.from(m['expansions'] as Map))
+                .lancelot ==
+            0,
     switchedDuring: [
       for (final x in m['switches'] as List? ?? const []) x == true
     ],

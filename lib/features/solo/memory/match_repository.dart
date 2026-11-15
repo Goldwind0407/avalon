@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'match_archive.dart';
-import 'player_model.dart';
 
 abstract class MatchStorage {
   Future<String?> read(String key);
@@ -80,19 +79,22 @@ class MatchRepository {
   /// get them counted from their full record, once.
   Future<List<MatchSummary>> summaries() => _serial(() async {
         final list = await _read();
-        if (list.every((s) => s.traits != null)) return list;
+        if (list.every((s) => s.version >= MatchSummary.currentVersion)) {
+          return list;
+        }
         try {
           for (var i = 0; i < list.length; i++) {
-            if (list[i].traits != null) continue;
+            if (list[i].version >= MatchSummary.currentVersion) continue;
             final text = await _storage.read(_matchKey(list[i].id));
             final match = text == null
                 ? null
                 : MatchArchive.fromMap(
                     Map<String, dynamic>.from(jsonDecode(text) as Map));
-            // without a readable record there is nothing to count: an empty
-            // count, so it is not tried again
-            list[i] = list[i].withTraits(
-                match == null ? const {} : playerTraits(match.review));
+            // Worked out again from the full record with today's rules.
+            // Without a readable record: nothing to learn from, and what
+            // it says is kept as it was.
+            list[i] =
+                match != null ? match.summary : list[i].withTraits(const {});
           }
           await _storage.write(
               _indexKey, jsonEncode([for (final s in list) s.toMap()]));

@@ -5,6 +5,8 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/game_review.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
+import 'package:avalon_shadow_council/features/solo/memory/player_model.dart';
+import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 
 /// Seven players. Seat 0 is the player; seat 3 is evil, seat 5 the Assassin.
 GameReview review({
@@ -284,5 +286,155 @@ void main() {
       expect(kinds, contains(EpisodeKind.slippedPastYou));
       expect(kinds, isNot(contains(EpisodeKind.usedYou)));
     });
+  });
+
+  test('a Lady check is about the sides when it was made', () {
+    // a switch card on quest 3: a check after quest 2 is from before it
+    final states = switchStates([null, null, true, null, null], 4);
+    expect(states, [false, false, true, true]);
+    expect(states[2 - 1], isFalse);
+    // variant two lays out cards for quests not yet played: only those
+    // played count
+    expect(switchStates([false, true, false, true, false], 2), [false, true]);
+  });
+
+  test('a Fail turned over by the sword was not what lost the quest', () {
+    // the player (evil) played Fail but the sword made it a Success;
+    // another evil player's Fail lost the quest
+    final r = review(
+        roles: const [
+          Role.minion,
+          Role.merlin,
+          Role.loyal,
+          Role.assassin,
+          Role.percival,
+          Role.loyal,
+          Role.loyal,
+        ],
+        winner: null,
+        proposals: [
+          passed(1, 2, [0, 2, 3])
+        ],
+        history: [
+          QuestResult([0, 2, 3], 1, false,
+              excaliburHolder: 2, excaliburTarget: 0)
+        ],
+        cards: {
+          0: {1: false},
+          2: {1: true},
+          3: {1: false}
+        });
+    final kinds = episodesWith(r, 2);
+    expect(kinds, contains(EpisodeKind.letYouThrough));
+    expect(kinds, isNot(contains(EpisodeKind.fooled)));
+  });
+
+  group('an old Lancelot game without its switch timeline', () {
+    final roles = [
+      Role.lancelotGood,
+      Role.merlin,
+      Role.loyal,
+      Role.lancelotEvil,
+      Role.percival,
+      Role.assassin,
+      Role.loyal,
+    ];
+    GameReview old() {
+      final r = review(
+          roles: roles,
+          winner: '邪惡',
+          expansions: const ExpansionSettings(lancelot: 1),
+          switchedDuring: [false, false, true],
+          switchedAtEnd: true,
+          proposals: [
+            passed(1, 1, [0, 1])
+          ],
+          history: [
+            QuestResult([0, 1], 0, true)
+          ],
+          statements: [
+            DiscussionStatement(
+                speaker: 0,
+                quest: 1,
+                attempt: 1,
+                text: '3號可疑',
+                target: 2,
+                position: DiscussionPosition.suspect)
+          ]);
+      final map =
+          jsonDecode(jsonEncode(reviewToMap(r))) as Map<String, dynamic>;
+      map.remove('switches');
+      map.remove('switchedEnd');
+      return reviewFromMap(map);
+    }
+
+    test('is not guessed: the win is unknown and nothing is learned', () {
+      final r = old();
+      expect(r.sidesKnown, isFalse);
+      expect(r.sideKnown(0), isFalse);
+      expect(r.sideKnown(2), isTrue);
+      final match = MatchArchive(
+          id: 'old',
+          endedAt: DateTime(2026, 11, 1),
+          difficulty: '高手',
+          personas: [null, 'kai', 'mia', 'zhe', null, null, null],
+          review: r);
+      expect(match.summary.won, isNull);
+      expect(match.summary.traits, isEmpty);
+      // nothing that depends on the player's side is remembered
+      expect(match.summary.episodes['mia'], isEmpty);
+      expect(playerTraits(r), isEmpty);
+    });
+
+    test('a game saved with the timeline is told normally', () {
+      final match = MatchArchive(
+          id: 'new',
+          endedAt: DateTime(2026, 11, 1),
+          difficulty: '高手',
+          personas: [null, 'kai', 'mia', 'zhe', null, null, null],
+          review: reread(review(
+              roles: roles,
+              winner: '邪惡',
+              expansions: const ExpansionSettings(lancelot: 1),
+              switchedDuring: [false],
+              switchedAtEnd: true,
+              proposals: [
+                passed(1, 1, [0, 1])
+              ],
+              history: [
+                QuestResult([0, 1], 0, true)
+              ])));
+      expect(match.review.sidesKnown, isTrue);
+      expect(match.summary.won, isTrue);
+    });
+  });
+
+  test('a player who switched sides is described by the side at the time', () {
+    // the player led a clean team as good, then switched and ended evil
+    final r = review(
+        roles: const [
+          Role.lancelotGood,
+          Role.merlin,
+          Role.loyal,
+          Role.lancelotEvil,
+          Role.percival,
+          Role.assassin,
+          Role.loyal,
+        ],
+        winner: '邪惡',
+        expansions: const ExpansionSettings(lancelot: 1),
+        switchedDuring: [false, false, true],
+        switchedAtEnd: true,
+        proposals: [
+          passed(1, 0, [0, 1])
+        ],
+        history: [
+          QuestResult([0, 1], 0, true)
+        ]);
+    expect(r.switchedSides, isTrue);
+    final lead = r.scores.firstWhere((s) => s.title == '當隊長');
+    expect(lead.value, '1／1');
+    expect(lead.detail, contains('符合你當時陣營'));
+    expect(lead.detail, isNot(contains('有壞人上隊。')));
   });
 }

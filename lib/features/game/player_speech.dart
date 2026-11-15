@@ -101,15 +101,33 @@ class PlayerSpeech {
   /// question, or nothing.
   static PlayerSpeechKind? _stance(String piece) {
     bool has(String pattern) => RegExp(pattern).hasMatch(piece);
-    final distrusts = has(r'不信|不相信|不是好人|不可信');
-    final clears = !distrusts && has(r'不是(壞人|邪惡|爪牙)|沒問題|清白|可以信|相信|信任');
-    final doubts =
-        distrusts || (!clears && has(r'懷疑|壞人|邪惡|可疑|有問題|爪牙|刺客|莫甘娜|莫德雷德|奧伯倫'));
-    if (doubts) return PlayerSpeechKind.suspect;
-    if (has(r'[?？]|為什麼|為何|怎麼|說說|解釋')) return PlayerSpeechKind.ask;
-    if (clears || has(r'好人|正義')) return PlayerSpeechKind.trust;
+    // a question about someone asks; it does not accuse
+    if (has(r'[?？]|嗎|為什麼|為何|怎麼|說說|解釋')) return PlayerSpeechKind.ask;
+    // "not good" accuses, "not evil" vouches
+    if (has(r'不信|不相信|不是好人|不是正義|不可信')) return PlayerSpeechKind.suspect;
+    if (has(r'不是(壞人|邪惡|爪牙)')) return PlayerSpeechKind.trust;
+    // "is not the Assassin" rules one role out, not a side
+    if (has(r'不是(刺客|莫甘娜|莫德雷德|奧伯倫|梅林|派西)')) return null;
+    // a doubt denied: "我不懷疑", "我不覺得他可疑"
+    if (has(r'(不|沒有?|並不)(太)?(懷疑|覺得|認為).*?(可疑|壞|有問題)?') && has(r'懷疑|可疑|壞|有問題')) {
+      return PlayerSpeechKind.trust;
+    }
+    if (has(r'懷疑|壞人|邪惡|可疑|有問題|爪牙|刺客|莫甘娜|莫德雷德|奧伯倫')) {
+      return PlayerSpeechKind.suspect;
+    }
+    if (has(r'沒問題|清白|可以信|相信|信任|好人|正義')) {
+      return PlayerSpeechKind.trust;
+    }
     return null;
   }
+
+  /// Words before a name that hand what follows to someone else
+  /// ("4號說…", "有人認為…"): not the speaker's own view.
+  static final _quoting = RegExp(r'^\s*(說|講|認為|覺得|懷疑|說過|點名)\s*$');
+  static final _reporting = RegExp(r'(有人|別人|大家|他們|他|她)(說|講|認為|覺得|懷疑)');
+
+  /// Words before a name that deny what follows ("我不同意3號是壞人").
+  static final _denying = RegExp(r'(不|並不|沒有?)(同意|覺得|認為|確定|相信|贊同)|未必|不見得');
 
   /// The stance of the first clause in [piece] that has one.
   static PlayerSpeechKind? _firstStance(String piece) {
@@ -157,12 +175,26 @@ class PlayerSpeech {
       final next = i + 1 < mentions.length ? mentions[i + 1].$2 : t.length;
       final after = t.substring(end, next);
       final before = t.substring(i > 0 ? mentions[i - 1].$3 : 0, start);
+      final lead = before.split(_boundary).last;
+      // someone else's view, passed on: not the speaker's own word
+      if ((i > 0 && _quoting.hasMatch(before)) || _reporting.hasMatch(lead)) {
+        continue;
+      }
       PlayerSpeechKind? kind;
       if (RegExp(r'^\s*(和|跟|與|、|還有|以及|及|或|或是)\s*$').hasMatch(after) &&
           i + 1 < mentions.length) {
         kind = stances[mentions[i + 1].$1];
+      } else if (_firstStance(after) case final said?) {
+        // "我不同意3號是壞人": the lead-in turns it around
+        kind = !_denying.hasMatch(lead)
+            ? said
+            : switch (said) {
+                PlayerSpeechKind.suspect => PlayerSpeechKind.trust,
+                PlayerSpeechKind.trust => PlayerSpeechKind.suspect,
+                _ => said,
+              };
       } else {
-        kind = _firstStance(after) ?? _lastStance(before);
+        kind = _lastStance(before);
       }
       if (kind == null || stances.containsKey(seat)) continue;
       stances[seat] = kind;
