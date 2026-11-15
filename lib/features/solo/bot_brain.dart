@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../game/game_model.dart';
 import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
@@ -25,6 +26,12 @@ class BotBrain {
   /// (times his style's disguise; halved after the first failed quest).
   static const merlinCover = 6.0;
 
+  /// Merlin votes like a servant for free when his vote will not decide
+  /// the proposal: always while the chance that it decides is at most
+  /// [merlinFreeVote], less and less up to [merlinPivotal], where he stops.
+  static const merlinFreeVote = .15;
+  static const merlinPivotal = .4;
+
   /// How much a leader holds back from proposing a team that was already
   /// turned down on this quest.
   static const repeatRejectedTeam = 2.0;
@@ -33,10 +40,21 @@ class BotBrain {
   /// distrust, read from who turned down earlier teams on this quest.
   static const tableDoubtWeight = 1.0;
 
-  /// How often Merlin turns down a team he knows is clean, and only while
-  /// at most this many proposals of the quest have been turned down.
-  static const merlinFalseAlarm = .5;
+  /// Merlin turns down a team he knows is clean, when a servant would,
+  /// only while at most this many proposals of the quest have been
+  /// turned down.
   static const merlinSpareRejections = 2;
+
+  /// How much more readily than his style alone Merlin, as leader, sends
+  /// the team a servant would: early in the game, and on a quest that
+  /// needs two Fails.
+  static const merlinLeadCover = 3.0;
+  static const merlinLeadCoverSafe = 3.0;
+
+  /// How often he turns down a clean team that a servant would let
+  /// through: when his vote may decide it, and when it surely will not.
+  static const merlinFalseAlarm = .3;
+  static const merlinFreeFalseAlarm = .8;
 
   /// How often an evil player backs a team that should fail although an
   /// uninformed player in his seat would turn it down: from outside the
@@ -672,9 +690,17 @@ class BotBrain {
     // Early on, Merlin sometimes sends the team an ordinary servant would,
     // so that his proposals are not always spotless.
     final early = o.failures == 0 && o.successes < 2;
+    // A quest that needs two Fails cannot be failed by one evil player:
+    // there a servant's team costs him nothing.
+    final safe = o.failsRequired == 2 && o.failures < 2;
     final hide = o.role == Role.merlin &&
-        early &&
-        random.nextDouble() < style.disguise * difficulty.rolePlay;
+        (early || safe) &&
+        random.nextDouble() <
+            min(
+                .85,
+                style.disguise *
+                    difficulty.rolePlay *
+                    (safe ? merlinLeadCoverSafe : merlinLeadCover));
     final allies = o.evil ? _knownAllies(o) : const <int>{};
     // Morgana poses as Merlin: early on she may lead a team that looks
     // spotless, herself and players nobody doubts, and keep her allies off.
@@ -730,6 +756,12 @@ class BotBrain {
                       _risk(o, looks, team)) +
               random.nextDouble() * style.noise * difficulty.noise +
               (turnedDown.contains(team.join(',')) ? -repeatRejectedTeam : 0) -
+              // hiding or not, never a team he can see failing the quest
+              (hide &&
+                      safe &&
+                      team.where(o.visible.contains).length >= o.failsRequired
+                  ? 1
+                  : 0) -
               tableDoubtWeight * team.fold(0.0, (sum, s) => sum + tableDoubt[s])
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
@@ -809,45 +841,123 @@ class BotBrain {
       return decide(!real, 'noviceSlip');
     }
     // Merlin who always votes by what he sees is found by the Assassin, so
-    // now and then he votes like a servant who knows nothing. Not when one
-    // more failed quest would lose the game.
-    // The less is at stake, the more he can afford to play the servant.
+    // he often votes as a servant who knows nothing would.
     final disguise = style.disguise * difficulty.rolePlay * merlinCover;
-    if (o.role == Role.merlin &&
-        (disguise > 0 || o.history.isEmpty) &&
-        o.failures < 2) {
-      final cover = _goodVote(o, suspicion(o, asServant: true));
-      // letting a doubtful team through is the costlier act: do it less
-      var chance = min(.85, cover ? disguise * .8 : disguise * 1.3);
-      // once a quest has failed he can afford it half as often
-      if (o.failures == 1) chance /= 2;
-      // Turning down the very first team, when nobody else has a reason
-      // to, tells the Assassin who knows something.
-      if (o.history.isEmpty) chance = max(chance, .6);
-      if (cover != real && rng.nextDouble() < chance) {
-        return decide(cover, 'merlinDisguise');
+    if (o.role == Role.merlin && (disguise > 0 || o.history.isEmpty)) {
+      final public = suspicion(o, asServant: true);
+      final cover = _goodVote(o, public);
+      // A vote that will not change the outcome costs nothing: the less
+      // likely his vote is to decide it, the more freely he plays the
+      // servant.
+      final free = disguise <= 0
+          ? 0.0
+          : min(1, disguise) *
+              ((merlinPivotal - _pivotal(o, public)) /
+                      (merlinPivotal - merlinFreeVote))
+                  .clamp(0.0, 1.0);
+      if (cover != real) {
+        double chance;
+        if (!cover) {
+          // Turning down a team he knows is fine costs one proposal and
+          // nothing else, while there are proposals to spare. With one
+          // more failed quest losing the game, only when it is free.
+          chance = o.rejections > merlinSpareRejections
+              ? 0
+              : o.failures == 2
+                  ? free
+                  : max(min(.85, disguise * 1.3), free);
+        } else if (o.failures == 2) {
+          // never let a doubtful team through when it would lose the game
+          chance = 0;
+        } else {
+          // letting a doubtful team through is the costlier act; once a
+          // quest has failed he can afford it half as often
+          chance = min(.85, disguise * .8);
+          if (o.failures == 1) chance /= 2;
+          chance = max(chance, free);
+          // Turning down the very first team, when nobody else has a
+          // reason to, tells the Assassin who knows something.
+          if (o.history.isEmpty) chance = max(chance, .6);
+        }
+        if (rng.nextDouble() < chance) return decide(cover, 'merlinDisguise');
+      } else if (real &&
+          o.history.isNotEmpty &&
+          o.rejections <= merlinSpareRejections &&
+          o.team.every((s) => p[s] < .5) &&
+          rng.nextDouble() <
+              difficulty.rolePlay.clamp(0, 1) *
+                  (merlinFalseAlarm +
+                      (merlinFreeFalseAlarm - merlinFalseAlarm) * free)) {
+        // Every vote that matches where evil sits is counted by the
+        // Assassin. Now and then Merlin turns down a team he knows is
+        // clean: seldom when that may cost a proposal, readily when the
+        // team will pass without him.
+        return decide(false, 'merlinDisguise');
       }
-    }
-    // Turning down a clean team costs only a proposal, while every vote
-    // that matches where evil sits is counted by the Assassin. Now and
-    // then Merlin turns down a team he knows is clean, while there are
-    // proposals to spare.
-    if (o.role == Role.merlin &&
-        real &&
-        o.history.isNotEmpty &&
-        o.rejections <= merlinSpareRejections &&
-        o.team.every((s) => p[s] < .5) &&
-        rng.nextDouble() < merlinFalseAlarm * difficulty.rolePlay) {
-      return decide(false, 'merlinDisguise');
     }
     return decide(real, real ? 'acceptableRisk' : 'unsafeTeam');
   }
 
-  bool _goodVote(BotObservation o, List<double> p) {
+  /// How likely this seat's vote is to decide the proposal, as far as
+  /// Merlin can tell. The leader backs his own team; the evil players he
+  /// sees want a team with one of them on it; everyone else is taken to
+  /// vote as a player with only the public record would. [public] is that
+  /// record seen from nowhere in particular.
+  @visibleForTesting
+  double voteDecides(BotObservation o) =>
+      _pivotal(o, suspicion(o, asServant: true));
+
+  double _pivotal(BotObservation o, List<double> public) {
+    if (o.history.isEmpty) return 0; // nobody turns the first team down
+    final dirty = o.team.any(o.visible.contains);
+    final others = [
+      for (var s = 0; s < o.count; s++)
+        if (s != o.seat) public[s]
+    ];
+    final mean = others.fold(0.0, (a, b) => a + b) / others.length;
+    var counts = [1.0];
+    for (var s = 0; s < o.count; s++) {
+      if (s == o.seat) continue;
+      double yes;
+      if (s == o.leader) {
+        yes = 1;
+      } else {
+        // to the others this seat is one more player they are unsure of
+        final view = [...public]
+          ..[o.seat] = mean
+          ..[s] = 0;
+        final plain = _goodVote(o, view, as: s);
+        final member = o.team.contains(s);
+        // how often each kind of player went along with that guess over
+        // a few hundred simulated games
+        if (!o.visible.contains(s)) {
+          yes = member ? (plain ? .87 : .15) : (plain ? .57 : .2);
+        } else if (!dirty) {
+          yes = .35;
+        } else if (member) {
+          yes = plain ? .95 : .7;
+        } else {
+          yes = plain ? .62 : .5;
+        }
+      }
+      counts = [
+        for (var k = 0; k <= counts.length; k++)
+          (k < counts.length ? counts[k] * (1 - yes) : 0) +
+              (k > 0 ? counts[k - 1] * yes : 0)
+      ];
+    }
+    // approved by exactly half of the table without this vote
+    return counts[o.count ~/ 2];
+  }
+
+  /// The vote of a good player who sees the table as [p]. [as] is the seat
+  /// that player sits in, when it is somebody else's vote being guessed.
+  bool _goodVote(BotObservation o, List<double> p, {int? as}) {
+    final seat = as ?? o.seat;
     final risk = _risk(o, p, o.team);
     // Do not wave through a player this seat clearly doubts.
     if (o.failsRequired == 1 &&
-        o.team.any((s) => s != o.seat && p[s] >= difficulty.doubt)) {
+        o.team.any((s) => s != seat && p[s] >= difficulty.doubt)) {
       return false;
     }
     // "Is this about as safe as the team I would send?" rather than a fixed
@@ -861,11 +971,13 @@ class BotBrain {
     // People go along with a leader they have come to trust, and look
     // harder at the team of one they doubt.
     final prior = Room.evilCount(o.count) / o.count;
-    if (o.leader != o.seat) {
+    if (o.leader != seat) {
       var sway = .3 * style.follow;
       // Percival backs the candidate he takes for Merlin, and doubts the
       // other one; it also makes him look as informed as Merlin.
-      if (o.role == Role.percival && o.visible.contains(o.leader)) {
+      if (as == null &&
+          o.role == Role.percival &&
+          o.visible.contains(o.leader)) {
         sway += .5 * difficulty.rolePlay;
       }
       margin += (prior - p[o.leader]) * sway;

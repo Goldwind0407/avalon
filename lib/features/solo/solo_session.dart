@@ -221,8 +221,9 @@ class SoloGameSession extends GameSession {
                     'q${reveal.quest}/$owner/${reveal.target}')
                 .id
           ],
+          // "at the time" only matters when sides can still switch
           text: '我用湖中女神查驗了${reveal.target + 1}號，'
-              '我宣稱他當時是${claim ? '邪惡' : '正義'}陣營。'));
+              '他${expansions.lancelot > 0 ? '當時' : ''}是${claim ? '邪惡' : '正義'}陣營。'));
     }
   }
 
@@ -552,7 +553,7 @@ class SoloGameSession extends GameSession {
             ? BotSpeechIntent.supportTeam.name
             : BotSpeechIntent.opposeTeam.name,
         team: team,
-        text: approve ? '我目前支持這次隊伍提案。' : '我對這隊有疑慮，想換個組合。'));
+        text: approve ? '這隊我可以接受，支持。' : '這隊我不放心，想換個組合。'));
     await endSpeech(speechVersion);
   }
 

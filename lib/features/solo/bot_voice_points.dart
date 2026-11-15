@@ -71,8 +71,8 @@ extension BotVoicePoints on BotVoice {
   }
 
   String _stance(bool approve) => approve
-      ? _pick(['這隊我先贊成。', '這次組隊我支持。', '這隊我願意試。', '這票我會投贊成。'])
-      : _pick(['這隊我投反對。', '這次我想換個組合。', '目前這份名單我不支持。', '這票我會反對。']);
+      ? _pick(['這隊我先贊成。', '這隊我支持。', '這隊我願意試。', '這票我會投贊成。'])
+      : _pick(['這隊我投反對。', '這次我想換個組合。', '這份名單我不支持。', '這票我會反對。']);
 
   /// Why the leader picked these people.
   _Point? _leaderPoint(BotObservation o, Set<int> allies) {
@@ -197,7 +197,7 @@ extension BotVoicePoints on BotVoice {
             ? _pick(['這隊我可以接受。', '我沒有理由擋，贊成。', '這組我願意再給一次。'])
             : _pick([
                 '${_ns(fresh)}還沒出過任務，剛好看看，這隊我贊成。',
-                '加上還沒出過任務的${_ns(fresh)}也好，回來比較好對，我支持。',
+                '${_ns(fresh)}雖然還沒出過任務，一起去剛好能對結果，我支持。',
               ]);
         points.add(_Point('clean', '${_ns(recorded)}$when出任務沒有失敗牌，$tail',
             intent: 'supportTeam',
@@ -233,7 +233,9 @@ extension BotVoicePoints on BotVoice {
             'member/$t',
             shared.isNotEmpty
                 ? _pick([
-                    '這隊有${_n(t)}。${_quests(shared.toList())}我跟他一起出任務就出了失敗牌，我不想再跟他一隊。',
+                    team.contains(me)
+                        ? '這隊有${_n(t)}。${_quests(shared.toList())}我跟他一起出任務就出了失敗牌，我不想再跟他一隊。'
+                        : '這隊有${_n(t)}。${_quests(shared.toList())}我跟他一起出任務就出了失敗牌，我不放心再讓他上。',
                     '${_quests(shared.toList())}我和${_n(t)}同隊，結果有失敗牌，這次名單上又有他，我反對。',
                   ])
                 : _pick([

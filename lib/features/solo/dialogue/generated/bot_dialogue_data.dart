@@ -199,7 +199,7 @@ const String botDialogueData = r'''
       "sourceTrigger": "新隊伍只替換一位隊員",
       "templates": [
         "{{target}}，你想換掉{{oldMember}}，補進{{newMember}}的理由是什麼？",
-        "我想確認一下，為什麼這次留{{newMember}}、不留{{oldMember}}？",
+        "我想確認一下，為什麼這次帶{{newMember}}、不帶{{oldMember}}？",
         "{{target}}，這次換人的重點是什麼？說一下我比較好投票。",
         "從{{oldMember}}換成{{newMember}}，你覺得能解決哪個疑點？"
       ]
@@ -1783,10 +1783,10 @@ const String botDialogueData = r'''
       ],
       "sourceTrigger": "本人持有女神且查驗到正義，決定誠實公開",
       "templates": [
-        "我查{{target}}時看到的是正義，這是當時的結果。",
-        "女神那次查{{target}}，我看到正義；先記在那個時間點。",
-        "我報一下查驗：{{target}}當時是正義。",
-        "我看到{{target}}是正義，這句話說的是查驗那一刻。"
+        "我再說一次，我查{{target}}看到的是正義。",
+        "女神那次我查的是{{target}}，結果是正義。",
+        "查驗的結果我沒變：{{target}}是正義。",
+        "{{target}}我查過，是正義，信不信看你們。"
       ]
     },
     {
@@ -1804,10 +1804,10 @@ const String botDialogueData = r'''
       ],
       "sourceTrigger": "本人持有女神且查驗到邪惡，決定誠實公開",
       "templates": [
-        "我查{{target}}看到的是邪惡，先跟大家說清楚。",
-        "女神的結果我報邪惡，對象是{{target}}。",
-        "我看到{{target}}是邪惡，你們可以把我的說法和紀錄一起看。",
-        "那次查驗，{{target}}顯示邪惡；這是我報的結果。"
+        "我再說一次，我查{{target}}看到的是邪惡。",
+        "女神那次我查的是{{target}}，結果是邪惡。",
+        "我看到{{target}}是邪惡，你們可以把我的說法和紀錄一起對。",
+        "{{target}}我查過，是邪惡，這隊要不要帶他，大家想清楚。"
       ]
     },
     {
@@ -1825,10 +1825,10 @@ const String botDialogueData = r'''
       ],
       "sourceTrigger": "本人持有女神且是邪惡，已選擇對結果說謊",
       "templates": [
-        "我報一下：{{target}}查到的是{{claimedAlignment}}。",
-        "女神那次，{{target}}顯示{{claimedAlignment}}。",
-        "我的查驗結果是{{target}}、{{claimedAlignment}}。",
-        "這次我看到{{target}}是{{claimedAlignment}}，先讓大家知道。"
+        "我再報一次：{{target}}查到的是{{claimedAlignment}}。",
+        "女神那次我查{{target}}，是{{claimedAlignment}}。",
+        "我的查驗結果沒變，{{target}}是{{claimedAlignment}}。",
+        "{{target}}我查過，是{{claimedAlignment}}，信不信看你們。"
       ]
     },
     {
@@ -2025,10 +2025,10 @@ const String botDialogueData = r'''
       ],
       "sourceTrigger": "多人任務失敗且無法歸因單一玩家",
       "templates": [
-        "失敗牌確實在這隊裡，還不能直接縮到一個人。",
-        "我們知道這組有疑點，但誰出的還要再對。",
-        "先把整隊一起看，現在還不夠只認定其中一位。",
-        "這次結果能圈出一組人，不能直接替某一個人定罪。"
+        "第{{quest}}次的失敗牌確實在那一隊裡，但還不能直接縮到一個人。",
+        "第{{quest}}次那組有問題是確定的，誰出的失敗還要再對。",
+        "第{{quest}}次那隊要整隊一起看，現在還不夠只認定其中一位。",
+        "第{{quest}}次的結果只能圈出一組人，還不能替某一個人定罪。"
       ]
     },
     {

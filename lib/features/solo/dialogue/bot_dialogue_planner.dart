@@ -16,12 +16,18 @@ class BotSpeechMemory {
 
   List<BotDialogueTrace> get entries => List.unmodifiable(_entries);
   void record(BotDialogueTrace entry) => _entries.add(entry);
-  double penalty(String semanticKey) {
+  double penalty(String semanticKey, {String? ruleId}) {
     final proposals = _entries.map((e) => e.proposal).toSet().toList();
     final recent = proposals.reversed.take(2).toSet();
-    return _entries.any(
-            (e) => recent.contains(e.proposal) && e.semanticKey == semanticKey)
-        ? 80
+    if (_entries.any(
+        (e) => recent.contains(e.proposal) && e.semanticKey == semanticKey)) {
+      return 80;
+    }
+    // the same kind of remark again, only about someone else
+    return ruleId != null &&
+            _entries
+                .any((e) => recent.contains(e.proposal) && e.ruleId == ruleId)
+        ? 40
         : 0;
   }
 }
@@ -63,6 +69,16 @@ class BotDialoguePlanner {
           s
     ];
     final saidLines = {for (final s in round) s.text};
+    // ...and about the earlier proposals of this quest: the same remark
+    // again one proposal later is still a repeat
+    final heard = {
+      for (final s in o.statements)
+        if (s.generation == o.generation &&
+            s.quest == o.quest &&
+            s.attempt != o.proposalId.attempt &&
+            s.speaker != o.seat)
+          s.text
+    };
     final saidIntents = <String, int>{};
     for (final s in round) {
       if (s.intent != null) {
@@ -114,15 +130,27 @@ class BotDialoguePlanner {
       final key = '${rule.intent.name}/${context.target}/'
           '${context.references.where((r) => r.kind != BotEvidenceKind.proposal).map((r) => r.id).join(',')}';
       final score = rule.priority -
-          memory.penalty(key) -
+          memory.penalty(key, ruleId: rule.priority >= 85 ? null : rule.id) -
           (lines.every(memory.recentlySaid) ? 100 : 0) -
           12 * (saidIntents[rule.intent.name] ?? 0) -
-          (rule.priority >= 85 ? 0 : 45 * echoes) +
+          (rule.priority >= 85 ? 0 : 45 * echoes) -
+          (rule.priority >= 85
+              ? 0
+              : 20 *
+                  [
+                    for (final template in rule.templates)
+                      if (render(template, context.bindings)
+                          case final String text)
+                        if (heard.any((said) => said.endsWith(text))) text
+                  ].length) +
           random.nextDouble() * 8 -
           4;
       candidates.add((rule, context, key, score));
     }
-    if (candidates.isEmpty) {
+    candidates.sort((a, b) => b.$4.compareTo(a.$4));
+    // Nothing left but a remark the table has just heard, or one this
+    // seat keeps making: a plain word on the team is better than that.
+    if (candidates.isEmpty || candidates.first.$4 < 0) {
       lastTrace = null;
       final alternatives = approve
           ? [
@@ -153,7 +181,6 @@ class BotDialoguePlanner {
           team: o.team,
           intent: 'opinion');
     }
-    candidates.sort((a, b) => b.$4.compareTo(a.$4));
     final (rule, context, semanticKey, _) = candidates.first;
     final lines = [
       for (final t in rule.templates)

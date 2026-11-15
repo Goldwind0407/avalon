@@ -8,6 +8,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
+import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
@@ -250,6 +251,9 @@ void play(
     final s = SoloGameSession(room,
         random: Random(seed),
         personas: cast,
+        // BALANCE_LEVEL=novice|normal|expert: how well the computers play
+        difficulty: BotDifficulty.values.byName(
+            Platform.environment['BALANCE_LEVEL'] ?? 'normal'),
         botDelay: const Duration(milliseconds: 1),
         speechDuration: const Duration(milliseconds: 1),
         autopilot: true);
