@@ -8,8 +8,13 @@ import '../game_review.dart';
 /// Something that happened between the player and one computer player in a
 /// finished game. Every kind can be checked against that game's record.
 enum EpisodeKind {
-  /// The player was evil and this bot voted or led them onto a failed quest.
+  /// The player was evil, this bot voted or led them onto a quest, the
+  /// player played Fail and the quest failed.
   fooled,
+
+  /// The player was evil and this bot voted or led them onto a quest, but
+  /// the quest did not fail by the player's hand.
+  letYouThrough,
 
   /// The player was evil and this (good) bot said so.
   sawThrough,
@@ -29,8 +34,13 @@ enum EpisodeKind {
   /// The player vouched for this bot, who was evil.
   trustedByYou,
 
-  /// The (good) player voted or led this evil bot onto a failed quest.
+  /// The (good) player voted or led this evil bot onto a quest, the bot
+  /// played Fail and the quest failed.
   usedYou,
+
+  /// The (good) player voted or led this evil bot onto a quest, and the
+  /// bot did not fail it.
+  slippedPastYou,
 
   /// This bot, the Assassin, found the player as Merlin.
   stabbedYou,
@@ -163,46 +173,67 @@ class MatchArchive {
 
 /// What happened between the player and the bot in [seat], read off the
 /// finished game. Order: the most telling first.
+///
+/// Every side is the one played at the time (a Lancelot may switch), and
+/// blame for a quest goes by the cards: a Fail flipped in by Excalibur, or
+/// a quest that survives one Fail, is not "the quest failed in your hands".
 List<EpisodeKind> episodesWith(GameReview r, int seat) {
   final me = r.mySeat;
-  final iEvil = r.evil(me), botEvil = r.evil(seat);
   final kinds = <EpisodeKind>{};
-  bool failed(ReviewQuest q) => q.result != null && q.result!.fails > 0;
-  var botSuspectedMe = false, iSuspectedBot = false, iBackedBot = false;
   for (final q in r.quests) {
+    final result = q.result;
+    final iEvil = r.evilIn(me, q.number), botEvil = r.evilIn(seat, q.number);
     for (final round in q.proposals) {
       final p = round.record;
-      final went = p.approved && p.attempt < 5 && failed(q);
-      if (went && p.team.contains(me) && iEvil && !botEvil) {
-        if (p.votes[seat] || p.leader == seat) kinds.add(EpisodeKind.fooled);
-      }
-      if (went && p.team.contains(seat) && botEvil && !iEvil) {
-        if (p.votes[me] || p.leader == me) kinds.add(EpisodeKind.usedYou);
+      // the fifth proposal goes whatever anyone votes; its leader still chose
+      bool backed(int s) => p.leader == s || (p.attempt < 5 && p.votes[s]);
+      if (result != null && p.approved) {
+        if (iEvil && !botEvil && p.team.contains(me) && backed(seat)) {
+          kinds.add(!result.succeeded && q.cards[me] == false
+              ? EpisodeKind.fooled
+              : EpisodeKind.letYouThrough);
+        }
+        if (botEvil && !iEvil && p.team.contains(seat) && backed(me)) {
+          kinds.add(!result.succeeded && q.cards[seat] == false
+              ? EpisodeKind.usedYou
+              : EpisodeKind.slippedPastYou);
+        }
       }
       for (final line in round.lines) {
         final s = line.statement;
+        final iThen = r.evilIn(me, s.quest), botThen = r.evilIn(seat, s.quest);
         if (s.position == DiscussionPosition.suspect) {
-          if (s.speaker == seat && s.target == me) botSuspectedMe = true;
-          if (s.speaker == me && s.target == seat) iSuspectedBot = true;
+          if (s.speaker == seat && s.target == me) {
+            // two evil players pointing at each other is theatre
+            if (!(iThen && botThen)) {
+              kinds.add(botThen
+                  ? EpisodeKind.framed
+                  : iThen
+                      ? EpisodeKind.sawThrough
+                      : EpisodeKind.wronged);
+            }
+          }
+          if (s.speaker == me && s.target == seat) {
+            kinds.add(
+                botThen ? EpisodeKind.caughtByYou : EpisodeKind.accusedByYou);
+          }
         } else if (s.position == DiscussionPosition.defend &&
             s.speaker == me &&
-            s.target == seat) {
-          iBackedBot = true;
+            s.target == seat &&
+            botThen &&
+            !iThen) {
+          kinds.add(EpisodeKind.trustedByYou);
         }
       }
     }
   }
-  if (botSuspectedMe) {
-    kinds.add(iEvil
-        ? (botEvil ? EpisodeKind.framed : EpisodeKind.sawThrough)
-        : (botEvil ? EpisodeKind.framed : EpisodeKind.wronged));
-    // two evil players pointing at each other is theatre, not a memory
-    if (iEvil && botEvil) kinds.remove(EpisodeKind.framed);
+  // a stronger memory of the same game makes the weaker one redundant
+  if (kinds.contains(EpisodeKind.fooled)) {
+    kinds.remove(EpisodeKind.letYouThrough);
   }
-  if (iSuspectedBot) {
-    kinds.add(botEvil ? EpisodeKind.caughtByYou : EpisodeKind.accusedByYou);
+  if (kinds.contains(EpisodeKind.usedYou)) {
+    kinds.remove(EpisodeKind.slippedPastYou);
   }
-  if (iBackedBot && botEvil && !iEvil) kinds.add(EpisodeKind.trustedByYou);
   final stab = r.assassinTarget;
   if (stab != null) {
     if (r.roles[seat] == Role.assassin && stab == me) {
@@ -217,6 +248,8 @@ List<EpisodeKind> episodesWith(GameReview r, int seat) {
     }
   }
   if (r.winner != null) {
+    // who won goes by the side each played for at the end
+    final iEvil = r.evil(me), botEvil = r.evil(seat);
     final botWon = (r.winner == '邪惡') == botEvil;
     kinds.add(iEvil == botEvil
         ? (botWon ? EpisodeKind.wonTogether : EpisodeKind.lostTogether)
@@ -242,19 +275,34 @@ QuestResult _questFrom(Map m) => QuestResult(
     excaliburHolder: (m['swordBy'] as num?)?.toInt(),
     excaliburTarget: (m['swordOn'] as num?)?.toInt());
 
+/// Every field of a statement, so a reopened review reads exactly as the
+/// one shown at the end of the game. Missing keys (older saves) read back
+/// as the field's default.
 Map<String, dynamic> _line(ReviewLine l) {
   final s = l.statement;
   return {
     'by': s.speaker,
     'q': s.quest,
+    if (s.generation != null) 'g': s.generation,
     if (s.attempt != null) 'a': s.attempt,
     'text': s.text,
     if (s.target != null) 'to': s.target,
+    if (s.claimedEvil != null) 'evil': s.claimedEvil,
+    if (s.switched != null) 'switched': s.switched,
     if (s.position != null) 'pos': s.position!.name,
+    if (s.certainty != DiscussionCertainty.tentative) 'sure': s.certainty.name,
     if (s.supportsTeam != null) 'for': s.supportsTeam,
+    if (s.team.isNotEmpty) 'team': s.team,
     if (s.intent != null) 'intent': s.intent,
     if (s.topic != null) 'topic': s.topic,
     if (s.questionTo != null) 'ask': s.questionTo,
+    if (s.replyTo != null) 'reply': s.replyTo,
+    if (s.quotedFrom != null) 'quote': s.quotedFrom,
+    if (s.claimedOriginalSuccess != null) 'cardOk': s.claimedOriginalSuccess,
+    if (s.originalCardQuest != null) 'cardQ': s.originalCardQuest,
+    if (s.claimsOpeningKnowledge) 'opening': true,
+    if (s.continues) 'cont': true,
+    if (s.evidenceIds.isNotEmpty) 'ev': s.evidenceIds,
     if (l.source != null) 'src': [l.source!.label, l.source!.where],
   };
 }
@@ -263,16 +311,34 @@ ReviewLine _lineFrom(Map m) => ReviewLine(
     DiscussionStatement(
         speaker: (m['by'] as num).toInt(),
         quest: (m['q'] as num).toInt(),
+        generation: (m['g'] as num?)?.toInt(),
         attempt: (m['a'] as num?)?.toInt(),
         text: m['text'] as String,
         target: (m['to'] as num?)?.toInt(),
+        claimedEvil: m['evil'] as bool?,
+        switched: m['switched'] as bool?,
         position: m['pos'] == null
             ? null
             : DiscussionPosition.values.byName(m['pos'] as String),
+        certainty: m['sure'] == null
+            ? DiscussionCertainty.tentative
+            : DiscussionCertainty.values.byName(m['sure'] as String),
         supportsTeam: m['for'] as bool?,
+        team: [
+          for (final s in m['team'] as List? ?? const []) (s as num).toInt()
+        ],
         intent: m['intent'] as String?,
         topic: m['topic'] as String?,
-        questionTo: (m['ask'] as num?)?.toInt()),
+        questionTo: (m['ask'] as num?)?.toInt(),
+        replyTo: (m['reply'] as num?)?.toInt(),
+        quotedFrom: (m['quote'] as num?)?.toInt(),
+        claimedOriginalSuccess: m['cardOk'] as bool?,
+        originalCardQuest: (m['cardQ'] as num?)?.toInt(),
+        claimsOpeningKnowledge: m['opening'] == true,
+        continues: m['cont'] == true,
+        evidenceIds: [
+          for (final e in m['ev'] as List? ?? const []) e as String
+        ]),
     m['src'] == null
         ? null
         : SpeechSource(
@@ -287,6 +353,8 @@ Map<String, dynamic> reviewToMap(GameReview r) => {
       'result': r.result,
       'stab': r.assassinTarget,
       'expansions': r.expansions.toMap(),
+      if (r.expansions.lancelot > 0) 'switches': r.switchedDuring,
+      if (r.switchedAtEnd) 'switchedEnd': true,
       'lady': [
         for (final c in r.ladyChecks) [c.holder, c.target, c.quest]
       ],
@@ -331,6 +399,10 @@ GameReview reviewFromMap(Map<String, dynamic> m) => GameReview(
     assassinTarget: (m['stab'] as num?)?.toInt(),
     expansions: ExpansionSettings.fromMap(
         Map<String, dynamic>.from(m['expansions'] as Map)),
+    switchedDuring: [
+      for (final x in m['switches'] as List? ?? const []) x == true
+    ],
+    switchedAtEnd: m['switchedEnd'] == true,
     ladyChecks: [
       for (final c in m['lady'] as List)
         LadyCheck(((c as List)[0] as num).toInt(), (c[1] as num).toInt(),

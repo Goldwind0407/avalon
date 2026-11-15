@@ -89,7 +89,9 @@ class GameReview {
     required this.ladyChecks,
     required this.assassinTarget,
     required this.expansions,
-  });
+    List<bool> switchedDuring = const [],
+    this.switchedAtEnd = false,
+  }) : switchedDuring = List.unmodifiable(switchedDuring);
 
   final List<String> players;
   final List<Role> roles;
@@ -103,6 +105,12 @@ class GameReview {
   final List<LadyCheck> ladyChecks;
   final int? assassinTarget;
   final ExpansionSettings expansions;
+
+  /// Whether the Lancelots played for the other side during each quest
+  /// (index 0 is the first quest), and when the game ended. Always false
+  /// without the Lancelot expansion.
+  final List<bool> switchedDuring;
+  final bool switchedAtEnd;
 
   /// Builds the review from what a solo session recorded.
   factory GameReview.build({
@@ -121,6 +129,8 @@ class GameReview {
     required List<LadyCheck> ladyChecks,
     required int? assassinTarget,
     required ExpansionSettings expansions,
+    List<bool> switchedDuring = const [],
+    bool switchedAtEnd = false,
   }) {
     ReviewLine line(int i) => ReviewLine(statements[i], sources[i]);
     final quests = <ReviewQuest>[];
@@ -160,15 +170,31 @@ class GameReview {
         ],
         ladyChecks: ladyChecks,
         assassinTarget: assassinTarget,
-        expansions: expansions);
+        expansions: expansions,
+        switchedDuring: switchedDuring,
+        switchedAtEnd: switchedAtEnd);
   }
 
-  bool evil(int seat) => roles[seat].isEvil;
+  bool _side(int seat, bool switched) =>
+      roles[seat].isEvil != (roles[seat].isLancelot && switched);
+
+  /// The side [seat] played for when the game ended: what decides who won.
+  bool evil(int seat) => _side(seat, switchedAtEnd);
+
+  /// The side [seat] played for during [quest] (1-based): what a vote, a
+  /// card, a Lady check or an accusation on that quest is judged by.
+  bool evilIn(int seat, int quest) => _side(
+      seat,
+      quest >= 1 && quest <= switchedDuring.length
+          ? switchedDuring[quest - 1]
+          : switchedAtEnd);
+
   bool get iAmEvil => evil(mySeat);
   bool get iWon => winner != null && (winner == '邪惡') == iAmEvil;
 
   /// Something about a bot's vote worth a second look, or null.
   String? oddVote(int seat, ProposalRecord p, BotVoteDecision d) {
+    bool evil(int s) => evilIn(s, p.quest);
     if (evil(seat)) return null;
     if (const ['fifthProposal', 'merlinDisguise', 'noviceSlip']
         .contains(d.reason)) {
@@ -190,9 +216,11 @@ class GameReview {
     var votes = 0, helpful = 0;
     var led = 0, ledClean = 0;
     for (final q in quests) {
+      // a Lancelot is judged by the side he played for on that quest
+      final mine = evilIn(me, q.number);
       for (final round in q.proposals) {
         final p = round.record;
-        final dirty = p.team.any(evil);
+        final dirty = p.team.any((s) => evilIn(s, q.number));
         if (p.attempt < 5) {
           votes++;
           if (p.votes[me] == (mine ? dirty : !dirty)) helpful++;
@@ -212,7 +240,7 @@ class GameReview {
             continue;
           }
           calls++;
-          final isEvil = evil(s.target!);
+          final isEvil = evilIn(s.target!, s.quest);
           if ((s.position == DiscussionPosition.suspect) == isEvil) {
             rightCalls++;
           }

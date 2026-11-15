@@ -191,7 +191,11 @@ void main() {
         ],
         sources: const {},
         decisions: const {},
-        cardsBySeat: const {},
+        // the player's Fail is what lost the quest
+        cardsBySeat: const {
+          0: {1: false},
+          1: {1: true}
+        },
         ladyChecks: const [],
         assassinTarget: 3,
         expansions: const ExpansionSettings());
