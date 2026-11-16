@@ -6,6 +6,8 @@ import '../game/expansion_model.dart';
 import '../game/game_model.dart';
 import '../game/game_session.dart';
 import '../game/player_speech.dart';
+import '../game/speech_statements.dart';
+export '../game/speech_statements.dart' show switchStates;
 import '../lobby/room_model.dart';
 import 'bot_brain.dart';
 import 'bot_difficulty.dart';
@@ -626,104 +628,24 @@ class SoloGameSession extends GameSession {
         (t == null || t < 0 || t == me || t >= players.length)) {
       throw const GameMoveException('請選擇另一位玩家');
     }
-    String who(int seat) => '${seat + 1}號';
     final ballot = speech.kind == PlayerSpeechKind.challengeVote
         ? proposalHistory.lastOrNull
         : null;
     if (speech.kind == PlayerSpeechKind.challengeVote && ballot == null) {
       throw const GameMoveException('還沒有公開的投票紀錄，可以先詢問立場');
     }
-    final typed = speech.text?.trim();
-    final text = typed != null && typed.isNotEmpty
-        ? typed
-        : switch (speech.kind) {
-            PlayerSpeechKind.support => '我支持這隊。',
-            PlayerSpeechKind.oppose => '這隊我想換人。',
-            PlayerSpeechKind.suspect => '我懷疑${who(t!)}。',
-            PlayerSpeechKind.trust => '我相信${who(t!)}是好人。',
-            PlayerSpeechKind.ask => '${who(t!)}，你怎麼看？說說你的理由。',
-            PlayerSpeechKind.challengeVote =>
-              '${who(t!)}，第${ballot!.quest}次遠征的第${ballot.attempt}次提案，你投${ballot.votes[t] ? '贊成' : '反對'}的理由是什麼？',
-            PlayerSpeechKind.claimGood => '我是好人，請相信我。',
-            PlayerSpeechKind.claimPercival =>
-              '我是派西維爾。${t == null ? '' : '${who(t)}是莫甘娜。'}',
-            PlayerSpeechKind.ladyClaim =>
-              '我用湖中女神查驗了${who(t!)}，他是${speech.claimsEvil == true ? '邪惡' : '正義'}陣營。',
-            PlayerSpeechKind.remark => '',
-          };
-    if (text.isEmpty) return;
-    for (final (index, point) in speech.points.indexed) {
-      final t = point.target;
-      // A Lady result counts as one only from the holder who checked that
-      // player; otherwise it is a plain word for or against them.
-      final check = point.kind == PlayerSpeechKind.ladyClaim && t != null
-          ? ladyChecks.where((c) => c.holder == me && c.target == t).lastOrNull
-          : null;
-      final kind = point.kind != PlayerSpeechKind.ladyClaim || check != null
-          ? point.kind
-          : point.claimsEvil == true
-              ? PlayerSpeechKind.suspect
-              : PlayerSpeechKind.trust;
-      _statements.add(DiscussionStatement(
-          generation: generation,
-          attempt: rejections + 1,
-          speaker: me,
-          quest: questNumber,
-          // a Lady result is about the sides when the check was made
-          switched: check == null
-              ? lancelotSwitched
-              : _switchedWhenChecked(check.quest),
-          team: team,
-          text: text,
-          continues: index > 0,
-          supportsTeam: switch (kind) {
-            PlayerSpeechKind.support => true,
-            PlayerSpeechKind.oppose => false,
-            _ => index == 0 ? speech.supportsTeam : null,
-          },
-          intent: switch (kind) {
-            PlayerSpeechKind.support => BotSpeechIntent.supportTeam.name,
-            PlayerSpeechKind.oppose => BotSpeechIntent.opposeTeam.name,
-            PlayerSpeechKind.suspect => BotSpeechIntent.accuse.name,
-            PlayerSpeechKind.trust => BotSpeechIntent.defendOther.name,
-            PlayerSpeechKind.ask => BotSpeechIntent.questionTeam.name,
-            PlayerSpeechKind.challengeVote =>
-              BotSpeechIntent.challengeVote.name,
-            PlayerSpeechKind.claimGood => BotSpeechIntent.defendSelf.name,
-            PlayerSpeechKind.claimPercival => DiscussionStatement.percivalClaim,
-            PlayerSpeechKind.ladyClaim => BotSpeechIntent.interpretLady.name,
-            PlayerSpeechKind.remark => 'opinion',
-          },
-          target: switch (kind) {
-            PlayerSpeechKind.claimGood => me,
-            _ => t,
-          },
-          claimedEvil: check == null ? null : point.claimsEvil,
-          certainty: check == null
-              ? DiscussionCertainty.tentative
-              : DiscussionCertainty.certain,
-          position: switch (kind) {
-            PlayerSpeechKind.suspect => DiscussionPosition.suspect,
-            PlayerSpeechKind.claimPercival when t != null =>
-              DiscussionPosition.suspect,
-            PlayerSpeechKind.trust => DiscussionPosition.defend,
-            _ => null,
-          },
-          evidenceIds: [
-            if (ballot != null && index == 0)
-              BotEvidenceId(generation, BotEvidenceKind.ballot,
-                      'q${ballot.quest}/a${ballot.attempt}')
-                  .id,
-            if (check != null)
-              BotEvidenceId(generation, BotEvidenceKind.ladyUse,
-                      'q${check.quest}/$me/${check.target}')
-                  .id,
-          ],
-          questionTo: [PlayerSpeechKind.ask, PlayerSpeechKind.challengeVote]
-                  .contains(kind)
-              ? t
-              : null));
-    }
+    _statements.addAll(statementsFromSpeech(
+        speech, speechText(speech, ballot: ballot),
+        speaker: me,
+        generation: generation,
+        quest: questNumber,
+        attempt: rejections + 1,
+        team: team,
+        switched: lancelotSwitched,
+        ladyChecks: ladyChecks,
+        loyalty: loyalty,
+        questsPlayed: history.length,
+        ballot: ballot));
     notifyListeners();
   }
 
@@ -761,15 +683,6 @@ class SoloGameSession extends GameSession {
           expansions: expansions,
           switchedDuring: _switchedDuring(),
           switchedAtEnd: lancelotSwitched);
-
-  /// Whether the Lancelots had switched when a Lady check was made after
-  /// quest [quest] (before the next quest's loyalty card).
-  bool _switchedWhenChecked(int quest) {
-    final during = switchStates(loyalty, history.length);
-    return quest >= 1 && quest <= during.length
-        ? during[quest - 1]
-        : lancelotSwitched;
-  }
 
   /// Whether the Lancelots had switched during each quest played: a
   /// "switch" loyalty card turned over at the start of a quest flips it.
@@ -879,18 +792,4 @@ class SoloGameSession extends GameSession {
     _local.dispose();
     super.dispose();
   }
-}
-
-/// Whether the Lancelots had switched during each of the first [quests]
-/// quests: a "switch" loyalty card turned over at the start of a quest
-/// flips it for that quest and the ones after.
-List<bool> switchStates(List<bool?> loyalty, int quests) {
-  var switched = false;
-  return [
-    for (var q = 0; q < quests; q++)
-      if (q < loyalty.length && loyalty[q] == true)
-        switched = !switched
-      else
-        switched
-  ];
 }
