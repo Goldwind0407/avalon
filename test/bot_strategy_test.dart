@@ -386,4 +386,168 @@ void main() {
       expect(share((b) => b.vote(o)), greaterThan(0));
     });
   });
+
+  test('after a failed quest Merlin does not let evil through on his vote', () {
+    // A reported 5-player game: seats 0 and 4 are evil; Merlin (seat 2)
+    // votes on seat 3's team 2, 3, 4 after quests of 1 fail, then two
+    // clean ones. Seats 0 and 1 will turn it down, 3 and 4 pass it: his
+    // vote decides it, so a cover vote would hand evil a quest.
+    final o = observe(
+        role: Role.merlin,
+        count: 5,
+        seat: 2,
+        leader: 3,
+        visible: [0, 4],
+        phase: GamePhase.vote,
+        team: [2, 3, 4],
+        history: [
+          QuestResult([0, 1], 1, false),
+          QuestResult([2, 3, 4], 0, true),
+          QuestResult([2, 3], 0, true),
+        ]);
+    for (var seed = 0; seed < 300; seed++) {
+      expect(BotBrain(Random(seed), style: BotStyle.actor).vote(o), isFalse,
+          reason: 'seed $seed');
+    }
+  });
+
+  group('the hard push', () {
+    const roles = {Role.merlin, Role.assassin, Role.percival, Role.morgana};
+    // five players: Morgana in seat 0, the Assassin in seat 4
+    BotObservation firstQuest() => observe(
+        role: Role.morgana,
+        evil: true,
+        count: 5,
+        visible: [4],
+        leader: 1,
+        phase: GamePhase.quest,
+        team: [0, 1],
+        configuredRoles: roles);
+
+    test('an aggressive Morgana fails the first quest on purpose', () {
+      double fails(BotStyle style) =>
+          [
+            for (var seed = 0; seed < 300; seed++)
+              if (!BotBrain(Random(seed), style: style).questCard(firstQuest()))
+                1
+          ].length /
+          300;
+      expect(fails(BotStyle.aggressive), greaterThan(.5));
+      expect(fails(BotStyle.cautious), lessThan(.35));
+      BotBrain.hardlineChance = 0;
+      addTearDown(() => BotBrain.hardlineChance = 1);
+      expect(fails(BotStyle.aggressive), lessThan(.3));
+    });
+
+    test('then claims Percival and names her partner as Morgana', () {
+      // the quest failed; second quest, seat 1 is not on the team
+      final later = observe(
+          role: Role.morgana,
+          evil: true,
+          count: 5,
+          visible: [4],
+          leader: 2,
+          phase: GamePhase.discussion,
+          team: [2, 3, 4],
+          configuredRoles: roles,
+          history: [
+            QuestResult([0, 1], 1, false)
+          ]);
+      var claimed = 0;
+      for (var seed = 0; seed < 100; seed++) {
+        final brain = BotBrain(Random(seed), style: BotStyle.aggressive);
+        if (!brain.hardline(firstQuest())) continue;
+        final said = brain.speech(later, false);
+        expect(said.claimsPercival, isTrue, reason: 'seed $seed');
+        expect(said.target, 1);
+        claimed++;
+      }
+      expect(claimed, greaterThan(30));
+    });
+
+    test('and her ally piles onto the player she named', () {
+      final o = observe(
+          role: Role.assassin,
+          evil: true,
+          count: 5,
+          seat: 4,
+          visible: [0],
+          leader: 2,
+          phase: GamePhase.discussion,
+          team: [2, 3, 4],
+          configuredRoles: roles,
+          history: [
+            QuestResult([0, 1], 1, false)
+          ],
+          statements: [
+            DiscussionStatement(
+                speaker: 0,
+                quest: 2,
+                generation: 4,
+                attempt: 1,
+                text: '我是派西維爾，2號是莫甘娜',
+                target: 1,
+                intent: DiscussionStatement.percivalClaim,
+                position: DiscussionPosition.suspect)
+          ]);
+      var named = 0, spoke = 0;
+      for (var seed = 0; seed < 100; seed++) {
+        final said =
+            BotBrain(Random(seed), style: BotStyle.aggressive).speech(o, false);
+        if (said.position == DiscussionPosition.suspect) {
+          spoke++;
+          if (said.target == 1) named++;
+        }
+      }
+      expect(spoke, greaterThan(20));
+      expect(named, spoke);
+    });
+  });
+
+  test('倒鉤: an evil player steps on an ally the table has caught', () {
+    // seat 0 (evil) sat on both failed quests; seat 1 has just accused him.
+    // Seat 4 is his ally.
+    final o = observe(
+        role: Role.minion,
+        evil: true,
+        count: 7,
+        seat: 4,
+        visible: [0, 6],
+        leader: 2,
+        phase: GamePhase.discussion,
+        team: [2, 3, 5],
+        history: [
+          QuestResult([0, 1], 1, false),
+          QuestResult([0, 2, 3], 1, false)
+        ],
+        statements: [
+          DiscussionStatement(
+              speaker: 1,
+              quest: 3,
+              generation: 4,
+              attempt: 1,
+              text: '1號兩次都在出事的隊上',
+              target: 0,
+              position: DiscussionPosition.suspect)
+        ]);
+    (int, int) said(bool bussing) {
+      var against = 0, for0 = 0;
+      for (var seed = 0; seed < 100; seed++) {
+        final brain = BotBrain(Random(seed), style: BotStyle.actor);
+        brain.speech(o, false); // decides once; then set the plan
+        brain.voice.bussing = bussing;
+        final s = brain.speech(o, false);
+        if (s.target != 0) continue;
+        if (s.position == DiscussionPosition.suspect) against++;
+        if (s.position == DiscussionPosition.defend) for0++;
+      }
+      return (against, for0);
+    }
+
+    final (against, defended) = said(true);
+    expect(against, greaterThan(20));
+    expect(defended, 0);
+    final (againstNormally, _) = said(false);
+    expect(againstNormally, 0);
+  });
 }

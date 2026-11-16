@@ -37,6 +37,16 @@ class BotVoice {
   /// once.
   int? _claimGeneration;
 
+  /// This Morgana plays the hard push (see [BotBrain.hardline]).
+  bool hardline = false;
+
+  /// This evil player steps on an ally the table has already caught (倒鉤),
+  /// to look good himself (see [BotBrain.bussing]).
+  bool bussing = false;
+
+  /// How suspicious an ally must already look before he is stepped on.
+  static const busExposed = .6;
+
   /// How readily a role is claimed when the moment for it has come: by the
   /// real Percival, by Morgana under pressure, by Merlin as a last resort.
   /// Merlin's must stay the rarest: the bluff only works while the Assassin
@@ -429,7 +439,15 @@ class BotVoice {
       }
       // speaking up for a member of the team one is about to turn down
       // says the opposite of the vote
-      final defend = (approve || !o.team.contains(t)) &&
+      // 倒鉤: a caught ally is not defended but stepped on
+      final stepOn = o.evil &&
+          bussing &&
+          allies.contains(t) &&
+          view[t] >= busExposed &&
+          (!o.team.contains(t) || !approve) &&
+          _reasons(o, t) != null;
+      final defend = !stepOn &&
+          (approve || !o.team.contains(t)) &&
           (allies.contains(t) ||
               (!o.evil && real[t] <= .2 && _cleanWith(o, t).isNotEmpty));
       // someone already spoke up for this player this round
@@ -475,7 +493,7 @@ class BotVoice {
             DiscussionPosition.defend,
             replyTo: index);
       }
-      if (canDoubt(t) &&
+      if ((canDoubt(t) || stepOn) &&
           (o.evil ? view[t] >= .3 : real[t] >= .45) &&
           random.nextDouble() < _boldness) {
         // the reason has been given; from the second voice on, just join in
@@ -522,6 +540,36 @@ class BotVoice {
         if (s.speaker == o.seat && s.target != null) s.target
     };
     candidates.removeWhere(already.contains);
+    // 倒鉤: an ally the table has already caught is worth more as a
+    // stepping stone than as a friend: join the accusation against him.
+    if (o.evil && bussing) {
+      final exposed = [
+        for (final s in allies)
+          if (s != o.seat &&
+              view[s] >= busExposed &&
+              (!o.team.contains(s) || !approve) &&
+              !already.contains(s) &&
+              _reasons(o, s) != null)
+            s
+      ]..sort((a, b) => view[b].compareTo(view[a]));
+      if (exposed.isNotEmpty) candidates.insert(0, exposed.first);
+    }
+    // An ally has claimed Percival and named someone Morgana: back him up
+    // (unless stepping on allies is the plan).
+    if (o.evil && !bussing) {
+      final named = [
+        for (final s in o.statements)
+          if (s.generation == o.generation &&
+              s.claimsPercival &&
+              s.speaker != o.seat &&
+              allies.contains(s.speaker) &&
+              s.target != null)
+            s.target!
+      ].lastOrNull;
+      if (named != null && candidates.remove(named)) {
+        candidates.insert(0, named);
+      }
+    }
     if (candidates.isEmpty || random.nextDouble() > _boldness) return null;
     final t =
         candidates.contains(plan?.target) ? plan!.target : candidates.first;

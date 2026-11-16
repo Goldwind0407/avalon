@@ -899,6 +899,53 @@ class BotBrain {
     return scored.first.$1;
   }
 
+  /// How readily Morgana plays the hard push, by style (beginners never):
+  /// fail the first quest on a small team, then claim Percival at once and
+  /// name the partner of that quest as Morgana, with her allies piling on.
+  static double hardlineChance = 1;
+  static const _hardlineByStyle = {
+    BotStyle.aggressive: .6,
+    BotStyle.impulsive: .45,
+    BotStyle.actor: .3,
+  };
+  bool? _hardline;
+  int? _hardlineGeneration;
+
+  /// How readily an evil player steps on a caught ally (倒鉤), by style.
+  static double bussingChance = 1;
+  static const _bussingByStyle = {
+    BotStyle.actor: .35,
+    BotStyle.aggressive: .25,
+  };
+  int? _bussingGeneration;
+
+  /// Decides once a game whether this evil player will step on a caught
+  /// ally; beginners do not.
+  void _decideBussing(BotObservation o) {
+    if (_bussingGeneration == o.generation) return;
+    _bussingGeneration = o.generation;
+    voice.bussing = o.evil &&
+        difficulty.rolePlay > 0 &&
+        random.nextDouble() < (_bussingByStyle[style] ?? .15) * bussingChance;
+  }
+
+  /// Whether this Morgana plays the hard push this game (decided once).
+  bool hardline(BotObservation o) {
+    if (o.role != Role.morgana ||
+        !o.evil ||
+        !(o.configuredRoles?.contains(Role.percival) ?? false) ||
+        difficulty.rolePlay == 0) {
+      return false;
+    }
+    if (_hardlineGeneration != o.generation) {
+      _hardlineGeneration = o.generation;
+      _hardline = random.nextDouble() <
+          (_hardlineByStyle[style] ?? .2) * hardlineChance;
+      voice.hardline = _hardline!;
+    }
+    return _hardline!;
+  }
+
   BotVoteDecision? lastVoteDecision;
 
   bool vote(BotObservation o, {Random? decisionRandom}) {
@@ -1007,11 +1054,10 @@ class BotBrain {
           // never let a doubtful team through when it would lose the game
           chance = 0;
         } else {
-          // letting a doubtful team through is the costlier act; once a
-          // quest has failed he can afford it half as often
-          chance = min(.85, disguise * .8);
-          if (o.failures == 1) chance /= 2;
-          chance = max(chance, free);
+          // Letting a doubtful team through can cost a whole quest. While
+          // nothing is lost he can afford it now and then; once a quest has
+          // failed, only where his vote will not decide the proposal.
+          chance = o.failures == 0 ? max(min(.85, disguise * .8), free) : free;
           // Turning down the very first team, when nobody else has a
           // reason to, tells the Assassin who knows something.
           if (o.history.isEmpty) chance = max(chance, .6);
@@ -1170,6 +1216,14 @@ class BotBrain {
     final p = suspicion(o);
     final knownAllies = _knownAllies(o);
     final allies = o.team.where(knownAllies.contains).toList()..sort();
+    // The hard push: alone with good players on a small first team, she
+    // fails it on purpose and then claims Percival against her partner.
+    if (o.quest == 1 &&
+        allies.length == 1 &&
+        o.team.length <= 3 &&
+        hardline(o)) {
+      return false;
+    }
     if (allies.length >= max(2, o.failsRequired)) {
       // A shared seat-order convention needs no secret communication. Every
       // designated saboteur commits; surplus allies conceal themselves.
@@ -1460,6 +1514,7 @@ class BotBrain {
           high: 2);
 
   DiscussionStatement speech(BotObservation o, bool approve) {
+    _decideBussing(o);
     // A question put to this seat in this round is answered first (the
     // template catalogue knows how). Otherwise name names when the public
     // record gives a reason to, or fall back on a catalogue line.
