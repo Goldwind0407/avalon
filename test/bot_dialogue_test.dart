@@ -68,7 +68,8 @@ void main() {
       () {
     final catalog = BotDialogueCatalog.bundled;
     expect(catalog.rules, hasLength(105));
-    expect(catalog.rules.expand((r) => r.templates), hasLength(420));
+    expect(catalog.rules.expand((r) => r.templates).length,
+        greaterThanOrEqualTo(420));
     expect(catalog.rules.map((r) => r.id).toSet(), hasLength(105));
     expect(catalog.rules.firstWhere((r) => r.id == 'G07').policy,
         BotClaimPolicy.strategicOpinionBluff);

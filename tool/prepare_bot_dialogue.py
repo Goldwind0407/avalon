@@ -115,8 +115,9 @@ def compile_catalog():
         if not line.strip() or line.startswith("#"):
             continue
         rule_id, *lines = [part.strip() for part in line.split("|")]
-        if rule_id in wording or len(lines) != 4 or len(set(lines)) != 4:
-            raise ValueError(f"Expected four unique variants: {rule_id}")
+        # at least four ways to say each thing, none twice
+        if rule_id in wording or len(lines) < 4 or len(set(lines)) != len(lines):
+            raise ValueError(f"Expected four or more unique variants: {rule_id}")
         for text in lines:
             keys = re.findall(r"\{\{([A-Za-z]+)\}\}", text)
             if set(keys) - set(PLACEHOLDERS.values()) - {"quest", "attempt"}:

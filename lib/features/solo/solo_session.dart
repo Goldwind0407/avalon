@@ -244,9 +244,23 @@ class SoloGameSession extends GameSession {
                 .id
           ],
           // "at the time" only matters when sides can still switch
-          text: '我用湖中女神查驗了${reveal.target + 1}號，'
-              '他${expansions.lancelot > 0 ? '當時' : ''}是${claim ? '邪惡' : '正義'}陣營。'));
+          text: _ladyAnnouncement(owner, reveal.target, reveal.quest, claim)));
     }
+  }
+
+  /// What a computer Lady holder says it saw. "At the time" only matters
+  /// when the sides can still switch.
+  String _ladyAnnouncement(int owner, int target, int quest, bool evil) {
+    final who = '${target + 1}號';
+    final then = expansions.lancelot > 0 ? '當時' : '';
+    final side = evil ? '邪惡' : '正義';
+    final lines = [
+      '我用湖中女神查驗了$who，他$then是$side陣營。',
+      '女神我拿去看了$who，結果是$side。',
+      '報一下查驗：$who$then是$side陣營。',
+      '我查的是$who，看到的是$side，大家參考。',
+    ];
+    return lines[(owner + target + quest) % lines.length];
   }
 
   BotVotePlan _votePlan(int seat) => _plannedVotes.putIfAbsent(
@@ -303,9 +317,19 @@ class SoloGameSession extends GameSession {
                     generation, BotEvidenceKind.statement, 's${source.$1}')
                 .id
           ],
-          text: decision.approve
-              ? '聽完討論，包括$name的說法，我收回剛才的反對。這隊我願意試。'
-              : '聽完討論，包括$name的說法，我對這隊沒那麼放心了。剛才說支持，現在改投反對。'));
+          // a few ways to take it back, chosen by the seat and proposal so
+          // the same bot does not say the same thing twice in a row
+          text: (decision.approve
+              ? [
+                  '聽完討論，包括$name的說法，我收回剛才的反對。這隊我願意試。',
+                  '$name說的有道理，我改一下：這隊我還是讓它過。',
+                  '我想了一下$name的話，剛才的反對收回，這票改投贊成。',
+                ]
+              : [
+                  '聽完討論，包括$name的說法，我對這隊沒那麼放心了。剛才說支持，現在改投反對。',
+                  '$name提醒得對，我收回剛才的支持，這隊我改投反對。',
+                  '聽了$name的話，我覺得這隊有風險，改投反對。',
+                ])[(seat + view.quest + view.proposalId.attempt) % 3]));
     }
   }
 

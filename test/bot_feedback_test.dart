@@ -198,10 +198,12 @@ void main() {
   });
 
   test(
-      'four variants per scenario and no exact repeat until variants exhausted',
+      'at least four variants per scenario and no exact repeat until variants exhausted',
       () {
     for (final rule in BotDialogueCatalog.bundled.rules) {
-      expect(rule.templates.toSet(), hasLength(4), reason: rule.id);
+      expect(rule.templates.length, greaterThanOrEqualTo(4), reason: rule.id);
+      expect(rule.templates.toSet(), hasLength(rule.templates.length),
+          reason: rule.id);
     }
     final planner = plannerFor('G01');
     final lines = [for (var i = 0; i < 4; i++) say(planner, observe()).text];
