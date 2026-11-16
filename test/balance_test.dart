@@ -8,6 +8,7 @@ import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
+import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
@@ -325,6 +326,14 @@ void main() {
     final setups = [for (var g = 0; g < games!; g++) randomSetup(r)];
     final seeds = [for (var g = 0; g < games; g++) r.nextInt(1 << 30)];
     // BALANCE_TALK=on|off runs only that one; both by default
+    // BALANCE_BUS=off: no evil player steps on a caught ally
+    if (Platform.environment['BALANCE_BUS'] == 'off') {
+      BotBrain.bussingChance = 0;
+    }
+    // BALANCE_HARDLINE=off: no Morgana plays the hard push
+    if (Platform.environment['BALANCE_HARDLINE'] == 'off') {
+      BotBrain.hardlineChance = 0;
+    }
     // BALANCE_CLAIMS=off: nobody claims a role
     if (Platform.environment['BALANCE_CLAIMS'] == 'off') {
       BotVoice.percivalClaimChance =

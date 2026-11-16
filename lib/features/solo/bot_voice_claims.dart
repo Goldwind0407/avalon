@@ -144,6 +144,28 @@ extension BotVoiceClaims on BotVoice {
             morgana: c.speaker,
             replyTo: indexOf(c));
       }
+      // The hard push: she failed a small quest on purpose; before anyone
+      // else speaks up, she claims Percival and names her partner on it.
+      if (hardline && claims.isEmpty) {
+        for (var q = o.history.length - 1; q >= 0; q--) {
+          final past = o.history[q];
+          if (past.succeeded || !past.team.contains(me)) continue;
+          final partners = [
+            for (final s in past.team)
+              if (s != me && !allies.contains(s)) s
+          ]..sort((x, y) => view[y].compareTo(view[x]));
+          if (partners.isEmpty || !sayable(partners.first)) break;
+          final t = partners.first;
+          _claimGeneration = o.generation;
+          return say(
+              _pick([
+                '我直接跳了：我是派西維爾。第${q + 1}次那張失敗不是我的，${_n(t)}是我看到的兩個人之一，他就是莫甘娜。',
+                '我是派西維爾。第${q + 1}次我和${_n(t)}一起出任務，我出成功；他是我看到的兩人之一，所以他是莫甘娜。',
+                '派西維爾是我。${_n(t)}在我看到的兩個人裡，第${q + 1}次的失敗就是他出的，他是莫甘娜。',
+              ]),
+              morgana: t);
+        }
+      }
       // The table is closing in: claim first, and pin it on someone the
       // record already speaks against.
       final pressure = o.statements
