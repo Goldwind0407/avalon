@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/theme.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
+import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/game/game_screen.dart';
@@ -66,7 +67,62 @@ class PublicNotebookSession extends GameSession {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// A game with the Lady: the player (seat 0) checked seat 3, then seat 3
+/// checked seat 6.
+class LadyNotebookSession extends PublicNotebookSession {
+  LadyNotebookSession({this.mine = true}) : super(count: 7);
+  final bool mine;
+  @override
+  ExpansionSettings get expansions => const ExpansionSettings(lady: true);
+  @override
+  List<LadyCheck> get ladyChecks =>
+      const [LadyCheck(0, 3, 2), LadyCheck(3, 6, 3)];
+  @override
+  int? get ladyHolder => 6;
+  @override
+  List<PrivateReveal> get myLadyResults => mine
+      ? const [PrivateReveal(kind: 'lady', quest: 2, target: 3, evil: true)]
+      : const [];
+}
+
 void main() {
+  testWidgets('the notebook lists who checked whom with the Lady',
+      (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final mine in [true, false]) {
+      final game = LadyNotebookSession(mine: mine);
+      final notes = GameNotebook(storage: MemoryNotebookStorage());
+      await tester.pumpWidget(MaterialApp(
+          theme: notebookTheme,
+          home: NotebookScreen(
+              key: ValueKey(mine), session: game, notebook: notes)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('湖中女神紀錄'));
+      await tester.pumpAndSettle();
+      expect(find.text('目前持有者：7 號 【小白】'), findsOneWidget);
+      // the player's own check carries what they saw, where this device
+      // keeps it; the other check is only who and whom
+      expect(
+          find.text(mine
+              ? '第 2 次遠征後：1 號 【亞瑟】 查驗 4 號 【高文】（你看到：邪惡）'
+              : '第 2 次遠征後：1 號 【亞瑟】 查驗 4 號 【高文】'),
+          findsOneWidget);
+      expect(find.text('第 3 次遠征後：4 號 【高文】 查驗 7 號 【小白】'), findsOneWidget);
+      await tester.tap(find.text('關閉'));
+      await tester.pumpAndSettle();
+    }
+    // without the Lady there is nothing to list
+    await tester.pumpWidget(MaterialApp(
+        theme: notebookTheme,
+        home: NotebookScreen(
+            session: PublicNotebookSession(),
+            notebook: GameNotebook(storage: MemoryNotebookStorage()))));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('湖中女神紀錄'), findsNothing);
+  });
+
   testWidgets(
       'opening information and rejected vote history are readable in notebook',
       (tester) async {

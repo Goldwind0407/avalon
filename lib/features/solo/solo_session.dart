@@ -59,6 +59,14 @@ class SoloGameSession extends GameSession {
   /// seat, so it can be given habits of its own.
   final BotBrain Function(int seed)? playerBrain;
 
+  @override
+  List<PrivateReveal> get myLadyResults => [
+        for (final f in _facts[mySeat] ?? const <BotFact>[])
+          if (f.evil != null)
+            PrivateReveal(
+                kind: 'lady', quest: f.quest, target: f.target, evil: f.evil)
+      ];
+
   /// Simulation only: the side [seat] really plays for now.
   @visibleForTesting
   bool trulyEvil(int seat) => _rules.evilNow(seat);

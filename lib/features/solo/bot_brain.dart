@@ -274,7 +274,9 @@ class BotBrain {
     for (final entry in {...certain, ...privateBeliefs}.entries) {
       p[entry.key] = entry.value;
     }
-    if (!o.evil && o.expansions.lancelot == 0) _reconcile(o, p);
+    // With Lancelot, quests from before a switch are left out (see
+    // [_unexplained]); the number of evil players never changes.
+    if (!o.evil) _reconcile(o, p);
     if (knows) _checkClaims(o, p);
     p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
