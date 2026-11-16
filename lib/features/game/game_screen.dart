@@ -1914,14 +1914,29 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       );
 
   /// Seats to choose from, as a row of plaques (one may be picked).
-  Widget _seatPicker(List<int> seats, double s, Color color) => Wrap(
+  /// Seats to choose from, in rows of about the same length (at most six
+  /// a row: 9 seats are 5 and 4, not 6 and 3).
+  Widget _seatPicker(List<int> seats, double s, Color color) {
+    final rows = max(1, (seats.length + 5) ~/ 6);
+    final per = (seats.length / rows).ceil();
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      for (var r = 0; r < rows; r++)
+        Padding(
+          padding: EdgeInsets.only(top: r == 0 ? 0 : 10 * s),
+          child: _seatRow(
+              seats.skip(r * per).take(per).toList(), r * per, s, color),
+        ),
+    ]);
+  }
+
+  Widget _seatRow(List<int> seats, int first, double s, Color color) => Wrap(
         spacing: 12 * s,
         runSpacing: 10 * s,
         alignment: WrapAlignment.center,
         children: [
-          for (final (row, i) in seats.indexed)
+          for (final (n, i) in seats.indexed)
             Appear(
-              delay: _ms(150 + 70 * row),
+              delay: _ms(150 + 70 * (first + n)),
               scaleFrom: .9,
               child: GestureDetector(
                 key: ValueKey('pick$i'),
