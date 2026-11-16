@@ -79,8 +79,12 @@ class BotVoice {
             q + 1
       ];
 
+  /// Votes against that make a proposal contested at a table of [count]:
+  /// agreeing with (nearly) everyone says nothing.
+  static int contestedBy(int count) => max(2, count ~/ 3);
+
   /// Quests that failed after [seat] approved the team from outside it,
-  /// when the vote was contested (agreeing with everyone says nothing).
+  /// when the vote was contested (see [contestedBy]).
   List<int> _backedFailures(BotObservation o, int seat) => [
         for (var q = 0; q < o.history.length; q++)
           if (o.history[q].fails > 0 &&
@@ -92,7 +96,7 @@ class BotVoice {
                   p.approved &&
                   p.attempt < 5 &&
                   p.votes[seat] &&
-                  p.votes.contains(false))
+                  p.votes.where((v) => !v).length >= contestedBy(o.count))
                 q + 1
       ];
 

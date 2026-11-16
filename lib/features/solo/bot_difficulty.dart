@@ -12,18 +12,22 @@ enum BotDifficulty {
       doubt: .8,
       blend: .4,
       stacking: .15,
-      assassinNoise: .7),
-  normal('一般', '會推理、記票，也會演一點戲'),
+      assassinNoise: .7,
+      steadfast: .15),
+  normal('一般', '會推理、記票，也會演一點戲',
+      reasoning: .65, voteEvidence: .6, doubt: .68, steadfast: .25),
   expert('高手', '推理嚴謹，偽裝和配合都更到位',
       reasoning: .9,
       voteEvidence: 1,
       claimTrust: .6,
       rolePlay: 1.6,
       noise: .5,
-      doubt: .62,
+      doubt: .55,
       blend: 1.1,
       stacking: .6,
-      assassinNoise: .2);
+      assassinNoise: .2,
+      insight: true,
+      steadfast: .45);
 
   const BotDifficulty(this.label, this.description,
       {this.reasoning = .75,
@@ -36,14 +40,17 @@ enum BotDifficulty {
       this.doubt = .62,
       this.blend = 1,
       this.stacking = .5,
-      this.assassinNoise = .45});
+      this.assassinNoise = .45,
+      this.insight = false,
+      this.steadfast = .35});
   final String label, description;
 
   /// How far the worked-out share of possible deals replaces gut feeling
   /// (certain conclusions are always drawn).
   final double reasoning;
 
-  /// Weight of "who approved the team that failed", and of Lady claims.
+  /// Weight of "who approved the team that failed" (for a good player; an
+  /// evil one reads votes fully or not at all), and of Lady claims.
   final double voteEvidence, claimTrust;
 
   /// Claims from earlier quests are still taken into account.
@@ -63,4 +70,12 @@ enum BotDifficulty {
   /// Evil: scales going along with clean teams; cost of each surplus ally
   /// on the team; randomness of the Assassin's pick.
   final double blend, stacking, assassinNoise;
+
+  /// The finer points of reasoning: a Lady result weighed against the rest
+  /// of the record, and the human's habits remembered from earlier games.
+  final bool insight;
+
+  /// How clearly the doubt must turn before a bot that sided with one of
+  /// two Percival claimants says it now believes the other.
+  final double steadfast;
 }

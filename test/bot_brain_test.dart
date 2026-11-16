@@ -23,6 +23,7 @@ BotObservation view(
         ExpansionSettings expansions = const ExpansionSettings(),
         List<DiscussionStatement> statements = const [],
         List<int> team = const [0, 1],
+        List<ProposalRecord> proposals = const [],
         // a leader always backs his own team, so the voter is not the
         // leader unless a test says so
         int? leader}) =>
@@ -40,7 +41,7 @@ BotObservation view(
         visible: visible,
         team: team,
         history: history,
-        proposals: const [],
+        proposals: proposals,
         ladyPast: const [0],
         facts: facts,
         statements: statements,
@@ -239,21 +240,41 @@ void main() {
         greaterThan(.1));
   });
   test('a Lady result the record bears out makes its holder look honest', () {
-    final brain = BotBrain(Random(1));
-    double holder(int target, bool claimedEvil) => brain.suspicion(view(
-            history: [QuestResult([4, 5], 1, false)],
-            statements: [
-              DiscussionStatement(
-                  speaker: 1,
-                  quest: 2,
-                  target: target,
-                  claimedEvil: claimedEvil,
-                  text: '女神結果')
-            ]))[1];
+    final brain = BotBrain(Random(1), difficulty: BotDifficulty.expert);
+    double holder(int target, bool claimedEvil) =>
+        brain.suspicion(view(history: [
+          QuestResult([4, 5], 1, false)
+        ], statements: [
+          DiscussionStatement(
+              speaker: 1,
+              quest: 2,
+              target: target,
+              claimedEvil: claimedEvil,
+              text: '女神結果')
+        ]))[1];
     // 5 sat on the failed quest: calling him evil agrees with the record,
     // calling him good goes against it
     expect(holder(5, true), lessThan(holder(2, true)));
     expect(holder(5, false), greaterThan(holder(2, true)));
+  });
+  test('backing a failed team everyone backed is no clue', () {
+    final brain = BotBrain(Random(1));
+    final failed = [
+      QuestResult([1, 2], 1, false)
+    ];
+    double backer(List<bool> votes) =>
+        brain.suspicion(view(history: failed, proposals: [
+          ProposalRecord(
+              quest: 1, attempt: 1, leader: 1, team: [1, 2], votes: votes)
+        ]))[4];
+    final nobody = brain.suspicion(view(history: failed))[4];
+    // all the others vote yes and only this seat says no: backing it told
+    // nothing about 5
+    expect(backer([false, true, true, true, true, true, true]),
+        closeTo(nobody, 1e-9));
+    // turned down by three: backing it from outside is a clue
+    expect(backer([false, true, true, false, true, true, false]),
+        greaterThan(nobody));
   });
   test('fifth rejection pressure and double-Fail risk are considered', () {
     final brain = BotBrain(Random(2));

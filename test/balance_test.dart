@@ -292,6 +292,12 @@ void play(
         // BALANCE_LEVEL=novice|normal|expert: how well the computers play
         difficulty: BotDifficulty.values
             .byName(Platform.environment['BALANCE_LEVEL'] ?? 'normal'),
+        // BALANCE_EVIL_LEVEL: evil plays at another level, to see what the
+        // good side's level alone is worth
+        evilDifficulty: switch (Platform.environment['BALANCE_EVIL_LEVEL']) {
+          null => null,
+          final level => BotDifficulty.values.byName(level),
+        },
         botDelay: const Duration(milliseconds: 1),
         speechDuration: const Duration(milliseconds: 1),
         autopilot: true);

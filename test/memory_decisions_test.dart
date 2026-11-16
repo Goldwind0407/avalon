@@ -26,7 +26,7 @@ PlayerModel model(Map<String, int> traits, {int games = 12}) =>
     ])!;
 
 BotBrain brain(
-        {PlayerModel? knows, BotDifficulty level = BotDifficulty.normal}) =>
+        {PlayerModel? knows, BotDifficulty level = BotDifficulty.expert}) =>
     BotBrain(Random(1), difficulty: level)
       ..playerModel = knows
       ..playerSeat = 6;
@@ -168,7 +168,7 @@ void main() {
         history: [
           QuestResult([1, 2], 0, true),
           QuestResult([1, 2, 6], 0, true),
-          QuestResult([0, 1, 6], 0, true)
+          QuestResult([1, 4, 6], 0, true)
         ],
         proposals: [
           ProposalRecord(
@@ -187,12 +187,12 @@ void main() {
               quest: 3,
               attempt: 1,
               leader: 6,
-              team: [0, 1, 6],
+              team: [1, 4, 6],
               votes: List.filled(7, true)),
         ]);
     int stabs(PlayerModel? knows) => [
           for (var seed = 0; seed < 200; seed++)
-            if ((BotBrain(Random(seed))
+            if ((BotBrain(Random(seed), difficulty: BotDifficulty.expert)
                       ..playerModel = knows
                       ..playerSeat = 6)
                     .assassinate(o) ==
