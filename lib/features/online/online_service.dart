@@ -60,7 +60,7 @@ class OnlineService {
     try {
       final result = await _functions
           .httpsCallable(name)
-          .call({'protocolVersion': 4, ...data});
+          .call({'protocolVersion': 5, ...data});
       return Map<String, dynamic>.from(result.data as Map? ?? const {});
     } on FirebaseFunctionsException catch (e) {
       throw GameMoveException(e.message ?? '連線發生錯誤，請再試一次');

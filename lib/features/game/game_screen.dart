@@ -364,7 +364,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         choice = null;
         selected.clear();
         _hiding = _committing = false;
-        if (game.isSolo && now.phase == GamePhase.discussion) {
+        if (game.hasComputers && now.phase == GamePhase.discussion) {
           _announcement = null;
         }
       }
@@ -1211,7 +1211,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
       ),
       _roundIcon(Icons.question_mark, s, _openRules, '遊戲規則'),
-      if (game.isSolo) ...[
+      if (game.hasComputers) ...[
         SizedBox(width: 6 * s),
         _roundIcon(Icons.forum_outlined, s, _openStatements, '討論紀錄'),
       ],

@@ -4,6 +4,8 @@ import '../game/game_model.dart';
 import '../game/game_session.dart';
 import '../game/discussion_model.dart';
 import '../game/expansion_model.dart';
+import '../game/player_speech.dart';
+import '../game/speech_statements.dart';
 import '../lobby/room_model.dart';
 import '../notebook/notebook_model.dart';
 import 'online_service.dart';
@@ -13,9 +15,13 @@ typedef ServerCall = Future<Map<String, dynamic>> Function(
     String name, Map<String, Object?> data);
 
 class OnlinePlayer {
-  const OnlinePlayer(this.uid, this.name);
+  const OnlinePlayer(this.uid, this.name, {this.bot = false, this.persona});
   final String uid;
   final String name;
+
+  /// A computer player, and who it is in the cast (BotPersona.id).
+  final bool bot;
+  final String? persona;
 }
 
 /// The public room document (rooms/{code}), as written by the server.
@@ -31,7 +37,13 @@ class OnlineRoom {
         status = m['status'] as String,
         players = [
           for (final p in (m['players'] as List))
-            OnlinePlayer(p['uid'] as String, p['name'] as String)
+            OnlinePlayer(p['uid'] as String, p['name'] as String,
+                bot: p['bot'] == true, persona: p['persona'] as String?)
+        ],
+        botLevel = m['botLevel'] as String? ?? 'normal',
+        talk = [
+          for (final line in (m['talk'] as List? ?? const []))
+            (line as Map).cast<String, dynamic>()
         ],
         optionalRoles = {
           for (final r in (m['optionalRoles'] as List? ?? const []))
@@ -59,6 +71,14 @@ class OnlineRoom {
   /// Seats whose phone has gone quiet; the server plays for them until
   /// their player is back.
   final Set<int> away;
+
+  /// How well the computers play: novice, normal or expert.
+  final String botLevel;
+
+  /// What has been said in this game: the computers' lines in their stored
+  /// form, and people's typed lines as `{by, q, a, sv, text}`.
+  final List<Map<String, dynamic>> talk;
+  bool get hasBots => players.any((p) => p.bot);
 
   /// Something to tell everyone, e.g. "阿瘋 離開了房間，對局已中止",
   /// written at [noticeStep] so each phone shows it once.
@@ -206,18 +226,113 @@ class OnlineGameSession extends GameSession {
     if (awaited.every((s) => s == me)) return;
     final known =
         awaited.any(away.contains) || (awaited.contains(-1) && away.isNotEmpty);
-    final delay = known
-        ? nudgeAwayDelay
-        : isHost
-            ? nudgeHostDelay
-            : nudgeDelay;
-    // a little apart, so the phones do not all ask at the same moment
-    _nudgeTimer =
-        Timer(delay + Duration(milliseconds: 400 * (me ?? 0)), () async {
+    final forComputer = _computerDelay(awaited);
+    final delay = forComputer ??
+        (known
+                ? nudgeAwayDelay
+                : isHost
+                    ? nudgeHostDelay
+                    : nudgeDelay) +
+            // a little apart, so the phones do not all ask at once
+            Duration(milliseconds: 400 * (me ?? 0));
+    _nudgeTimer = Timer(delay, () async {
       await _nudge();
       if (!_disposed) _scheduleNudge();
     });
   }
+
+  /// How long to leave the table alone before the computers it waits for
+  /// are asked to move; null when it waits for no computer. The host's
+  /// phone asks first; the others only if nothing has come of that.
+  Duration? _computerDelay(Set<int> awaited) {
+    final bots = room!.players;
+    final waitsForBot = awaited.any((s) => s >= 0 && bots[s].bot) ||
+        (awaited.contains(-1) && room!.hasBots);
+    if (!waitsForBot) return null;
+    final Duration wait;
+    if (phase == GamePhase.discussion) {
+      // first its line, then time to read it (as in solo play)
+      final line = currentStatement;
+      wait = line == null
+          ? const Duration(milliseconds: 700)
+          : Duration(
+              milliseconds:
+                  (7000 + (line.length - 25).clamp(0, 35) * 200).toInt());
+    } else if (const [
+      GamePhase.voteResult,
+      GamePhase.questResult,
+      GamePhase.ladyResult,
+      GamePhase.excaliburResult
+    ].contains(phase)) {
+      wait = const Duration(milliseconds: 6500);
+    } else if (phase == GamePhase.assassination) {
+      wait = const Duration(seconds: 5);
+    } else {
+      wait = const Duration(milliseconds: 1200);
+    }
+    return isHost ? wait : wait + const Duration(seconds: 4);
+  }
+
+  @override
+  bool get hasComputers => room?.hasBots ?? false;
+  @override
+  bool isComputer(int seat) =>
+      seat >= 0 &&
+      seat < (room?.players.length ?? 0) &&
+      room!.players[seat].bot;
+
+  @override
+  List<DiscussionStatement> get statements => [
+        for (final line in room?.talk ?? const <Map<String, dynamic>>[])
+          line['bot'] == true
+              ? statementFromMap(line)
+              : DiscussionStatement(
+                  speaker: (line['by'] as num).toInt(),
+                  quest: (line['q'] as num).toInt(),
+                  attempt: (line['a'] as num?)?.toInt(),
+                  generation: (line['g'] as num?)?.toInt(),
+                  text: line['text'] as String)
+      ];
+
+  /// What the player now speaking has put in writing this turn.
+  @override
+  String? get currentStatement {
+    if (phase != GamePhase.discussion) return null;
+    final who = speaker;
+    for (final line in (room?.talk ?? const []).reversed) {
+      if (line['by'] == who && line['sv'] == speechVersion) {
+        return line['text'] as String;
+      }
+    }
+    return null;
+  }
+
+  /// A line typed in this player's speaking turn, for the computers (and
+  /// everyone else) to read.
+  @override
+  Future<void> say(PlayerSpeech speech) async {
+    final text = speechText(speech, ballot: proposalHistory.lastOrNull);
+    if (text.isEmpty) return;
+    await _call('say', {'code': code, 'generation': generation, 'text': text});
+  }
+
+  @override
+  Future<void> expressOpinion(bool approve) async {
+    final version = speechVersion;
+    await _call('say', {
+      'code': code,
+      'generation': generation,
+      'text': approve ? '這隊我可以接受，支持。' : '這隊我不放心，想換個組合。'
+    });
+    await endSpeech(version);
+  }
+
+  /// Host: seats the computer [persona] under [name], or sends it away.
+  Future<void> setBot(String persona, String name, {required bool seated}) =>
+      _call('setBot',
+          {'code': code, 'persona': persona, 'name': name, 'seated': seated});
+  Future<void> setBotLevel(String level) =>
+      _call('setBotLevel', {'code': code, 'level': level});
 
   bool _nudging = false;
   Future<void> _nudge() async {
