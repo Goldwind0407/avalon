@@ -372,7 +372,9 @@ class BotDialogueContext {
   bool get matchesTrigger =>
       _expansionTalkLeft &&
       (rule.id != 'G10' ||
-          (previous != null &&
+          // the leader does not question his own swap
+          (o.seat != o.leader &&
+              previous != null &&
               added.isNotEmpty &&
               !added.contains(o.seat) &&
               // one person asking the leader about the swap is enough

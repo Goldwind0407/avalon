@@ -41,6 +41,11 @@ class BotBrain {
   /// distrust, read from who turned down earlier teams on this quest.
   static const tableDoubtWeight = 1.0;
 
+  /// Odds that a speaker is evil, multiplied for speaking up for a player
+  /// this seat knows is evil, and for calling one it knows is good
+  /// suspicious (a good player can be wrong about the latter).
+  static const coveredKnownEvil = 4.0, framedKnownGood = 1.8;
+
   /// Up to this many rejections on a quest, a player votes against any
   /// team with someone he has accused on it (and as leader leaves him
   /// off); after that, getting a team out matters more.
@@ -263,9 +268,13 @@ class BotBrain {
     if (!knows && (!o.evil || asServant)) {
       _weighClaims(o, p, credibility, pretending: asServant);
     }
+    if (!o.evil) {
+      _coverEvidence(o, p, {...certain, ...privateBeliefs}, latestPositions);
+    }
     for (final entry in {...certain, ...privateBeliefs}.entries) {
       p[entry.key] = entry.value;
     }
+    if (!o.evil && o.expansions.lancelot == 0) _reconcile(o, p);
     if (knows) _checkClaims(o, p);
     p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
@@ -314,6 +323,97 @@ class BotBrain {
           _percivalWeight(c);
       if (named != null) p[named] += belief;
       if (claimants.length > 1) p[c] += .05;
+    }
+  }
+
+  /// Brings every clue together under the hard facts. Votes, claims and
+  /// words move each player separately; but when the cards leave, say,
+  /// "one of these two is evil", what makes one of them look worse must
+  /// make the other look better. Every group of evil players the Fail
+  /// cards allow is weighed by how likely each member (and each one left
+  /// out) looks, and each player ends at his share of the weight.
+  void _reconcile(BotObservation o, List<double> p) {
+    final n = o.count, evils = Room.evilCount(n);
+    final quests = <(List<int>, int)>[];
+    for (var q = 0; q < o.history.length; q++) {
+      final fails = _unexplained(o, q);
+      if (fails == null || fails == 0 || o.history[q].excaliburTarget != null) {
+        continue;
+      }
+      quests.add((
+        [
+          for (final s in o.history[q].team)
+            if (s != o.seat) s
+        ],
+        fails
+      ));
+    }
+    double clip(double v) => v.clamp(.01, .99);
+    final inEvil = List.filled(n, 0.0);
+    var total = 0.0;
+    final set = <int>[];
+    void walk(int from) {
+      if (set.length == evils) {
+        for (final (team, fails) in quests) {
+          if (team.where(set.contains).length < fails) return;
+        }
+        var w = 1.0;
+        for (var s = 0; s < n; s++) {
+          if (s == o.seat) continue;
+          final certain = p[s] == 0 || p[s] == 1;
+          final evil = set.contains(s);
+          if (certain && (p[s] == 1) != evil) return;
+          if (!certain) w *= evil ? clip(p[s]) : 1 - clip(p[s]);
+        }
+        total += w;
+        for (final s in set) {
+          inEvil[s] += w;
+        }
+        return;
+      }
+      for (var s = from; s <= n - (evils - set.length); s++) {
+        if (s == o.seat) continue;
+        set.add(s);
+        walk(s + 1);
+        set.removeLast();
+      }
+    }
+
+    walk(0);
+    if (total == 0) return; // the clues contradict: keep them as they are
+    for (var s = 0; s < n; s++) {
+      if (s == o.seat || p[s] == 0 || p[s] == 1) continue;
+      p[s] = inEvil[s] / total;
+    }
+  }
+
+  /// Someone who speaks up for a player this seat knows is evil, or calls
+  /// one it knows is good suspicious, is likely covering for his own side.
+  /// Only what this seat is certain of counts; the speaker's own certain
+  /// side is left alone.
+  void _coverEvidence(BotObservation o, List<double> p, Map<int, double> known,
+      Map<String, DiscussionStatement> positions) {
+    final odds = List.filled(o.count, 0.0);
+    for (final s in positions.values) {
+      final speaker = s.speaker, target = s.target;
+      if (target == null ||
+          speaker == o.seat ||
+          speaker == target ||
+          known.containsKey(speaker)) {
+        continue;
+      }
+      final side = known[target];
+      if (side == 1 && s.position == DiscussionPosition.defend) {
+        odds[speaker] += log(coveredKnownEvil);
+      } else if (side == 0 && s.position == DiscussionPosition.suspect) {
+        odds[speaker] += log(framedKnownGood);
+      }
+    }
+    for (var s = 0; s < o.count; s++) {
+      if (odds[s] == 0 || p[s] <= 0 || p[s] >= 1) continue;
+      final before = p[s].clamp(.02, .98);
+      final after = before / (1 - before) * exp(odds[s]);
+      p[s] = after / (1 + after);
     }
   }
 
@@ -738,14 +838,25 @@ class BotBrain {
     final looks =
         o.evil && !pose ? (suspicion(o, asServant: true)..[o.seat] = 0) : null;
     // Sending again the very team the table has just turned down only
-    // wastes a proposal (the fifth one passes whatever it is).
-    final turnedDown = o.rejections == 4
-        ? const <String>{}
-        : {
-            for (final r in o.proposals)
-              if (r.quest == o.quest && !r.approved)
-                ([...r.team]..sort()).join(',')
-          };
+    // wastes a proposal, unless those who turned it down are the ones
+    // this seat doubts: then it may well pass next time.
+    final turnedDown = <String, double>{};
+    if (o.rejections < 4) {
+      final p = suspicion(o);
+      for (final r in o.proposals) {
+        if (r.quest != o.quest || r.approved) continue;
+        final rejectors = [
+          for (var v = 0; v < r.votes.length && v < o.count; v++)
+            if (!r.votes[v] && v != o.seat) v
+        ];
+        final trusted = rejectors.isEmpty
+            ? 1.0
+            : rejectors.fold(0.0, (sum, v) => sum + 1 - p[v]) /
+                rejectors.length;
+        final key = ([...r.team]..sort()).join(',');
+        turnedDown[key] = max(turnedDown[key] ?? 0, trusted);
+      }
+    }
     // A team must pass before it can do anything: keep the players the
     // table objected to off it, unless the fifth proposal passes anyway.
     // Evil already picks a team the table will pass (see [evilLeaderCover]);
@@ -773,7 +884,7 @@ class BotBrain {
                       difficulty.rolePlay.clamp(0, 1.2) *
                       _risk(o, looks, team)) +
               random.nextDouble() * style.noise * difficulty.noise +
-              (turnedDown.contains(team.join(',')) ? -repeatRejectedTeam : 0) -
+              -repeatRejectedTeam * (turnedDown[team.join(',')] ?? 0) -
               // hiding or not, never a team he can see failing the quest
               (hide &&
                       safe &&
