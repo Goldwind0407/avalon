@@ -33,6 +33,14 @@ void succeed(AvalonGame game) {
 }
 
 void main() {
+  test('a team that names a seat twice is refused, as on the server', () {
+    final game = setup();
+    expect(() => game.proposeTeam([0, 0, 1]), throwsArgumentError);
+    expect(() => game.proposeTeam([0, 0]), throwsArgumentError);
+    game.proposeTeam([0, 1]);
+    expect(game.team, [0, 1]);
+  });
+
   test('all supported player counts receive correct alignment and quest sizes',
       () {
     for (var count = 5; count <= 10; count++) {

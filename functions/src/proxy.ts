@@ -44,13 +44,28 @@ export function pending(s: GameState, seat: number): boolean {
   }
 }
 
-/** Seats [seat] knows to be evil: by role, or from its own Lady results. */
-function knownEvil(s: GameState, seat: number): Set<number> {
+/**
+ * Seats [seat] knows to be evil right now: by role, or from its own Lady
+ * results. With the Lancelots in the game this follows the switch cards,
+ * which are public: an evil player knows where the evil Lancelot sits and
+ * so that he plays for good while switched, and a Lady result from before
+ * a switch may have been about a Lancelot, so it is no longer relied on.
+ * (Merlin sees the evil Lancelot as evil but cannot tell him apart, so his
+ * list stays as dealt.)
+ */
+export function knownEvil(s: GameState, seat: number): Set<number> {
   const role = s.roles[seat];
   const known = new Set<number>(
     role === 'percival' ? [] : rules.visibleSeats(s.roles, seat));
+  const lancelot = rules.knownLancelot(s.roles, seat);
+  if (lancelot != null && s.lancelotSwitched) known.delete(lancelot);
   for (const r of s.reveals) {
-    if (r.seat === seat && r.kind === 'lady' && r.evil) known.add(r.target);
+    if (r.seat !== seat || r.kind !== 'lady' || !r.evil) continue;
+    // used after quest r.quest: any card turned over since then is at
+    // index r.quest or later
+    const switchedSince = s.expansions.lancelot > 0 &&
+      s.loyalty.slice(r.quest, s.history.length + 1).some((card) => card === true);
+    if (!switchedSince) known.add(r.target);
   }
   return known;
 }

@@ -85,10 +85,11 @@ class FlakySignaling extends MemorySignaling {
 class FakePeer extends VoicePeer {
   int offers = 0, answers = 0, acceptedAnswers = 0, closes = 0;
   final candidates = <Map<String, dynamic>>[];
-  bool failOffer = false;
+  bool failOffer = false, hangOffer = false;
   @override
   Future<Map<String, dynamic>> createOffer() async {
     offers++;
+    if (hangOffer) await Completer<void>().future;
     if (failOffer) throw StateError('handshake failed');
     onCandidate?.call({'candidate': 'local-ice'});
     return {'sdp': 'offer', 'type': 'offer'};
@@ -303,6 +304,31 @@ void main() {
       expect(a.connected, {'b'}, reason: 'drop ${drop + 1}');
     }
     expect(peers['a']!.length, 8);
+  });
+
+  test('a handshake step that never comes back does not hold up the retries',
+      () async {
+    final created = <FakePeer>[];
+    final voice = VoiceMesh(
+        uid: 'a',
+        signaling: MemorySignaling(bus),
+        retryDelay: const Duration(milliseconds: 1),
+        operationTimeout: const Duration(milliseconds: 5),
+        createPeer: () async {
+          // the first two offers hang for ever; the third goes through
+          final peer = FakePeer()..hangOffer = created.length < 2;
+          created.add(peer);
+          return peer;
+        });
+    meshes.add(voice);
+    final b = mesh('b');
+    await voice.start();
+    await b.start();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await flush();
+    expect(created.length, 3);
+    expect(voice.connected, {'b'});
+    expect(created.take(2).every((p) => p.closes > 0), isTrue);
   });
 
   test('a lost heartbeat or two is not a disconnect; a third is', () async {
