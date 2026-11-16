@@ -60,6 +60,17 @@ class BotBrain {
   /// turned down.
   static const merlinSpareRejections = 2;
 
+  /// How much of what Merlin sees shows in whom he names when he talks;
+  /// the rest is what the public record says. Naming exactly the evil
+  /// players, round after round, is what the Assassin looks for.
+  static const merlinVoiceInsight = .1;
+
+  /// How far a Lady result that agrees with the rest of the record (votes,
+  /// quests) makes its holder look honest, and one that goes against it
+  /// dishonest; at most [ladyCorroborationCap] either way, scaled by how
+  /// far this level weighs claims.
+  static const ladyCorroboration = .6, ladyCorroborationCap = .15;
+
   /// How much more readily than his style alone Merlin, as leader, sends
   /// the team a servant would: early in the game, and on a quest that
   /// needs two Fails.
@@ -220,6 +231,13 @@ class BotBrain {
           difficulty.claimTrust *
           _ladyWeight(claim.speaker);
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
+      // A result the record bears out speaks for the one who reported it
+      // ("6號 turned down a clean team, and the Lady says he is evil").
+      final agreement = (claim.claimedEvil! ? 1 : -1) *
+          (credibility[claim.target!] - Room.evilCount(o.count) / o.count);
+      p[claim.speaker] -= (agreement * ladyCorroboration)
+              .clamp(-ladyCorroborationCap, ladyCorroborationCap) *
+          difficulty.claimTrust;
     }
     // Who doubts or vouches for whom: weak, weighted by how far this seat
     // trusts the speaker. Framing a good player works on the gullible.
@@ -1591,13 +1609,21 @@ class BotBrain {
     }
     final view = suspicion(o, asServant: true), real = suspicion(o);
     final allies = o.evil ? _knownAllies(o) : const <int>{};
+    // Merlin talks mostly from the record, so now and then he joins a
+    // wrong lead and leaves an evil player he sees alone.
+    final spoken = o.role == Role.merlin
+        ? [
+            for (var s = 0; s < o.count; s++)
+              view[s] + (real[s] - view[s]) * merlinVoiceInsight
+          ]
+        : real;
     if (voice.claim(o, approve, view, real, allies) case final claimed?) {
       lastSpeechSource = claimed.claimsPercival
           ? const SpeechSource.claim()
           : SpeechSource.voice('defendSelf');
       return claimed;
     }
-    final direct = voice.speak(o, approve, view, real, allies);
+    final direct = voice.speak(o, approve, view, spoken, allies);
     if (direct != null) {
       lastSpeechSource = SpeechSource.voice(direct.intent ?? '');
       return direct;
@@ -1624,7 +1650,7 @@ class BotBrain {
             : o.seat == o.leader
                 ? .9
                 : .75)) {
-      final cited = voice.evidence(o, approve, allies, o.evil ? view : real);
+      final cited = voice.evidence(o, approve, allies, o.evil ? view : spoken);
       if (cited != null) {
         lastSpeechSource = SpeechSource.evidence(cited.topic ?? '');
         return cited;
