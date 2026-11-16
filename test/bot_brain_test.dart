@@ -238,6 +238,23 @@ void main() {
         ]))[2],
         greaterThan(.1));
   });
+  test('a Lady result the record bears out makes its holder look honest', () {
+    final brain = BotBrain(Random(1));
+    double holder(int target, bool claimedEvil) => brain.suspicion(view(
+            history: [QuestResult([4, 5], 1, false)],
+            statements: [
+              DiscussionStatement(
+                  speaker: 1,
+                  quest: 2,
+                  target: target,
+                  claimedEvil: claimedEvil,
+                  text: '女神結果')
+            ]))[1];
+    // 5 sat on the failed quest: calling him evil agrees with the record,
+    // calling him good goes against it
+    expect(holder(5, true), lessThan(holder(2, true)));
+    expect(holder(5, false), greaterThan(holder(2, true)));
+  });
   test('fifth rejection pressure and double-Fail risk are considered', () {
     final brain = BotBrain(Random(2));
     expect(brain.vote(view(rejects: 4)), isTrue);
