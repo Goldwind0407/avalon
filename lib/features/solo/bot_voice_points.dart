@@ -608,7 +608,9 @@ extension BotVoicePoints on BotVoice {
       }
     }
     if (before != null) {
-      if (believed == null || believed == before || gap.abs() < .35) {
+      if (believed == null ||
+          believed == before ||
+          gap.abs() < difficulty.steadfast) {
         return points;
       }
       final liar = believed == a ? b : a, who = _n(believed);

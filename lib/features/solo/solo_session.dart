@@ -34,6 +34,7 @@ class SoloGameSession extends GameSession {
       this.speechDuration = const Duration(seconds: 7),
       @visibleForTesting this.autopilot = false,
       @visibleForTesting this.playerBrain,
+      @visibleForTesting this.evilDifficulty,
       @visibleForTesting this.learnsPlayer = true})
       : _random = random ?? Random.secure(),
         _now = now ?? DateTime.now,
@@ -77,6 +78,9 @@ class SoloGameSession extends GameSession {
 
   /// How well every computer player reasons and acts in this game.
   final BotDifficulty difficulty;
+
+  /// Measuring only: evil computers play at this level instead.
+  final BotDifficulty? evilDifficulty;
 
   /// Who the computer players are, seat 1 first. Null: nameless bots with
   /// styles dealt at random.
@@ -128,7 +132,9 @@ class SoloGameSession extends GameSession {
           : BotBrain(Random(seed),
               dialogueRandom: Random(seed ^ 0x5a17),
               style: styles[s],
-              difficulty: difficulty);
+              difficulty: _rules.roles[s].isEvil
+                  ? evilDifficulty ?? difficulty
+                  : difficulty);
       _facts[s] = [];
       _ownCards[s] = {};
     }

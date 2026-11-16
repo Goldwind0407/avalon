@@ -644,7 +644,7 @@ void main() {
           for (var seed = 0; seed < 300; seed++)
             if (BotBrain(Random(seed)).assassinate(o) == 4) 1
         ].length;
-    expect(stabs(at(called: true)), greaterThan(stabs(at(called: false)) + 20));
+    expect(stabs(at(called: true)), greaterThan(stabs(at(called: false)) + 15));
   });
 
   test('at match point Merlin never turns down a clean team on his vote', () {

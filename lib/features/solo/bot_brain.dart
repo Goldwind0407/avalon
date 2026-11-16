@@ -233,6 +233,7 @@ class BotBrain {
       p[claim.target!] += claim.claimedEvil! ? trust : -trust;
       // A result the record bears out speaks for the one who reported it
       // ("6號 turned down a clean team, and the Lady says he is evil").
+      if (!difficulty.insight) continue;
       final agreement = (claim.claimedEvil! ? 1 : -1) *
           (credibility[claim.target!] - Room.evilCount(o.count) / o.count);
       p[claim.speaker] -= (agreement * ladyCorroboration)
@@ -514,6 +515,9 @@ class BotBrain {
 
   void _voteEvidence(BotObservation o, List<double> p) {
     if (difficulty.voteEvidence == 0) return;
+    // An evil player who reads votes at all reads them as the table does:
+    // he needs to know who it doubts. The level's weight is for the good.
+    final weight = o.evil ? 1.0 : difficulty.voteEvidence;
     final odds = List.filled(o.count, 0.0); // log odds of being evil
     for (final proposal in o.proposals) {
       if (proposal.attempt >= 5) continue;
@@ -530,7 +534,16 @@ class BotBrain {
           return null;
         }
         if (yes) {
-          return on ? null : backedFailedTeam * _failedTeamVote(s, true);
+          if (on) return null;
+          // Backing a team (nearly) everyone backed says little: the
+          // evidence grows with how many turned it down.
+          final against = proposal.votes.where((v) => !v).length;
+          final contested =
+              ((against - 1) / (BotVoice.contestedBy(o.count) - 1))
+                  .clamp(0.0, 1.0);
+          if (contested == 0) return null;
+          return pow(backedFailedTeam * _failedTeamVote(s, true), contested)
+              .toDouble();
         }
         return on
             ? opposedOwnFailedTeam
@@ -545,8 +558,7 @@ class BotBrain {
     for (var s = 0; s < o.count; s++) {
       if (odds[s] == 0 || p[s] <= 0 || p[s] >= 1) continue;
       final before = p[s].clamp(.02, .98);
-      final after =
-          before / (1 - before) * exp(odds[s] * difficulty.voteEvidence);
+      final after = before / (1 - before) * exp(odds[s] * weight);
       p[s] = after / (1 + after);
     }
   }
@@ -1527,7 +1539,7 @@ class BotBrain {
       double Function(PlayerModel) confidence,
       {double low = .4, double high = 1.6}) {
     final model = playerModel;
-    if (model == null || speaker != playerSeat || !difficulty.remembersClaims) {
+    if (model == null || speaker != playerSeat || !difficulty.insight) {
       return 1;
     }
     final c = confidence(model).clamp(0.0, 1.0);
