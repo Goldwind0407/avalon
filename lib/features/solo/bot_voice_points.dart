@@ -208,9 +208,11 @@ extension BotVoicePoints on BotVoice {
             weight: 3,
             quests: quests));
       }
+      // clean quests to point to; a quest that failed before a Lancelot
+      // switch counts neither way, so it is not a "clean record"
       final recorded = [
         for (final s in others)
-          if (_hasRecord(o, s)) s
+          if (_cleanWith(o, s).isNotEmpty) s
       ];
       final fresh = [
         for (final s in others)

@@ -457,7 +457,18 @@ class BotVoice {
               s.position == DiscussionPosition.defend &&
               s.target == t)
           .length;
-      if (defend && defenders < 2 && random.nextDouble() < _boldness) {
+      // two evil players rushing to the same ally's side gives them both
+      // away: one is enough
+      final allyDefended = o.evil &&
+          round.any((s) =>
+              s.speaker != o.seat &&
+              allies.contains(s.speaker) &&
+              s.position == DiscussionPosition.defend &&
+              s.target == t);
+      if (defend &&
+          !allyDefended &&
+          defenders < 2 &&
+          random.nextDouble() < _boldness) {
         if (defenders == 1) {
           return line(
               _pick([

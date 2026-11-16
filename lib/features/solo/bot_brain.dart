@@ -37,6 +37,10 @@ class BotBrain {
   /// turned down on this quest.
   static const repeatRejectedTeam = 2.0;
 
+  /// For the Assassin: how much one call against an evil player Merlin can
+  /// see adds to a player's Merlin score, and the most all calls may add.
+  static const callWeight = .08, callCap = .25;
+
   /// How much a leader steers away from players the table seems to
   /// distrust, read from who turned down earlier teams on this quest.
   static const tableDoubtWeight = 1.0;
@@ -1431,10 +1435,52 @@ class BotBrain {
         }
       }
     }
+    // Who pointed at whom. Merlin knows where evil sits (Mordred aside):
+    // someone who called out the evil players the record did not yet
+    // point at, and never a good one, may know too.
+    final calls = List.filled(o.count, 0.0);
+    if (difficulty != BotDifficulty.novice) {
+      final public = suspicion(o, asServant: true);
+      final seen = <String>{};
+      for (final st in o.statements) {
+        final by = st.speaker, at = st.target;
+        if (st.generation != o.generation ||
+            st.quotedFrom != null ||
+            st.position == null ||
+            at == null ||
+            at == by ||
+            evil.contains(by) ||
+            !seen.add('$by/$at/${st.position!.name}')) {
+          continue;
+        }
+        final atEvil = evil.contains(at);
+        // Merlin does not see Mordred, and the Assassin may not know which
+        // ally he is: a call counts as far as its target is not Mordred
+        final seenByMerlin = !atEvil
+            ? 0.0
+            : at == o.seat || !blind || o.visible.length < 2
+                ? 1.0
+                : (o.visible.length - 1) / o.visible.length;
+        if (st.position == DiscussionPosition.suspect) {
+          if (atEvil) {
+            // an evil player the table did not already doubt says more
+            calls[by] +=
+                seenByMerlin * callWeight * (1.5 - public[at].clamp(0.0, 1.0));
+          } else {
+            calls[by] -= callWeight * .5;
+          }
+        } else if (atEvil) {
+          calls[by] -= callWeight; // Merlin does not vouch for evil
+        }
+      }
+      for (var s = 0; s < o.count; s++) {
+        calls[s] = calls[s].clamp(-callCap, callCap);
+      }
+    }
     final scored = [
       for (var s = 0; s < o.count; s++)
         if (s != o.seat && !o.visible.contains(s))
-          (s, merlinScore(s) + leaked[s])
+          (s, merlinScore(s) + leaked[s] + calls[s])
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
   }

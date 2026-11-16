@@ -550,4 +550,100 @@ void main() {
     final (againstNormally, _) = said(false);
     expect(againstNormally, 0);
   });
+
+  test('a quest from before a Lancelot switch is no clean record', () {
+    // variant two, the sides switched for the first quest: its two Fails
+    // say nothing now. Nobody may speak of "第次" (an empty list).
+    final o = observe(
+        count: 10,
+        seat: 5,
+        leader: 2,
+        phase: GamePhase.discussion,
+        team: [1, 2, 5, 8],
+        switched: true,
+        expansions: const ExpansionSettings(lady: true, lancelot: 2),
+        loyalty: const [true, false, false, false, false],
+        history: [
+          QuestResult([1, 3, 7], 2, false)
+        ]);
+    for (var seed = 0; seed < 200; seed++) {
+      final said = BotBrain(Random(seed)).speech(o, true).text;
+      expect(said, isNot(contains('第次')), reason: 'seed $seed: $said');
+    }
+  });
+
+  test('two evil players do not both rush to defend the same ally', () {
+    // seat 2 is accused; his ally seat 6 has already spoken up for him
+    final o = observe(
+        role: Role.minion,
+        evil: true,
+        count: 7,
+        seat: 4,
+        visible: [2, 6],
+        leader: 1,
+        phase: GamePhase.discussion,
+        team: [0, 1, 3],
+        history: [
+          QuestResult([1, 2, 3], 1, false)
+        ],
+        statements: [
+          DiscussionStatement(
+              speaker: 0,
+              quest: 2,
+              generation: 4,
+              attempt: 1,
+              text: '3號可疑',
+              target: 2,
+              position: DiscussionPosition.suspect),
+          DiscussionStatement(
+              speaker: 6,
+              quest: 2,
+              generation: 4,
+              attempt: 1,
+              text: '3號還不到要排掉的程度',
+              target: 2,
+              position: DiscussionPosition.defend),
+        ]);
+    for (var seed = 0; seed < 100; seed++) {
+      final said =
+          BotBrain(Random(seed), style: BotStyle.aggressive).speech(o, false);
+      expect(said.position == DiscussionPosition.defend && said.target == 2,
+          isFalse,
+          reason: 'seed $seed');
+    }
+  });
+
+  test('the Assassin counts who called out evil players early', () {
+    // seven players; the Assassin (seat 3) and his ally seat 6. Seats 1
+    // and 4 have the same record; seat 4 named the Assassin while nobody
+    // had a reason to doubt him.
+    BotObservation at({required bool called}) => observe(
+        role: Role.assassin,
+        evil: true,
+        count: 7,
+        seat: 3,
+        visible: [6],
+        phase: GamePhase.assassination,
+        history: [
+          QuestResult([0, 2], 0, true),
+          QuestResult([0, 1, 4], 0, true),
+          QuestResult([0, 2, 5], 0, true),
+        ],
+        statements: [
+          if (called)
+            DiscussionStatement(
+                speaker: 4,
+                quest: 2,
+                generation: 4,
+                attempt: 1,
+                text: '4號有點可疑',
+                target: 3,
+                position: DiscussionPosition.suspect)
+        ]);
+    int stabs(BotObservation o) => [
+          for (var seed = 0; seed < 300; seed++)
+            if (BotBrain(Random(seed)).assassinate(o) == 4) 1
+        ].length;
+    expect(stabs(at(called: true)), greaterThan(stabs(at(called: false)) + 20));
+  });
 }

@@ -82,6 +82,10 @@ void main() {
           reason: open);
     }
     expect(read('2號懷疑3號，但我覺得4號才可疑'), [(suspect, 3, null)]);
+    // a reported game: "just checked 7, evil, but not sure he is Lancelot"
+    expect(read('我剛查7號 是壞人但我不確定他是不是蘭斯洛特'), [(lady, 6, true)]);
+    expect(PlayerSpeech.parse('剛剛五張都成功沒理由不再來一次', names, 0).kind,
+        PlayerSpeechKind.support);
     // a Percival claim names Morgana only when the line does
     final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
     expect(claim.kind, PlayerSpeechKind.claimPercival);

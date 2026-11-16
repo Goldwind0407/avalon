@@ -95,7 +95,7 @@ class PlayerSpeech {
     ];
   }
 
-  static final _boundary = RegExp(r'[，,。.！!；;]|所以|但是|不過|而且|然後|因此|可是');
+  static final _boundary = RegExp(r'[，,。.！!；;]|所以|但是|但|不過|而且|然後|因此|可是|只是');
 
   /// What one stretch of words says about a player: doubt, trust, a
   /// question, or nothing.
@@ -169,11 +169,13 @@ class PlayerSpeech {
       return PlayerSpeech(PlayerSpeechKind.claimPercival,
           target: named?.$1, text: t);
     }
-    final teamOppose = has(r'反對|換人|不同意|不支持|不要這隊');
-    final teamSupport = !teamOppose && has(r'支持|同意|贊成');
+    final teamOppose = has(r'反對|換人|不同意|不支持|不要這隊|擋下|擋掉');
+    final teamSupport = !teamOppose && has(r'支持|同意|贊成|沒理由不|再來一次|讓它過|可以過|給它過');
     final stances = <int, PlayerSpeechKind>{};
     final order = <int>[];
-    final lady = RegExp(r'湖中女神|女神|查驗|驗出|驗到|驗了|查到|查出').firstMatch(t);
+    final lady =
+        RegExp(r'湖中女神|女神|查驗|驗出|驗到|驗了|查到|查出|查了|(?:剛|我)查(?=\s*\d)|驗(?=\s*\d)')
+            .firstMatch(t);
     int? ladyTarget;
     for (var i = mentions.length - 1; i >= 0; i--) {
       final (seat, start, end) = mentions[i];
