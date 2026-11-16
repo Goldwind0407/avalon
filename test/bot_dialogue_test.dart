@@ -510,6 +510,31 @@ void main() {
       expect(himself.bindings['newMember'], '你自己');
     });
 
+    test('the leader does not question his own swap', () {
+      ProposalRecord before(List<int> team) => ProposalRecord(
+          quest: 2,
+          attempt: 1,
+          leader: 6,
+          team: team,
+          votes: List.filled(7, false));
+      BotDialogueContext g10(int seat) => BotDialogueContext(
+          observe(seat: seat, leader: 1, rejections: 1, team: [
+            1,
+            2,
+            5
+          ], history: [
+            QuestResult([3, 4], 0, true)
+          ], proposals: [
+            before([0, 1, 2])
+          ]),
+          false,
+          rule('G10'),
+          (_) => .3,
+          false);
+      expect(g10(0).matchesTrigger, isTrue);
+      expect(g10(1).matchesTrigger, isFalse);
+    });
+
     test('the shared-failure line is about a quest that had a Fail', () {
       final o = observe(team: [
         0,
