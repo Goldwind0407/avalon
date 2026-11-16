@@ -38,9 +38,24 @@ interface Player {
   uid: string;
   name: string;
   supportsDiscussion?: boolean;
-  /** App protocol: 3 understands the expansions; 4 reports its presence. */
+  /** App protocol: 3 understands the expansions; 4 reports its presence;
+   *  5 shows what is said at the table and can play with computers. */
   protocol?: number;
+  /** A computer player (its uid is `bot:<persona>`, which nobody can sign
+   *  in as). [persona] names who it is in the app's cast. */
+  bot?: boolean;
+  persona?: string;
 }
+
+/** App protocol from which computers can sit at the table. */
+const BOTS_PROTOCOL = 5;
+const BOT_LEVELS = ['novice', 'normal', 'expert'] as const;
+/** Lines kept per game; past this the table goes quiet rather than grow. */
+const TALK_LIMIT = 800;
+const LINE_LENGTH = 120;
+const isBot = (room: Room, seat: number) => room.players[seat]?.bot === true;
+const hasBots = (room: Room) => room.players.some((p) => p.bot);
+const BOTS_UPDATE = '這個房間有電腦玩家，請先更新 App 再加入';
 
 interface Room {
   code: string;
@@ -67,6 +82,12 @@ interface Room {
   /** Seats whose phone has gone quiet; a stand-in plays for them. */
   away?: number[];
   updatedAt?: Timestamp;
+  /** How well the computers play, and the seed of this game's table. */
+  botLevel?: (typeof BOT_LEVELS)[number];
+  botSeed?: number;
+  /** What has been said in this game, for everyone to read: the computers'
+   *  lines (as their server words them) and the lines people typed. */
+  talk?: Record<string, unknown>[];
 }
 
 const roomRef = (code: string) => db.collection('rooms').doc(code);
@@ -199,6 +220,9 @@ export const joinRoom = onCall(async (req) => {
     if (rules.anyExpansion(rules.expansionSettings(room.expansions)) && protocol < 3) {
       throw new HttpsError('failed-precondition', EXPANSION_UPDATE);
     }
+    if (hasBots(room) && protocol < BOTS_PROTOCOL) {
+      throw new HttpsError('failed-precondition', BOTS_UPDATE);
+    }
     // Coming back to a room you are already in (reopened the app, lost
     // connection) just takes you back to your seat.
     if (seat >= 0) {
@@ -249,11 +273,13 @@ export const leaveRoom = onCall(async (req) => {
     room.players.splice(seat, 1);
     room.playerUids.splice(seat, 1);
     room.away = []; // seats have moved
-    if (room.players.length === 0) {
+    room.talk = [];
+    // a room of computers alone is nobody's room
+    if (room.players.every((p) => p.bot)) {
       tx.delete(roomRef(code));
       return { left: true, ended };
     }
-    if (room.hostUid === uid) room.hostUid = room.playerUids[0];
+    if (room.hostUid === uid) room.hostUid = room.players.find((p) => !p.bot)!.uid;
     room.notice = ended ? `${name} 離開了房間，對局已中止` : `${name} 離開了房間`;
     room.noticeStep = room.step + 1; // the step touch() is about to write
     tx.set(roomRef(code), touch(room, { renew: !expired }));
@@ -307,8 +333,13 @@ export const startGame = onCall((req) =>
       if (room.status === 'playing' && room.game?.phase !== 'finished') {
         throw new HttpsError('failed-precondition', '遊戲正在進行中');
       }
+      if (hasBots(room) && !botServer()) {
+        throw new HttpsError('failed-precondition', '電腦玩家的伺服器尚未設定，請先移除電腦玩家');
+      }
       const state = rules.newGame(room.players.length, room.optionalRoles, rng, room.discussion,
         rules.expansionSettings(room.expansions));
+      room.botSeed = randomInt(0, 2 ** 30);
+      room.talk = [];
       const { open, secret } = rules.split(state);
       room.status = 'playing';
       room.gen += 1;
@@ -318,6 +349,7 @@ export const startGame = onCall((req) =>
       tx.set(roomRef(code), touch(room));
       tx.set(secretRef(code), { gen: room.gen, ...secret, expireAt: expiry() });
       room.playerUids.forEach((playerUid, seat) => {
+        if (isBot(room, seat)) return; // nobody reads a computer's card
         tx.set(privateRef(code, playerUid), {
           gen: room.gen,
           seat,
@@ -343,6 +375,7 @@ export const backToLobby = onCall(async (req) => {
     room.status = 'lobby';
     room.game = null;
     room.away = [];
+    room.talk = [];
     tx.set(roomRef(code), touch(room));
     tx.delete(secretRef(code));
     return { ok: true };
@@ -394,6 +427,7 @@ async function loadState(tx: Transaction, code: string, room: Room): Promise<Gam
     pendingCards: secret.pendingCards ?? {},
     loyaltyDeck: secret.loyaltyDeck ?? [],
     reveals: secret.reveals ?? [],
+    cardLog: secret.cardLog ?? {},
   });
 }
 
@@ -412,6 +446,7 @@ function saveState(
   if (rebuilt) {
     room.privateExpireAt = Timestamp.fromMillis(roomDeadline.toMillis() + GAME_DOCS_LEAD_MS);
     room.playerUids.forEach((playerUid, playerSeat) => {
+      if (isBot(room, playerSeat)) return;
       tx.set(privateRef(code, playerUid), {
         gen: room.gen,
         seat: playerSeat,
@@ -429,6 +464,7 @@ function saveState(
   // (already in place where the documents were just rebuilt)
   if (!rebuilt) {
     for (const r of state.reveals.slice(revealed)) {
+      if (isBot(room, r.seat)) continue;
       tx.set(privateRef(code, room.playerUids[r.seat]), {
         reveals: state.reveals.filter((x) => x.seat === r.seat),
       }, { merge: true });
@@ -460,47 +496,246 @@ export const move = onCall((req) =>
         )) {
           throw new HttpsError('failed-precondition', '這輪已更新，請依目前畫面重新操作');
         }
-        switch (kind) {
-          case 'endSpeech':
-            if (data.generation !== room.gen) return false;
-            return rules.endSpeech(state, seat, data.expectedVersion);
-          case 'confirmIdentity':
-            return rules.confirmIdentity(state, seat);
-          case 'proposeTeam':
-            return rules.proposeTeam(state, seat, data.team, Date.now(), data.excalibur ?? null);
-          case 'vote':
-            return rules.vote(state, seat, data.approve);
-          case 'continueVote':
-            mayAdvance(room, state, seat);
-            return rules.continueVote(state);
-          case 'playQuest':
-            return rules.playQuest(state, seat, data.success, rng);
-          case 'continueQuest':
-            mayAdvance(room, state, seat);
-            return rules.continueQuest(state);
-          case 'useLady':
-            return rules.useLady(state, seat, data.target);
-          case 'continueLady':
-            return rules.continueLady(state, seat);
-          case 'useExcalibur':
-            return rules.useExcalibur(state, seat, data.target ?? null, rng);
-          case 'continueExcalibur':
-            return rules.continueExcalibur(state, seat, rng);
-          case 'assassinate':
-            return rules.assassinate(
-              state,
-              seat,
-              data.target,
-              room.players.map((p) => p.name),
-            );
-          default:
-            throw new HttpsError('invalid-argument', '未知的操作');
-        }
+        if (kind === 'endSpeech' && data.generation !== room.gen) return false;
+        return perform(room, state, seat, kind, data);
       }),
     );
     return { ok: true, serverNow: Date.now() };
   }),
 );
+
+/** One move by [seat], whoever is making it: the rules decide. */
+function perform(
+  room: Room, state: GameState, seat: number, kind: Move, data: Record<string, any>,
+): void | boolean {
+  switch (kind) {
+    case 'endSpeech':
+      return rules.endSpeech(state, seat, data.expectedVersion);
+    case 'confirmIdentity':
+      return rules.confirmIdentity(state, seat);
+    case 'proposeTeam':
+      return rules.proposeTeam(state, seat, data.team, Date.now(), data.excalibur ?? null);
+    case 'vote':
+      return rules.vote(state, seat, data.approve);
+    case 'continueVote':
+      mayAdvance(room, state, seat);
+      return rules.continueVote(state);
+    case 'playQuest':
+      return rules.playQuest(state, seat, data.success, rng);
+    case 'continueQuest':
+      mayAdvance(room, state, seat);
+      return rules.continueQuest(state);
+    case 'useLady':
+      return rules.useLady(state, seat, data.target);
+    case 'continueLady':
+      return rules.continueLady(state, seat);
+    case 'useExcalibur':
+      return rules.useExcalibur(state, seat, data.target ?? null, rng);
+    case 'continueExcalibur':
+      return rules.continueExcalibur(state, seat, rng);
+    case 'assassinate':
+      return rules.assassinate(state, seat, data.target, room.players.map((p) => p.name));
+    default:
+      throw new HttpsError('invalid-argument', '未知的操作');
+  }
+}
+
+// ───────────────────────── computer players ─────────────────────────
+//
+// A computer sits in the room like a player, but its moves come from the
+// computer players' server (bot_server/, the app's own solo reasoning),
+// asked by `nudge`. That server is told everything about the game and
+// answers for the computer seats only; every move it sends back goes
+// through the same rules as a person's.
+
+/** Where the computer players' server is, if it has been set up. */
+function botServer(): { url: string; secret: string } | null {
+  const url = (process.env.BOT_SERVER_URL ?? '').trim().replace(/\/+$/, '');
+  const secret = process.env.BOT_SERVER_SECRET ?? '';
+  return /^https?:\/\//.test(url) && secret.length >= 16 ? { url, secret } : null;
+}
+
+const CONTINUES: readonly Move[] =
+  ['continueVote', 'continueQuest', 'continueLady', 'continueExcalibur'];
+
+/** What the computers' server is sent: the whole game, the record so far. */
+function botRequest(code: string, room: Room, state: GameState) {
+  return {
+    room: code,
+    gen: room.gen,
+    seed: room.botSeed ?? 0,
+    level: room.botLevel ?? 'normal',
+    players: room.players.map((p) => ({ name: p.name, bot: p.bot === true, persona: p.persona ?? null })),
+    state,
+    cards: state.cardLog,
+    talk: room.talk ?? [],
+  };
+}
+
+async function askBots(body: unknown): Promise<{ say: any[]; moves: any[] } | null> {
+  const server = botServer();
+  if (!server) return null;
+  try {
+    const response = await fetch(`${server.url}/step`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-bot-secret': server.secret },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      console.error('computer players: HTTP', response.status, await response.text());
+      return null;
+    }
+    const answer = (await response.json()) as { say?: unknown; moves?: unknown };
+    return {
+      say: Array.isArray(answer.say) ? answer.say : [],
+      moves: Array.isArray(answer.moves) ? answer.moves : [],
+    };
+  } catch (e) {
+    console.error('computer players: unreachable', e);
+    return null;
+  }
+}
+
+/**
+ * Puts the computers' lines on the record and makes their moves, if the
+ * game is still where it was when they were asked ([step]). Returns how
+ * many lines and moves went in.
+ */
+async function applyBots(
+  tx: Transaction, code: string, step: number, answer: { say: any[]; moves: any[] },
+): Promise<number> {
+  const snap = await tx.get(roomRef(code));
+  const room = snap.data() as Room | undefined;
+  if (!room || room.step !== step || room.status !== 'playing' || !room.game ||
+      roomHasExpired(room.expireAt)) {
+    return 0;
+  }
+  const state = await loadState(tx, code, room);
+  const revealed = state.reveals.length;
+  const sinceChange = room.updatedAt instanceof Timestamp
+    ? Date.now() - room.updatedAt.toMillis() : Infinity;
+  const talk = room.talk ?? [];
+  let done = 0;
+  for (const line of answer.say) {
+    if (typeof line !== 'object' || line === null || !Number.isInteger(line.by) ||
+        !isBot(room, line.by) || typeof line.text !== 'string' ||
+        line.text.length === 0 || line.text.length > 400 ||
+        JSON.stringify(line).length > 2000 || talk.length >= TALK_LIMIT) {
+      continue;
+    }
+    talk.push({ ...line, bot: true, g: room.gen });
+    done++;
+  }
+  for (const m of answer.moves) {
+    if (typeof m !== 'object' || m === null || !Number.isInteger(m.seat) || !isBot(room, m.seat)) {
+      continue;
+    }
+    // a result stays on the table long enough for people to look at it
+    if (CONTINUES.includes(m.move) && (done > 0 || sinceChange < proxy.RESULT_VIEW_MS)) continue;
+    try {
+      if (perform(room, state, m.seat, m.move, m) === false) continue;
+      done++;
+    } catch (e) {
+      if (!(e instanceof GameError) && !(e instanceof HttpsError)) throw e;
+      console.error('computer players: move refused', m.move, (e as Error).message);
+    }
+    if (proxy.showsResult(state)) break;
+  }
+  if (done === 0) return 0;
+  room.talk = talk;
+  saveState(tx, code, room, state, revealed);
+  return done;
+}
+
+/** The host seats a computer in the lobby, or sends one away. */
+export const setBot = onCall(async (req) => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const persona = str(req.data?.persona, 'persona');
+  if (!/^[a-z]{2,12}$/.test(persona)) throw new HttpsError('invalid-argument', '電腦玩家設定錯誤');
+  const seated = req.data?.seated === true;
+  const name = seated ? cleanName(req.data?.name) : '';
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以安排電腦玩家');
+    if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '請先返回大廳');
+    const botUid = `bot:${persona}`;
+    const seat = room.playerUids.indexOf(botUid);
+    if (!seated) {
+      if (seat < 0) return { ok: true };
+      room.players.splice(seat, 1);
+      room.playerUids.splice(seat, 1);
+    } else {
+      if (seat >= 0) return { ok: true };
+      if (!botServer()) throw new HttpsError('failed-precondition', '電腦玩家的伺服器尚未設定');
+      if (room.players.some((p) => !p.bot && (p.protocol ?? 1) < BOTS_PROTOCOL)) {
+        throw new HttpsError('failed-precondition', '請所有玩家更新 App 並重新加入房間後，再加入電腦玩家');
+      }
+      if (room.players.length >= rules.MAX_PLAYERS) {
+        throw new HttpsError('failed-precondition', '房間已滿（最多 10 人）');
+      }
+      // a computer is never the reason a setting cannot be turned on
+      room.players.push({ uid: botUid, name, bot: true, persona, supportsDiscussion: true });
+      room.playerUids.push(botUid);
+    }
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+});
+
+export const setBotLevel = onCall(async (req) => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const level = req.data?.level;
+  if (!BOT_LEVELS.includes(level)) throw new HttpsError('invalid-argument', '難度設定錯誤');
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以設定電腦難度');
+    if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '請先返回大廳');
+    room.botLevel = level;
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+});
+
+/**
+ * A line typed by the player whose turn it is to speak. It goes on the
+ * record as typed; the computers read it for themselves.
+ */
+export const say = onCall(async (req) => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const text = str(req.data?.text, 'text').replace(/\s+/g, ' ').trim();
+  if (text.length < 1 || text.length > LINE_LENGTH) {
+    throw new HttpsError('invalid-argument', `發言需為 1～${LINE_LENGTH} 個字`);
+  }
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    const seat = seatOf(room, uid);
+    const game = room.game;
+    if (room.status !== 'playing' || !game) throw new HttpsError('failed-precondition', '遊戲尚未開始');
+    if (req.data?.generation !== undefined && req.data.generation !== room.gen) {
+      throw new HttpsError('failed-precondition', '這局已更新，請依目前畫面重新操作');
+    }
+    const speaker = game.phase === 'discussion'
+      ? (game.leader + 1 + game.speechIndex) % room.players.length : null;
+    if (seat !== speaker) throw new HttpsError('failed-precondition', '輪到你發言時才能送出');
+    const talk = room.talk ?? [];
+    const mine = talk.filter((l) => l.by === seat && l.sv === game.speechVersion && l.bot !== true);
+    if (mine.length >= 3 || talk.length >= TALK_LIMIT) {
+      throw new HttpsError('failed-precondition', '這次發言已經說得夠多了');
+    }
+    talk.push({
+      by: seat, q: game.history.length + 1, a: game.rejections + 1, g: room.gen,
+      sv: game.speechVersion, team: game.team, switched: game.lancelotSwitched === true, text,
+    });
+    room.talk = talk;
+    welcomeBack(room, seat);
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+});
 
 /**
  * Sent by a phone that has waited a while for the game to move. Whoever
@@ -512,10 +747,10 @@ export const nudge = onCall((req) =>
   guarded(async () => {
     const uid = uidOf(req);
     const code = cleanCode(req.data?.code);
-    return db.runTransaction(async (tx) => {
+    const first = await db.runTransaction(async (tx) => {
       const room = await loadRoom(tx, code);
       const caller = seatOf(room, uid);
-      if (room.status !== 'playing' || !room.game) return { moves: 0 };
+      if (room.status !== 'playing' || !room.game) return { moves: 0, ask: null };
       const now = Date.now();
       const seen = await Promise.all(
         room.playerUids.map((playerUid) => tx.get(presenceRef(code, playerUid))));
@@ -532,14 +767,21 @@ export const nudge = onCall((req) =>
       const back = before.filter((x) => !away.includes(x));
       let moves = 0, revealed = 0;
       let state: GameState | null = null;
-      if (away.length > 0 && room.game.phase !== 'finished') {
+      const bots = room.playerUids.map((_, seat) => seat).filter((seat) => isBot(room, seat));
+      if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
         const sinceChange = room.updatedAt instanceof Timestamp
           ? now - room.updatedAt.toMillis() : Infinity;
         moves = proxy.standIn(state, away, rng, room.players.map((p) => p.name), now, sinceChange);
       }
-      if (moves === 0 && left.length === 0 && back.length === 0) return { moves: 0 };
+      const written = moves > 0 || left.length > 0 || back.length > 0;
+      // the game now waits for a computer: its server is asked once this
+      // transaction is through (never from inside it)
+      const ask = state && bots.some((seat) => proxy.pending(state!, seat))
+        ? { step: room.step + (written ? 1 : 0), body: botRequest(code, room, state) }
+        : null;
+      if (!written) return { moves: 0, ask };
       room.away = away;
       const label = (seat: number) => `${seat + 1} 號 ${room.players[seat].name}`;
       if (left.length > 0) {
@@ -551,8 +793,16 @@ export const nudge = onCall((req) =>
       }
       if (state && moves > 0) saveState(tx, code, room, state, revealed);
       else tx.set(roomRef(code), touch(room));
-      return { moves };
+      return { moves, ask };
     });
+    if (!first.ask) return { moves: first.moves };
+    const { step, body } = first.ask;
+    const answer = await askBots(body);
+    if (!answer || (answer.say.length === 0 && answer.moves.length === 0)) {
+      return { moves: first.moves };
+    }
+    const done = await db.runTransaction((tx) => applyBots(tx, code, step, answer));
+    return { moves: first.moves + done };
   }),
 );
 
@@ -569,7 +819,7 @@ export const setExpansions = onCall((req) => guarded(async () => {
     const room = await loadRoom(tx, code);
     if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以設定擴充');
     if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '請先返回大廳');
-    if (rules.anyExpansion(expansions) && room.players.some((p) => (p.protocol ?? 1) < 3)) {
+    if (rules.anyExpansion(expansions) && room.players.some((p) => !p.bot && (p.protocol ?? 1) < 3)) {
       throw new HttpsError('failed-precondition', '請所有玩家更新 App 並重新加入房間後，再開啟擴充');
     }
     room.expansions = expansions;
