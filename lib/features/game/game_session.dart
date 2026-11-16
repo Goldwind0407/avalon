@@ -230,6 +230,11 @@ abstract class GameSession extends ChangeNotifier {
   /// the device allowed to see it).
   PrivateReveal? get latestReveal => null;
 
+  /// Everything the Lady has shown this device's own player so far, where
+  /// only that player looks at this device (solo play). Elsewhere empty:
+  /// a shared phone must not keep a result for the next person to read.
+  List<PrivateReveal> get myLadyResults => const [];
+
   /// The side the player at [seat] plays for now, if this device knows.
   bool? evilNow(int seat) {
     final role = roleOf(seat);

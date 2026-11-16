@@ -493,6 +493,13 @@ class OnlineGameSession extends GameSession {
           PrivateReveal.fromMap(Map<String, dynamic>.from(r as Map))
       ];
 
+  /// One phone per player: what the Lady showed this player can stay.
+  @override
+  List<PrivateReveal> get myLadyResults => [
+        for (final r in myReveals)
+          if (r.kind == 'lady') r
+      ];
+
   @override
   PrivateReveal? get latestReveal {
     final (kind, quest) = switch (phase) {

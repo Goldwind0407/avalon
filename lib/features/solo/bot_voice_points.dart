@@ -160,11 +160,19 @@ extension BotVoicePoints on BotVoice {
         intent: 'explainTeam', stance: true, weight: 4, quests: cited.toList());
   }
 
+  /// Below this suspicion a good bot treats a player as cleared.
+  static const clearedBelow = .1;
+
   /// Everything this bot could say right now, best first is decided later.
   List<_Point> _points(BotObservation o, bool approve, Set<int> allies,
       [List<double>? belief]) {
     final me = o.seat, team = o.team;
-    bool mine(int s) => s == me || allies.contains(s);
+    // A good player does not speak against someone he is all but sure is
+    // good (Merlin knows; the cards can clear anyone).
+    bool mine(int s) =>
+        s == me ||
+        allies.contains(s) ||
+        (!o.evil && belief != null && belief[s] < clearedBelow);
     final others = [
       for (final s in team)
         if (s != me) s

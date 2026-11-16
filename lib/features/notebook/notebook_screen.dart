@@ -164,6 +164,12 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                                     '開局情報',
                                                     _opening,
                                                     s),
+                                                if (game.expansions.lady)
+                                                  _roundButton(
+                                                      Icons.water_drop_outlined,
+                                                      '湖中女神紀錄',
+                                                      _lady,
+                                                      s),
                                                 _roundButton(
                                                     Icons.delete_outline,
                                                     '清空本局筆記',
@@ -499,6 +505,50 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     onPressed: () => Navigator.pop(context),
                     child: const Text('關閉'))
               ]));
+
+  /// Who checked whom with the Lady, after which quest (public), and what
+  /// this player saw with it where this device keeps that.
+  void _lady() {
+    String player(int seat) => playerLabel(seat, game.players[seat]);
+    final mine = game.myLadyResults;
+    final holder = game.ladyHolder;
+    showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('湖中女神紀錄'),
+              content: SingleChildScrollView(
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (holder != null)
+                        Text('目前持有者：${player(holder)}',
+                            key: const ValueKey('ladyHolderNow')),
+                      const SizedBox(height: 8),
+                      if (game.ladyChecks.isEmpty) const Text('還沒有人使用過湖中女神。'),
+                      for (final c in game.ladyChecks)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Text(
+                              '第 ${c.quest} 次遠征後：${player(c.holder)} 查驗 ${player(c.target)}'
+                              '${switch (mine.where((r) => r.quest == c.quest && r.target == c.target).lastOrNull) {
+                            final r? when c.holder == game.mySeat =>
+                              '（你看到：${r.evil == true ? '邪惡' : '正義'}）',
+                            _ => '',
+                          }}'),
+                        ),
+                      const SizedBox(height: 4),
+                      const Text('誰查了誰是公開的；查到的結果只有持有者知道，他說的話可能是假的。',
+                          style: TextStyle(fontSize: 12)),
+                    ]),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('關閉'))
+              ],
+            ));
+  }
 
   void _proposals() {
     final records = (game.proposalHistory.length >= notes.proposals.length
