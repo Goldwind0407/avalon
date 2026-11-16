@@ -316,8 +316,11 @@ class AvalonGame {
 
   void proposeTeam(Iterable<int> selected, {int? now, int? excalibur}) {
     _require(GamePhase.team);
-    final members = selected.toSet().toList()..sort();
-    if (members.length != requiredTeam ||
+    final chosen = selected.toList();
+    final members = chosen.toSet().toList()..sort();
+    // a seat named twice is refused, as on the server (rules.ts)
+    if (members.length != chosen.length ||
+        members.length != requiredTeam ||
         members.any((i) => i < 0 || i >= players.length)) {
       throw ArgumentError('隊伍人數不正確');
     }

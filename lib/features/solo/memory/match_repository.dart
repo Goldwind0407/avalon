@@ -157,10 +157,15 @@ class MatchRepository {
           if (list.any((s) => s.id == match.id)) return;
           await _storage.write(_matchKey(match.id), jsonEncode(match.toMap()));
           list.insert(0, match.summary);
-          for (final old in list.skip(limit)) {
-            await _storage.remove(_matchKey(old.id));
-          }
+          // The list first: if it cannot be written, the old games it
+          // still names must still be there. A record left behind by a
+          // failed removal only takes up room.
           await _write(_Index(list.take(limit).toList(), index.unreadable));
+          for (final old in list.skip(limit)) {
+            try {
+              await _storage.remove(_matchKey(old.id));
+            } catch (_) {}
+          }
         } catch (_) {}
       });
 
@@ -179,11 +184,11 @@ class MatchRepository {
         try {
           final index = await _read();
           if (index == null) return;
-          await _storage.remove(_matchKey(id));
           await _write(_Index([
             for (final s in index.summaries)
               if (s.id != id) s
           ], index.unreadable));
+          await _storage.remove(_matchKey(id));
         } catch (_) {}
       });
 
@@ -191,10 +196,12 @@ class MatchRepository {
         try {
           final index = await _read();
           if (index == null) return;
-          for (final s in index.summaries) {
-            await _storage.remove(_matchKey(s.id));
-          }
           await _storage.remove(_indexKey);
+          for (final s in index.summaries) {
+            try {
+              await _storage.remove(_matchKey(s.id));
+            } catch (_) {}
+          }
         } catch (_) {}
       });
 }

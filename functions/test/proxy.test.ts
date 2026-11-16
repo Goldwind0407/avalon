@@ -115,3 +115,45 @@ describe('stand-in', () => {
     assert.deepEqual(s.votes, [true, true, true, true, true]);
   });
 });
+
+describe('stand-in with the Lancelots', () => {
+  const roles: RoleKey[] =
+    ['merlin', 'assassin', 'lancelotEvil', 'lancelotGood', 'loyal', 'loyal', 'morgana'];
+  function lancelotGame(switched: boolean): GameState {
+    const s = r.newGame(7, ['morgana'], seeded(1), r.FREE_DISCUSSION,
+      { lady: true, lancelot: 2, excalibur: false });
+    s.roles = [...roles];
+    s.leader = 4;
+    s.loyalty = [switched, false, false, false, false];
+    s.lancelotSwitched = switched;
+    for (let i = 0; i < 7; i++) r.confirmIdentity(s, i);
+    return s;
+  }
+
+  test('an evil Lancelot who has switched is no longer counted as an ally', () => {
+    assert.deepEqual([...proxy.knownEvil(lancelotGame(false), 1)].sort(), [2, 6]);
+    assert.deepEqual([...proxy.knownEvil(lancelotGame(true), 1)], [6]);
+    // Merlin cannot tell which of the evil players he sees is Lancelot
+    assert.deepEqual([...proxy.knownEvil(lancelotGame(true), 0)].sort(), [1, 2, 6]);
+    // the Assassin's stand-in no longer waves a team through for his sake:
+    // over many votes on [switched Lancelot, loyal] some are against
+    let against = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const s = lancelotGame(true);
+      r.proposeTeam(s, 4, [2, 4]);
+      proxy.act(s, 1, seeded(seed), names(s), 0, false);
+      if (s.pendingVotes['1'] === false) against++;
+    }
+    assert.ok(against > 5, `against ${against} of 40`);
+  });
+
+  test('a Lady result from before a switch is not relied on', () => {
+    const s = lancelotGame(false);
+    s.reveals.push({ seat: 4, kind: 'lady', quest: 2, target: 2, evil: true });
+    s.history = [0, 1].map(() => ({ team: [4, 5], fails: 0, succeeded: true, order: [] }));
+    assert.ok(proxy.knownEvil(s, 4).has(2));
+    s.loyalty[2] = true; // turned over as the third quest begins
+    s.lancelotSwitched = true;
+    assert.ok(!proxy.knownEvil(s, 4).has(2));
+  });
+});

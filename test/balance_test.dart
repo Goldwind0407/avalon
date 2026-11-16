@@ -36,15 +36,24 @@ class Tally {
   int firstQuestFailed = 0;
   void add(SoloGameSession s) {
     games++;
+    // the side [seat] played for during quest [quest] (1-based): the
+    // Lancelots change sides when a switch card is turned over
+    bool evilAt(int seat, int quest) {
+      final role = s.roleOf(seat)!;
+      final switched =
+          s.loyalty.take(quest).where((card) => card == true).length.isOdd;
+      return role.isEvil != (role.isLancelot && switched);
+    }
+
     if (!s.history.first.succeeded) firstQuestFailed++;
     for (final p in s.proposalHistory.where((p) => p.attempt < 5)) {
-      final clean = !p.team.any((seat) => s.roleOf(seat)!.isEvil);
+      final clean = !p.team.any((seat) => evilAt(seat, p.quest));
       if (clean) {
         cleanProposals++;
         if (p.approved) cleanPassed++;
       }
       for (var i = 0; i < p.votes.length; i++) {
-        if (s.roleOf(i)!.isEvil) continue;
+        if (evilAt(i, p.quest)) continue;
         if (clean) {
           cleanGoodVotes++;
           if (p.votes[i]) cleanGoodYes++;
@@ -55,9 +64,10 @@ class Tally {
       }
     }
     for (final c in s.ladyChecks) {
-      if (s.roleOf(c.holder)!.isEvil) continue;
+      // the Lady is used after quest [c.quest], before the next card turns
+      if (evilAt(c.holder, c.quest)) continue;
       ladyGood++;
-      if (s.roleOf(c.target)!.isEvil) ladyGoodFound++;
+      if (evilAt(c.target, c.quest)) ladyGoodFound++;
     }
     final claimants = {
       for (final st in s.statements)
@@ -68,8 +78,8 @@ class Tally {
       if (s.winner == '正義') claimGoodWins++;
     }
     if (claimants.length > 1) rivalGames++;
-    bool evil(int seat) => s.roleOf(seat)!.isEvil;
     for (final p in s.proposalHistory.where((p) => p.approved)) {
+      bool evil(int seat) => evilAt(seat, p.quest);
       final dirty = p.team.any(evil);
       if (evil(p.leader)) {
         evilLed++;

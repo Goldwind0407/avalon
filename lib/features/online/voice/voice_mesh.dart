@@ -27,6 +27,9 @@ class _Link {
   final VoicePeer peer;
   PeerState state = PeerState.connecting;
   bool remoteSet = false, descriptionSent = false, closed = false;
+
+  /// A connection is tried again once, however often it reports failing.
+  bool retried = false;
   final incoming = <Map<String, dynamic>>[];
   final outgoing = <Map<String, dynamic>>[];
   Timer? timeout, retry;
@@ -45,6 +48,7 @@ class VoiceMesh {
     this.handshakeTimeout = const Duration(seconds: 20),
     this.heartbeatInterval = const Duration(seconds: 30),
     this.heartbeatTimeout = const Duration(seconds: 10),
+    this.operationTimeout = const Duration(seconds: 15),
     this.maxAttempts = 4,
     this.missedBeatsAllowed = 2,
   }) : session = session ?? newSession();
@@ -54,6 +58,16 @@ class VoiceMesh {
   final PeerFactory createPeer;
   final Duration retryDelay, handshakeTimeout, heartbeatInterval;
   final Duration heartbeatTimeout;
+
+  /// One step of a handshake (creating a connection, an offer, writing a
+  /// signal) is given up after this long. The steps for one player run one
+  /// after another, so a step that never came back used to hold up every
+  /// retry behind it.
+  final Duration operationTimeout;
+
+  /// Counts the steps given up per player: a step that comes back after
+  /// that finds a later number and leaves the new connection alone.
+  final _abandoned = <String, int>{};
 
   /// Tries in a row to reach one player before giving up; a connection
   /// that came up starts the count again.
@@ -159,7 +173,15 @@ class VoiceMesh {
     _queues[peer] = (_queues[peer] ?? Future<void>.value()).then((_) async {
       if (_stopped) return;
       try {
-        await work();
+        await work().timeout(operationTimeout);
+      } on TimeoutException {
+        _abandoned[peer] = (_abandoned[peer] ?? 0) + 1;
+        final link = _links[peer];
+        if (link != null) {
+          _stateChanged(link, PeerState.failed);
+        } else {
+          _retryWithoutLink(peer);
+        }
       } catch (_) {
         final link = _links[peer];
         if (link != null) {
@@ -229,11 +251,29 @@ class VoiceMesh {
     }
   }
 
+  /// The connection could not even be created in time: try again, as the
+  /// side that offers, within the usual limit.
+  void _retryWithoutLink(String peer) {
+    final failures = _failures[peer] ?? 0;
+    if (_stopped || uid.compareTo(peer) >= 0 || failures >= maxAttempts - 1) {
+      return;
+    }
+    _failures[peer] = failures + 1;
+    Timer(retryDelay * (1 << failures), () {
+      final theirs = _present[peer];
+      if (_stopped || theirs == null || _links[peer] != null) return;
+      _serial(peer, () => _offer(peer, theirs));
+    });
+  }
+
   Future<_Link?> _open(String peer, String theirs, int attempt) async {
+    final abandoned = _abandoned[peer] ?? 0;
     final old = _links[peer];
     if (old != null) await _close(old);
     final native = await createPeer();
-    if (_stopped || _present[peer] != theirs) {
+    if (_stopped ||
+        _present[peer] != theirs ||
+        (_abandoned[peer] ?? 0) != abandoned) {
       await native.close();
       return null;
     }
@@ -347,6 +387,7 @@ class VoiceMesh {
     if (state == PeerState.connected) {
       link.timeout?.cancel();
       link.retry?.cancel();
+      link.retried = false;
       _failures.remove(link.uid);
     }
     _changed();
@@ -354,7 +395,8 @@ class VoiceMesh {
     if ((state == PeerState.failed || state == PeerState.closed) &&
         uid.compareTo(link.uid) < 0 &&
         failures < maxAttempts - 1 &&
-        !(link.retry?.isActive ?? false)) {
+        !link.retried) {
+      link.retried = true;
       _failures[link.uid] = failures + 1;
       link.retry = Timer(retryDelay * (1 << failures), () {
         _serial(link.uid, () async {
@@ -376,7 +418,8 @@ class VoiceMesh {
     link.retry?.cancel();
     if (_links[link.uid] == link) _links.remove(link.uid);
     try {
-      await link.peer.close();
+      // a connection that will not close must not hold up the next one
+      await link.peer.close().timeout(const Duration(seconds: 5));
     } catch (_) {/* Already gone. */}
     _changed();
   }

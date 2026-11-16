@@ -17,6 +17,16 @@ class FlakyStorage extends MemoryMatchStorage {
   }
 }
 
+/// Storage whose writes of some keys fail while [failing] says so.
+class FailingWrites extends MemoryMatchStorage {
+  final failing = <String>{};
+  @override
+  Future<void> write(String key, String value) async {
+    if (failing.contains(key)) throw StateError('storage full');
+    return super.write(key, value);
+  }
+}
+
 const indexKey = 'avalon.solo.matches.v1';
 String matchKey(String id) => 'avalon.solo.match.v1/$id';
 
@@ -89,6 +99,28 @@ void main() {
     // once it reads again, saving works as before
     await repository.save(game('newC', minute: 2));
     expect(ids(storage.values[indexKey]), ['newC', 'oldB', 'oldA']);
+  });
+
+  test('a list that cannot be written loses no old game', () async {
+    final storage = FailingWrites();
+    final repository = MatchRepository(storage: storage, limit: 1);
+    await repository.save(game('oldA'));
+    // the next game pushes oldA out, but the list cannot be written
+    storage.failing.add(indexKey);
+    await repository.save(game('newB', minute: 1));
+    storage.failing.clear();
+    expect([for (final s in await repository.summaries()) s.id], ['oldA']);
+    expect(await repository.load('oldA'), isNotNull,
+        reason: 'the list still names it, so it must still be there');
+    // deleting: the same order
+    storage.failing.add(indexKey);
+    await repository.delete('oldA');
+    storage.failing.clear();
+    expect(await repository.load('oldA'), isNotNull);
+    // once the list can be written, the old game does make way
+    await repository.save(game('newB', minute: 1));
+    expect([for (final s in await repository.summaries()) s.id], ['newB']);
+    expect(await repository.load('oldA'), isNull);
   });
 
   test('an entry this version cannot read is kept as it is', () async {
