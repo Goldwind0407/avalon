@@ -49,3 +49,5 @@ app.*.map.json
 
 # Firebase emulator logs
 *-debug.log
+bot_server/.dart_tool/
+bot_server/pubspec.lock
