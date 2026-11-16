@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../core/assets.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/game_screen.dart';
@@ -179,361 +180,367 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                   child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1100),
         child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Column(children: [
-              Row(children: [
-                IconButton(
-                    tooltip: '返回首頁',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back),
-                    color: AvalonTheme.gold,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 36, height: 36),
-                    padding: EdgeInsets.zero),
-                const SizedBox(width: 8),
-                Text(widget.solo ? '跟電腦遊玩' : '一機遊玩',
-                    style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AvalonTheme.gold)),
-                if (widget.solo) ...[
-                  const SizedBox(width: 4),
-                  IconButton(
-                      key: const ValueKey('matchHistory'),
-                      tooltip: '對局紀錄',
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  MatchHistoryScreen(repository: _archive))),
-                      icon: const Icon(Icons.history),
-                      color: AvalonTheme.gold,
-                      constraints:
-                          const BoxConstraints.tightFor(width: 36, height: 36),
-                      padding: EdgeInsets.zero),
-                  const SizedBox(width: 6),
-                  PopupMenuButton<BotDifficulty>(
-                    key: const ValueKey('botDifficulty'),
-                    tooltip: '電腦難度',
-                    initialValue: difficulty,
-                    onSelected: (value) => setState(() => difficulty = value),
-                    itemBuilder: (_) => [
-                      for (final level in BotDifficulty.values)
-                        PopupMenuItem(
-                          key: ValueKey('botDifficulty_${level.name}'),
-                          value: level,
-                          child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(level.label),
-                                Text(level.description,
-                                    style: const TextStyle(
-                                        fontSize: 11,
-                                        color: AvalonTheme.muted)),
-                              ]),
-                        ),
-                    ],
-                    child: Container(
-                      height: 30,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                          color: AvalonTheme.raised,
-                          borderRadius: BorderRadius.circular(9)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text('難度：${difficulty.label}',
-                            style: const TextStyle(
-                                fontSize: 12, color: AvalonTheme.gold)),
-                        const Icon(Icons.arrow_drop_down,
-                            size: 18, color: AvalonTheme.muted),
-                      ]),
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                IconButton(
-                    tooltip: '發言設定',
-                    icon: const Icon(Icons.timer_outlined),
-                    color: AvalonTheme.gold,
-                    onPressed: () async {
-                      final value = await editDiscussion(context, discussion);
-                      if (mounted && value != null) {
-                        setState(() => discussion = value);
-                      }
-                    }),
-                const Text('人數',
-                    style: TextStyle(color: AvalonTheme.muted, fontSize: 12)),
-                const SizedBox(width: 8),
-                ...List.generate(6, (i) {
-                  final count = i + 5;
-                  final active = playerCount == count;
-                  return Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: SizedBox(
-                        width: 34,
-                        height: 34,
-                        child: TextButton(
-                            key: ValueKey('playerCount$count'),
-                            style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                backgroundColor: active
-                                    ? AvalonTheme.gold
-                                    : AvalonTheme.raised,
-                                foregroundColor:
-                                    active ? AvalonTheme.bg : AvalonTheme.muted,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(9))),
-                            onPressed: () => setState(() => _setPlayers(count)),
-                            child: Text('$count')),
-                      ));
-                }),
-              ]),
+              _header(context),
               const SizedBox(height: 10),
               Expanded(
                   child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                    Expanded(
-                        flex: 6,
-                        child: GoldPanel(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  SectionLabel(
-                                      widget.solo ? '1 號是你・其餘是電腦' : '玩家暱稱'),
-                                  const SizedBox(height: 8),
-                                  ...List.generate(
-                                      (playerCount + 1) ~/ 2,
-                                      (row) => Expanded(
-                                              child: Padding(
-                                            padding: EdgeInsets.only(
-                                                top: row == 0 ? 0 : 5),
-                                            child: Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.stretch,
-                                                children:
-                                                    List.generate(2, (column) {
-                                                  final index =
-                                                      row * 2 + column;
-                                                  return Expanded(
-                                                      child: Padding(
-                                                    padding: EdgeInsets.only(
-                                                        left: column == 0
-                                                            ? 0
-                                                            : 6),
-                                                    child: index >= playerCount
-                                                        ? const SizedBox
-                                                            .shrink()
-                                                        : Material(
-                                                            color: AvalonTheme
-                                                                .raised,
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        9),
-                                                            child: InkWell(
-                                                              key: ValueKey(
-                                                                  'playerName$index'),
-                                                              borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          9),
-                                                              onTap: () =>
-                                                                  editName(
-                                                                      index),
-                                                              child: Padding(
-                                                                  padding: const EdgeInsets
-                                                                      .symmetric(
-                                                                      horizontal:
-                                                                          8),
-                                                                  child: Row(
-                                                                      children: [
-                                                                        Text(
-                                                                            '${index + 1}',
-                                                                            style:
-                                                                                const TextStyle(color: AvalonTheme.gold, fontWeight: FontWeight.bold)),
-                                                                        const SizedBox(
-                                                                            width:
-                                                                                8),
-                                                                        Expanded(
-                                                                            child: Text(names[index],
-                                                                                maxLines: 1,
-                                                                                overflow: TextOverflow.ellipsis,
-                                                                                style: const TextStyle(fontSize: 13))),
-                                                                        Icon(
-                                                                            widget.solo && index > 0
-                                                                                ? Icons.person_outline
-                                                                                : Icons.edit_outlined,
-                                                                            size: 14,
-                                                                            color: AvalonTheme.muted),
-                                                                      ])),
-                                                            ),
-                                                          ),
-                                                  ));
-                                                })),
-                                          ))),
-                                ]))),
+                    Expanded(flex: 6, child: _players()),
                     const SizedBox(width: 10),
-                    Expanded(
-                        flex: 5,
-                        child: GoldPanel(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const SectionLabel('角色配置'),
-                                  const SizedBox(height: 8),
-                                  ...List.generate(
-                                      options.length ~/ 2,
-                                      (row) => Expanded(
-                                              child: Padding(
-                                            padding: EdgeInsets.only(
-                                                top: row == 0 ? 0 : 5),
-                                            child: Row(
-                                                children:
-                                                    List.generate(2, (column) {
-                                              final (role, side) =
-                                                  options[row * 2 + column];
-                                              final expansionRole =
-                                                  role.endsWith('蘭斯洛特');
-                                              final active = expansionRole ||
-                                                  roles.contains(role);
-                                              final required = expansionRole ||
-                                                  role == '梅林' ||
-                                                  role == '刺客';
-                                              return Expanded(
-                                                  child: Padding(
-                                                padding: EdgeInsets.only(
-                                                    left: column == 0 ? 0 : 6),
-                                                child: Material(
-                                                  color: active
-                                                      ? AvalonTheme.violet
-                                                          .withValues(alpha: .3)
-                                                      : AvalonTheme.raised,
-                                                  borderRadius:
-                                                      BorderRadius.circular(9),
-                                                  child: InkWell(
-                                                    key: ValueKey('role$role'),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            9),
-                                                    onTap: required
-                                                        ? null
-                                                        : () => setState(() {
-                                                              active
-                                                                  ? roles
-                                                                      .remove(
-                                                                          role)
-                                                                  : roles.add(
-                                                                      role);
-                                                            }),
-                                                    child: Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                                horizontal: 8),
-                                                        child: Row(children: [
-                                                          Expanded(
-                                                              child: FittedBox(
-                                                                  fit: BoxFit
-                                                                      .scaleDown,
-                                                                  alignment:
-                                                                      Alignment
-                                                                          .centerLeft,
-                                                                  child: Column(
-                                                                      mainAxisAlignment:
-                                                                          MainAxisAlignment
-                                                                              .center,
-                                                                      crossAxisAlignment:
-                                                                          CrossAxisAlignment
-                                                                              .start,
-                                                                      children: [
-                                                                        FittedBox(
-                                                                            fit:
-                                                                                BoxFit.scaleDown,
-                                                                            alignment: Alignment.centerLeft,
-                                                                            child: Text(role, style: TextStyle(fontSize: 13, color: active ? AvalonTheme.gold : Colors.white))),
-                                                                        Text(
-                                                                            side,
-                                                                            style:
-                                                                                const TextStyle(fontSize: 10, color: AvalonTheme.muted)),
-                                                                      ]))),
-                                                          Icon(
-                                                              active
-                                                                  ? Icons
-                                                                      .check_circle
-                                                                  : Icons
-                                                                      .circle_outlined,
-                                                              size: 16,
-                                                              color: active
-                                                                  ? AvalonTheme
-                                                                      .gold
-                                                                  : AvalonTheme
-                                                                      .muted),
-                                                        ])),
-                                                  ),
-                                                ),
-                                              ));
-                                            })),
-                                          ))),
-                                ]))),
+                    Expanded(flex: 5, child: _roles(options)),
                   ])),
               const SizedBox(height: 10),
-              Row(children: [
-                SizedBox(
-                    width: 250,
-                    height: 42,
-                    child: ExpansionsButton(
-                        settings: expansions,
-                        onTap: () async {
-                          final value = await editExpansions(
-                              context, expansions,
-                              players: playerCount);
-                          if (mounted && value != null) {
-                            setState(() => _setExpansions(value));
-                          }
-                        })),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Text(
-                        configuration.roleIssue ??
-                            '正義 ${playerCount - evilCount} 人・邪惡 $evilCount 人，其他名額自動補齊',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: configuration.roleIssue == null
-                                ? AvalonTheme.muted
-                                : Colors.orangeAccent))),
-                const SizedBox(width: 12),
-                SizedBox(
-                    width: 170,
-                    height: 42,
-                    child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(minimumSize: Size.zero),
-                        onPressed: configuration.canStart
-                            ? () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => widget.solo
-                                        ? GameScreen.solo(
-                                            room: configuration,
-                                            difficulty: difficulty,
-                                            cast: cast
-                                                .take(playerCount - 1)
-                                                .toList(),
-                                            archive: _archive)
-                                        : GameScreen(room: configuration)))
-                            : null,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('開始遊戲'))),
-              ]),
+              _footer(context, configuration, evilCount),
             ])),
       )))),
     );
   }
+
+  /// On the narrowest phones the speaking-order chip shows its icon only
+  /// and the count needs no label.
+  Widget _header(BuildContext context) => LayoutBuilder(
+      builder: (context, box) =>
+          _headerRow(context, compact: box.maxWidth < 760));
+
+  Widget _headerRow(BuildContext context, {required bool compact}) =>
+      Row(children: [
+        ScreenTitle(widget.solo ? '跟電腦遊玩' : '一機遊玩', backTooltip: '返回首頁'),
+        const SizedBox(width: 12),
+        // the settings give way (scale down) before anything overflows
+        Expanded(
+            child: Align(
+                alignment: Alignment.centerLeft,
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (widget.solo) ...[
+                        RoundIconButton(
+                            key: const ValueKey('matchHistory'),
+                            icon: Icons.history,
+                            tooltip: '對局紀錄',
+                            size: 34,
+                            onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                    builder: (_) => MatchHistoryScreen(
+                                        repository: _archive)))),
+                        const SizedBox(width: 8),
+                        PopupMenuButton<BotDifficulty>(
+                          key: const ValueKey('botDifficulty'),
+                          tooltip: '電腦難度',
+                          initialValue: difficulty,
+                          onSelected: (value) =>
+                              setState(() => difficulty = value),
+                          itemBuilder: (_) => [
+                            for (final level in BotDifficulty.values)
+                              PopupMenuItem(
+                                key: ValueKey('botDifficulty_${level.name}'),
+                                value: level,
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(level.label),
+                                      Text(level.description,
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              color: AvalonTheme.muted)),
+                                    ]),
+                              ),
+                          ],
+                          child: IgnorePointer(
+                            child: SettingChip(
+                                icon: Icons.psychology_outlined,
+                                label: '難度：${difficulty.label}',
+                                onTap: () {},
+                                trailing: const Icon(Icons.arrow_drop_down,
+                                    size: 18, color: AvalonTheme.muted)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      SettingChip(
+                          icon: Icons.timer_outlined,
+                          label: compact
+                              ? ''
+                              : (discussion.enabled ? '依序發言' : '自由討論'),
+                          tooltip: discussion.enabled ? '依序發言' : '自由討論',
+                          highlight: discussion.enabled,
+                          onTap: () async {
+                            final value =
+                                await editDiscussion(context, discussion);
+                            if (mounted && value != null) {
+                              setState(() => discussion = value);
+                            }
+                          }),
+                    ])))),
+        const SizedBox(width: 10),
+        if (!compact) ...[
+          const Text('人數',
+              style: TextStyle(
+                  color: AvalonTheme.muted, fontSize: 12, letterSpacing: 1)),
+          const SizedBox(width: 8),
+        ],
+        PillSelector<int>(
+            values: const [5, 6, 7, 8, 9, 10],
+            selected: playerCount,
+            label: (count) => '$count',
+            keyOf: (count) => ValueKey('playerCount$count'),
+            onSelected: (count) => setState(() => _setPlayers(count))),
+      ]);
+
+  Widget _players() => GoldPanel(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SectionLabel(widget.solo ? '座位・1 號是你，其餘是電腦' : '座位・點一下修改暱稱'),
+        const SizedBox(height: 9),
+        for (var row = 0; row < (playerCount + 1) ~/ 2; row++)
+          Expanded(
+              child: Padding(
+            padding: EdgeInsets.only(top: row == 0 ? 0 : 6),
+            child:
+                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              for (var column = 0; column < 2; column++) ...[
+                if (column == 1) const SizedBox(width: 7),
+                Expanded(
+                    child: row * 2 + column >= playerCount
+                        ? const SizedBox.shrink()
+                        : _seat(row * 2 + column)),
+              ]
+            ]),
+          )),
+      ]));
+
+  Widget _seat(int index) {
+    final bot = widget.solo && index > 0;
+    final style = bot ? cast[index - 1].style.label : null;
+    return Material(
+      color: AvalonTheme.raised.withValues(alpha: .7),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(11),
+          side: BorderSide(
+              color: index == 0 && widget.solo
+                  ? AvalonTheme.gold.withValues(alpha: .45)
+                  : Colors.white.withValues(alpha: .05))),
+      child: InkWell(
+        key: ValueKey('playerName$index'),
+        borderRadius: BorderRadius.circular(11),
+        onTap: () => editName(index),
+        child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            child: Row(children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AvalonTheme.bg.withValues(alpha: .6),
+                    border: Border.all(
+                        color: AvalonTheme.gold.withValues(alpha: .6))),
+                child: Text('${index + 1}',
+                    style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AvalonTheme.gold,
+                        fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                  child: Text(names[index],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13.5))),
+              if (style != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Text(style,
+                      style: const TextStyle(
+                          fontSize: 10.5, color: AvalonTheme.muted)),
+                ),
+              Icon(bot ? Icons.info_outline : Icons.edit_outlined,
+                  size: 14, color: AvalonTheme.muted),
+            ])),
+      ),
+    );
+  }
+
+  static const _goodColor = Color(0xFF6FA8FF), _evilColor = Color(0xFFFF7A7A);
+
+  Widget _roles(List<(String, String)> options) => GoldPanel(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SectionLabel('角色配置'),
+        const SizedBox(height: 9),
+        for (var row = 0; row < options.length ~/ 2; row++)
+          Expanded(
+              child: Padding(
+            padding: EdgeInsets.only(top: row == 0 ? 0 : 6),
+            child:
+                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              for (var column = 0; column < 2; column++) ...[
+                if (column == 1) const SizedBox(width: 7),
+                Expanded(child: _role(options[row * 2 + column])),
+              ]
+            ]),
+          )),
+      ]));
+
+  Widget _role((String, String) option) {
+    final (name, side) = option;
+    final role = Role.values.firstWhere((r) => r.label == name);
+    final expansionRole = role.isLancelot;
+    final active = expansionRole || roles.contains(name);
+    final required = expansionRole || name == '梅林' || name == '刺客';
+    final sideColor = role.isEvil ? _evilColor : _goodColor;
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 160),
+      opacity: active ? 1 : .55,
+      child: Material(
+        color: active
+            ? AvalonTheme.violet.withValues(alpha: .26)
+            : AvalonTheme.raised.withValues(alpha: .6),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+            side: BorderSide(
+                color: active
+                    ? AvalonTheme.gold.withValues(alpha: .5)
+                    : Colors.white.withValues(alpha: .05))),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('role$name'),
+          onTap: required
+              ? null
+              : () => setState(() {
+                    active ? roles.remove(name) : roles.add(name);
+                  }),
+          child: Row(children: [
+            // the role's portrait, framed in its side's colour
+            Container(
+              width: 34,
+              margin: const EdgeInsets.fromLTRB(5, 5, 0, 5),
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(color: sideColor.withValues(alpha: .8))),
+              child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(Assets.role(role, 0),
+                      fit: BoxFit.cover, alignment: const Alignment(0, -.55))),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name,
+                              style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: active
+                                      ? AvalonTheme.gold
+                                      : Colors.white)),
+                          Text(side,
+                              style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: sideColor.withValues(alpha: .85))),
+                        ]))),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(
+                  required
+                      ? Icons.lock_outline
+                      : active
+                          ? Icons.check_circle
+                          : Icons.circle_outlined,
+                  size: 16,
+                  color: active ? AvalonTheme.gold : AvalonTheme.muted),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _footer(BuildContext context, Room configuration, int evilCount) =>
+      SizedBox(
+        height: 44,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+              width: 230,
+              child: ExpansionsButton(
+                  settings: expansions,
+                  onTap: () async {
+                    final value = await editExpansions(context, expansions,
+                        players: playerCount);
+                    if (mounted && value != null) {
+                      setState(() => _setExpansions(value));
+                    }
+                  })),
+          const SizedBox(width: 12),
+          Expanded(
+              child: configuration.roleIssue != null
+                  ? Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(configuration.roleIssue!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.orangeAccent)))
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        _tally(Assets.logoGood, '正義', playerCount - evilCount,
+                            _goodColor),
+                        const SizedBox(width: 8),
+                        _tally(Assets.logoEvil, '邪惡', evilCount, _evilColor),
+                        const SizedBox(width: 10),
+                        const Text('其餘名額自動補齊',
+                            style: TextStyle(
+                                fontSize: 11.5, color: AvalonTheme.muted)),
+                      ]))),
+          const SizedBox(width: 12),
+          SizedBox(
+              width: 168,
+              child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: Size.zero),
+                  onPressed: configuration.canStart
+                      ? () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => widget.solo
+                                  ? GameScreen.solo(
+                                      room: configuration,
+                                      difficulty: difficulty,
+                                      cast: cast.take(playerCount - 1).toList(),
+                                      archive: _archive)
+                                  : GameScreen(room: configuration)))
+                      : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('開始遊戲'))),
+        ]),
+      );
+
+  /// How many play on one side, with the side's crest.
+  Widget _tally(String crest, String side, int count, Color color) => Container(
+        padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
+        decoration: ShapeDecoration(
+            color: color.withValues(alpha: .12),
+            shape: StadiumBorder(
+                side: BorderSide(color: color.withValues(alpha: .4)))),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Image.asset(crest, width: 22, height: 22),
+          const SizedBox(width: 4),
+          Text('$side $count 人', style: TextStyle(fontSize: 12, color: color)),
+        ]),
+      );
 }
 
 class _PlayerNameDialog extends StatefulWidget {

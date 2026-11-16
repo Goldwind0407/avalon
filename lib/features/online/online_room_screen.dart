@@ -338,12 +338,11 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       padding: const EdgeInsets.all(12),
       child: Column(children: [
         Row(children: [
-          IconButton(
+          RoundIconButton(
+              icon: Icons.arrow_back,
               tooltip: '離開房間',
-              onPressed: _busy ? null : _leave,
-              icon: const Icon(Icons.arrow_back),
-              color: AvalonTheme.gold),
-          const SizedBox(width: 4),
+              onPressed: _busy ? null : _leave),
+          const SizedBox(width: 12),
           const Text('房號',
               style: TextStyle(color: AvalonTheme.muted, fontSize: 13)),
           const SizedBox(width: 8),

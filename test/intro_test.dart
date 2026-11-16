@@ -11,7 +11,7 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(const AvalonApp());
     expect(find.byType(IntroScreen), findsOneWidget);
-    expect(find.text('AVALON'), findsNothing);
+    expect(find.byKey(const ValueKey('homeEmblem')), findsNothing);
     // halfway: still writing the signature
     await tester.pump(const Duration(milliseconds: 1500));
     expect(find.byType(IntroScreen), findsOneWidget);
@@ -19,7 +19,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 2600));
     await tester.pumpAndSettle();
     expect(find.byType(IntroScreen), findsNothing);
-    expect(find.text('AVALON'), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeEmblem')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -32,10 +32,10 @@ void main() {
     await tester.tapAt(const Offset(400, 200));
     await tester.pumpAndSettle();
     expect(find.byType(IntroScreen), findsNothing);
-    expect(find.text('AVALON'), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeEmblem')), findsOneWidget);
     // the timeline finishing later must not push a second home screen
     await tester.pump(const Duration(seconds: 5));
-    expect(find.text('AVALON'), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeEmblem')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

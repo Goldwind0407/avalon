@@ -66,21 +66,8 @@ class _RulesScreenState extends State<RulesScreen> {
                       child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Row(children: [
-                              IconButton(
-                                  tooltip: '返回',
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: const Icon(Icons.arrow_back),
-                                  color: AvalonTheme.gold,
-                                  constraints: const BoxConstraints.tightFor(
-                                      width: 36, height: 36),
-                                  padding: EdgeInsets.zero),
-                              const SizedBox(width: 4),
-                              const Text('遊戲規則',
-                                  style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: AvalonTheme.gold)),
+                            const Row(children: [
+                              Flexible(child: ScreenTitle('遊戲規則')),
                             ]),
                             const SizedBox(height: 6),
                             Expanded(

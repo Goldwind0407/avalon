@@ -77,22 +77,9 @@ class _OnlinePlayScreenState extends State<OnlinePlayScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(children: [
-                        IconButton(
-                            tooltip: '返回首頁',
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.arrow_back),
-                            color: AvalonTheme.gold),
-                        const SizedBox(width: 4),
-                        const Text('多機遊玩',
-                            style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: AvalonTheme.gold)),
-                        const Spacer(),
-                        const Text('每人用自己的手機加入同一個房間',
-                            style: TextStyle(
-                                color: AvalonTheme.muted, fontSize: 12)),
+                      const Row(children: [
+                        ScreenTitle('多機遊玩',
+                            subtitle: '每人用自己的手機加入同一個房間', backTooltip: '返回首頁'),
                       ]),
                       const SizedBox(height: 10),
                       GoldPanel(

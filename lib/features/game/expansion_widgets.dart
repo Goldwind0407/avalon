@@ -180,11 +180,15 @@ class ExpansionsButton extends StatelessWidget {
   Widget build(BuildContext context) => Material(
       color: settings.any
           ? AvalonTheme.violet.withValues(alpha: .3)
-          : AvalonTheme.raised,
-      borderRadius: BorderRadius.circular(9),
+          : AvalonTheme.raised.withValues(alpha: .8),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(11),
+          side: BorderSide(
+              color: AvalonTheme.gold
+                  .withValues(alpha: settings.any ? .45 : .18))),
       child: InkWell(
           key: const ValueKey('expansions'),
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(11),
           onTap: onTap,
           child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),

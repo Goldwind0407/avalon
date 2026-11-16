@@ -85,20 +85,10 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          IconButton(
-              tooltip: '返回',
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back),
-              color: AvalonTheme.gold),
-          const Text('對局紀錄',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: AvalonTheme.gold)),
-          const SizedBox(width: 12),
-          if (matches != null && matches.isNotEmpty)
-            Text('${matches.length} 局・你贏 $wins 局',
-                style: const TextStyle(fontSize: 13, color: AvalonTheme.muted)),
+          ScreenTitle('對局紀錄',
+              subtitle: matches != null && matches.isNotEmpty
+                  ? '${matches.length} 局・你贏 $wins 局'
+                  : null),
           const Spacer(),
           if (matches != null && matches.isNotEmpty)
             TextButton.icon(
