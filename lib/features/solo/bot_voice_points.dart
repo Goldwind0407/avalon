@@ -71,8 +71,26 @@ extension BotVoicePoints on BotVoice {
   }
 
   String _stance(bool approve) => approve
-      ? _pick(['這隊我先贊成。', '這隊我支持。', '這隊我願意試。', '這票我會投贊成。'])
-      : _pick(['這隊我投反對。', '這次我想換個組合。', '這份名單我不支持。', '這票我會反對。']);
+      ? _pick([
+          '這隊我先贊成。',
+          '這隊我支持。',
+          '這隊我願意試。',
+          '這票我會投贊成。',
+          '這組我可以接受。',
+          '這次我投贊成。',
+          '這隊我讓它過。',
+          '我這票會是贊成。',
+        ])
+      : _pick([
+          '這隊我投反對。',
+          '這次我想換個組合。',
+          '這份名單我不支持。',
+          '這票我會反對。',
+          '這隊我先擋下來。',
+          '這次我不會投贊成。',
+          '我想再看下一個組合。',
+          '這組我過不了。',
+        ]);
 
   /// Why the leader picked these people.
   _Point? _leaderPoint(BotObservation o, Set<int> allies) {
@@ -202,7 +220,12 @@ extension BotVoicePoints on BotVoice {
         points.add(_Point('clean', '${_ns(recorded)}$when出任務沒有失敗牌，$tail',
             intent: 'supportTeam',
             stance: true,
-            brief: _pick(['這幾位的紀錄我也對過，沒有反對的理由，贊成。', '名單上的紀錄都乾淨，我也支持。']),
+            brief: _pick([
+              '這幾位的紀錄我也對過，沒有反對的理由，贊成。',
+              '名單上的紀錄都乾淨，我也支持。',
+              '我看這隊的人也都沒出過事，可以過。',
+              '同意，名單上沒有出過失敗牌的人。',
+            ]),
             weight: 2.2,
             quests: {for (final s in recorded) ..._cleanWith(o, s)}.toList()));
       }
@@ -270,7 +293,10 @@ extension BotVoicePoints on BotVoice {
               ]),
               intent: 'opposeTeam',
               stance: true,
-              brief: '原班人馬再試一次，我也不贊成。',
+              brief: _pick([
+                '原班人馬再試一次，我也不贊成。',
+                '同一批人再出一次，我也不放心。',
+              ]),
               weight: 3,
               quests: [q + 1]));
           break;
@@ -302,7 +328,9 @@ extension BotVoicePoints on BotVoice {
             intent: 'opposeTeam',
             questionTo: o.leader == me ? null : o.leader,
             stance: true,
-            brief: self ? '我也有成功紀錄卻沒被帶，一樣反對。' : '這個換法我也看不懂，反對。',
+            brief: self
+                ? _pick(['我也有成功紀錄卻沒被帶，一樣反對。', '我出過成功的任務也沒被帶，這隊我也不支持。'])
+                : _pick(['這個換法我也看不懂，反對。', '我也覺得換得很怪，這隊不支持。']),
             weight: 2.6,
             quests: _cleanWith(o, self ? me : leftOut.first)));
       }
@@ -313,6 +341,8 @@ extension BotVoicePoints on BotVoice {
               '我不在這隊上，裡面的人我一個都沒辦法保證，想換一組。',
               '這隊沒有我，我只能確定自己，所以這票我投反對。',
               '名單上沒有我能確定的人，我寧可再組一次。',
+              '這隊沒有一個我能掛保證的人，我想換換看。',
+              '我能確定的只有自己，這隊又沒有我，先反對。',
             ]),
             intent: 'opposeTeam',
             stance: true,
@@ -502,7 +532,13 @@ extension BotVoicePoints on BotVoice {
             brief: '$who點名的人還在隊上，我也先不跟。',
             weight: 4.2));
       } else if (!o.team.contains(m) && approve) {
-        points.add(_Point(key, '$who點名的${_n(m)}不在這隊，我可以接受。',
+        points.add(_Point(
+            key,
+            _pick([
+              '$who點名的${_n(m)}不在這隊，我可以接受。',
+              '${_n(m)}被$who點過名，這隊沒有他，我比較放心。',
+              '這隊避開了$who懷疑的${_n(m)}，可以試試。',
+            ]),
             intent: 'supportTeam',
             stance: true,
             brief: '沒有${_n(m)}，我也可以。',
@@ -600,14 +636,28 @@ extension BotVoicePoints on BotVoice {
             brief: '女神的結果我也看到了，有${_n(t)}就不行。',
             weight: 4.5));
       } else if (c.claimedEvil! && !onTeam && approve) {
-        points.add(_Point(key, '$holder查出${_n(t)}是邪惡，這隊沒有他，我可以接受。',
+        points.add(_Point(
+            key,
+            _pick([
+              '$holder查出${_n(t)}是邪惡，這隊沒有他，我可以接受。',
+              '${_n(t)}被$holder的女神查成邪惡，這隊沒放他，我沒意見。',
+              '女神說${_n(t)}是邪惡，這隊剛好沒有他，可以走。',
+            ]),
             intent: 'supportTeam',
             stance: true,
             brief: '沒有${_n(t)}，我也可以接受。',
             weight: 3));
       } else if (!c.claimedEvil! && onTeam && approve) {
-        points.add(_Point(key, '$holder說查過${_n(t)}是正義，雖然只能信他的說法，但這隊我比較放心。',
-            intent: 'supportTeam', stance: true, weight: 2.4));
+        points.add(_Point(
+            key,
+            _pick([
+              '$holder說查過${_n(t)}是正義，雖然只能信他的說法，但這隊我比較放心。',
+              '${_n(t)}有$holder的女神背書，雖然要信$holder才算數，這隊我先接受。',
+              '照$holder的查驗，${_n(t)}是正義，有他在這隊我安心一點。',
+            ]),
+            intent: 'supportTeam',
+            stance: true,
+            weight: 2.4));
       }
     }
     return points;

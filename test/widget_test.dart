@@ -11,7 +11,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(const AvalonApp(intro: false));
-    expect(find.text('AVALON'), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeEmblem')), findsOneWidget);
     await tester.tap(find.text('一機遊玩'));
     await tester.pumpAndSettle();
     expect(tester.widget<LocalPlayScreen>(find.byType(LocalPlayScreen)).solo,
@@ -46,10 +46,10 @@ void main() {
       tester.view.physicalSize = size;
       await tester.pumpWidget(const AvalonApp(intro: false));
       await tester.pumpAndSettle();
-      expect(find.text('AVALON'), findsOneWidget);
+      expect(find.byKey(const ValueKey('homeEmblem')), findsOneWidget);
       expect(find.text('一機遊玩').hitTestable(), findsOneWidget);
       expect(find.text('多機遊玩').hitTestable(), findsOneWidget);
-      expect(find.text('跟電腦遊玩（測試中）').hitTestable(), findsOneWidget);
+      expect(find.text('跟電腦遊玩').hitTestable(), findsOneWidget);
       expect(find.byType(Scrollable), findsNothing);
       expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);

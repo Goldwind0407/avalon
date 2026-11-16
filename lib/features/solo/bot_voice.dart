@@ -180,6 +180,7 @@ class BotVoice {
       return _pick([
         '第$q次隊上還有${named.join('、')}，我出的是成功，失敗牌不能只算在我頭上。',
         '我在第$q次的隊上沒錯，但${named.join('、')}也在。我那張是成功，請把他們一起看。',
+        '第$q次那張失敗不是我的，${named.join('、')}${named.length > 1 ? '都' : '也'}在隊上，不要只看我。',
         '第$q次不是我一個人出任務，${named.join('、')}${named.length > 1 ? '都' : '也'}在。只盯著我，剛好放過真正出失敗牌的人。',
       ]);
     }
@@ -201,25 +202,54 @@ class BotVoice {
           : _pick([
               '第$q次投贊成的不只我，${also.take(3).map((s) => _who(o, s)).join('、')}也贊成了，那時候沒有人知道會出失敗牌。',
               '那一票我認，但${also.take(3).map((s) => _who(o, s)).join('、')}當時也在隊外投了贊成，要算就一起算。',
+              '外白那隊的不是只有我，${also.take(3).map((s) => _who(o, s)).join('、')}也投了，那時大家都在猜。',
             ]);
     }
     if (_backedRejected(o, me).lastOrNull case final p?) {
       return _pick([
         '第${p.quest}次遠征那支被否決的隊我是投了贊成，我只是覺得可以試。一張票不能說明我是誰。',
         '我贊成過被否決的那隊沒錯，那是我當時的判斷，不代表我認識隊上的誰。',
+        '那隊我投贊成，是覺得名單還可以，不是因為我知道什麼。',
       ]);
     }
     return null;
   }
 
   String get _opener => switch (style) {
-        BotStyle.impulsive => _pick(['我直說，', '說真的，', '我不繞圈子，']),
-        BotStyle.aggressive => _pick(['我把話說清楚，', '別再拖了，', '我直說，']),
-        BotStyle.cautious => _pick(['我想提醒一下，', '先說我的疑慮，', '保守一點來看，']),
-        BotStyle.logical => _pick(['照紀錄來看，', '把紀錄攤開來看，', '從數字上看，']),
-        BotStyle.follower => _pick(['我想確認一下，', '我補一句，', '']),
-        _ => _pick(['老實說，', '我想了一下，', '']),
+        BotStyle.impulsive =>
+          _pick(['我直說，', '說真的，', '我不繞圈子，', '講白一點，', '我就直接講了，']),
+        BotStyle.aggressive =>
+          _pick(['我把話說清楚，', '別再拖了，', '我直說，', '我話說在前面，', '這點我一定要講，']),
+        BotStyle.cautious =>
+          _pick(['我想提醒一下，', '先說我的疑慮，', '保守一點來看，', '我有點擔心，', '我不確定，但']),
+        BotStyle.logical =>
+          _pick(['照紀錄來看，', '把紀錄攤開來看，', '從數字上看，', '對一下票就知道，', '我整理了一下，']),
+        BotStyle.follower => _pick(['我想確認一下，', '我補一句，', '', '我也想提一下，']),
+        _ => _pick(['老實說，', '我想了一下，', '', '說一下我的看法，', '我覺得，']),
       };
+
+  /// The short sentence that closes a remark with this bot's vote.
+  String _closing(bool approve) => approve
+      ? _pick([
+          '這隊我先贊成。',
+          '這隊我支持。',
+          '這隊我願意試。',
+          '這票我會投贊成。',
+          '這組我可以接受。',
+          '這次我投贊成。',
+          '這隊我讓它過。',
+          '我這票會是贊成。',
+        ])
+      : _pick([
+          '這隊我投反對。',
+          '這次我想換個組合。',
+          '這份名單我不支持。',
+          '這票我會反對。',
+          '這隊我先擋下來。',
+          '這次我不會投贊成。',
+          '我想再看下一個組合。',
+          '這組我過不了。',
+        ]);
 
   /// How readily this bot speaks its mind about a person.
   double get _boldness =>
@@ -257,7 +287,9 @@ class BotVoice {
                 '$name，你問我這隊怎麼看，我直接說我的票。',
                 '$name，我現在的立場是這樣：',
                 '回答$name剛才的問題，我先講這次的選擇。',
-                '$name，我還沒有誰百分之百可信的結論，但這隊我有傾向。'
+                '$name，我還沒有誰百分之百可信的結論，但這隊我有傾向。',
+                '$name，好問題，我說一下我的想法。',
+                '$name，我老實講我怎麼看這隊。'
               ])
             : '$name，你問的第${ballot.quest}次遠征、第${ballot.attempt}次提案，'
                 '我投的是${ballot.ballots[o.seat] ? '贊成' : '反對'}。'
@@ -269,13 +301,17 @@ class BotVoice {
                 '現在這隊我願意試一次，但不替整隊保證。',
                 '這次我會贊成，結果出來再看要不要調整。',
                 '目前我接受這份名單，這票支持。',
-                '這隊我先過，這是組隊票，不是誰的身分證明。'
+                '這隊我先過，這是組隊票，不是誰的身分證明。',
+                '這組我覺得可以，所以投贊成。',
+                '我給這隊一次機會，回來再對。'
               ])
             : _pick([
                 '現在這隊我不支持，我想換個組合比較。',
                 '這份名單我還不放心，這票反對。',
                 '這次我想再組一隊，不會投贊成。',
-                '目前我不接受這個搭配，先反對。'
+                '目前我不接受這個搭配，先反對。',
+                '這組有我過不去的點，所以我會反對。',
+                '還有提案可以用，我想看下一個組合。'
               ]);
     return DiscussionStatement(
         speaker: o.seat,
@@ -316,17 +352,7 @@ class BotVoice {
             quest: o.quest,
             generation: o.generation,
             attempt: o.proposalId.attempt,
-            text: '$text${approve ? _pick([
-                    '這隊我先贊成。',
-                    '這隊我支持。',
-                    '這隊我願意試。',
-                    '這票我會投贊成。'
-                  ]) : _pick([
-                    '這隊我投反對。',
-                    '這次我想換個組合。',
-                    '這份名單我不支持。',
-                    '這票我會反對。'
-                  ])}',
+            text: '$text${_closing(approve)}',
             team: o.team,
             supportsTeam: approve,
             switched: o.switched,
@@ -381,6 +407,8 @@ class BotVoice {
                 '$speaker，這件事我剛才解釋過了，我的說法沒變。',
                 '同一件事我回答過了。$speaker，除了這個，你還有別的理由嗎？',
                 '我還是那句話：紀錄大家都看得到，該解釋的不是只有我。',
+                '$speaker，這點剛才講過了，你有新的證據嗎？',
+                '我的回答跟剛才一樣，大家自己對紀錄就知道。',
               ]),
               t,
               null,
@@ -392,6 +420,8 @@ class BotVoice {
                       '$speaker，先別急著排掉我。把你覺得矛盾的地方指出來，我們對一下。',
                       '你可以懷疑我，但我想先知道理由。$speaker，你最在意哪件事？',
                       '$speaker，我不會只回一句我是好人。你指出哪裡不對，我們就談那件事。',
+                      '$speaker，你點我的理由是什麼？我想聽具體的。',
+                      '被懷疑沒關係，$speaker，你說說是哪一段讓你不放心。',
                     ])}',
             t,
             null,
@@ -415,6 +445,8 @@ class BotVoice {
               _pick([
                 '我也覺得${_who(o, t)}還不到要排掉的程度。',
                 '${_who(o, t)}這邊我跟前面一樣，先別急著定。',
+                '我同意，${_who(o, t)}現在還看不出問題。',
+                '${_who(o, t)}我也願意再給一次機會。',
               ]),
               t,
               DiscussionPosition.defend,
@@ -427,6 +459,8 @@ class BotVoice {
                 '單靠一個懷疑還不能定案',
                 '光憑同隊一次說明不了什麼',
                 '現在的紀錄還不夠指認誰',
+                '證據還太少',
+                '這樣就定罪太快了',
               ]);
         return line(
             _pick([
@@ -434,6 +468,8 @@ class BotVoice {
               '${_who(o, t)}不見得有問題，$why。',
               '對${_who(o, t)}先留點空間吧，$why。',
               '我還不想直接排掉${_who(o, t)}，$why。',
+              '$speaker，${_who(o, t)}的部分我有不同看法，$why。',
+              '我替${_who(o, t)}說一句，$why。',
             ]),
             t,
             DiscussionPosition.defend,
@@ -455,8 +491,16 @@ class BotVoice {
                     '加我一個，我也看${_who(o, t)}。',
                     '同樣的紀錄我也看到了，${_who(o, t)}得解釋。',
                     '我一樣卡在${_who(o, t)}。',
+                    '${_who(o, t)}這邊我也覺得不太對。',
+                    '我也把${_who(o, t)}排在前面。',
                   ])
-                : '${_pick(['我同意$speaker，', '$speaker說的有道理，', '我也這麼覺得，'])}'
+                : '${_pick([
+                        '我同意$speaker，',
+                        '$speaker說的有道理，',
+                        '我也這麼覺得，',
+                        '跟$speaker想的一樣，',
+                        '$speaker提的這點我也注意到了，'
+                      ])}'
                     '${_reasons(o, t)}。',
             t,
             DiscussionPosition.suspect,
@@ -500,6 +544,8 @@ class BotVoice {
             '$who我也不放心。',
             '加我一個，我也看$who。',
             '我一樣卡在$who。',
+            '$who這邊我也覺得不太對。',
+            '我也把$who排在前面。',
           ]),
           t,
           DiscussionPosition.suspect);
@@ -511,6 +557,8 @@ class BotVoice {
               '$_opener$reasons，我目前最懷疑他。',
               '$_opener大家注意一下$who：${_reasons(o, t)!.replaceFirst(who, '他')}。',
               '$reasons。$who，你怎麼看這幾段紀錄？',
+              '$_opener我現在最想聽$who解釋：${_reasons(o, t)!.replaceFirst(who, '他')}。',
+              '$_opener$reasons，這點我一直放不下。',
             ]) +
             _aside(o, accusing: t),
         t,
@@ -538,11 +586,21 @@ class BotVoice {
             '第一輪就不多說了，我投贊成。',
             '沒意見，先讓任務給我們一點線索。',
             '過吧，回來再聊。',
+            '第一隊大家都是白的，讓它走吧。',
+            '現在講什麼都是猜，先出任務。',
+            '我沒理由擋第一隊，贊成。',
+            '先讓任務跑起來，結果會告訴我們很多事。',
+            '第一輪我看投票就好，這隊我過。',
+            '誰都不知道誰，這隊可以先試。',
+            '第一隊而已，不用想太多，我贊成。',
+            '我先記下誰投了什麼，這隊就讓它出發。',
           ]
         : [
             '第一輪沒什麼根據，不過我想再看一個組合。',
             '我沒什麼特別理由，只是想多看一次提案。',
             '這隊我先不投，換個人選看看。',
+            '第一隊我想多看一輪，看看大家怎麼投。',
+            '還有提案可以用，我先擋一次看看反應。',
           ];
     final said = {
       for (final s in _thisRound(o))
