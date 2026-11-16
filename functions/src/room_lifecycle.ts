@@ -5,16 +5,20 @@ export function roomHasExpired(expireAt: unknown, now = Date.now()): boolean {
   return !(expireAt instanceof Timestamp) || expireAt.toMillis() <= now;
 }
 
-/** Renew a game's private documents once their deadline is this close. */
-export const GAME_DOCS_RENEW_MARGIN_MS = 12 * 60 * 60 * 1000;
+/**
+ * How long the players' private documents outlive the room: they are
+ * renewed to this much past the room's deadline, and again once the room's
+ * deadline comes within half of it, so a busy room rewrites them about
+ * once an hour and they never expire while the room is still there.
+ */
+export const GAME_DOCS_LEAD_MS = 2 * 60 * 60 * 1000;
 
 /**
- * Whether the players' private documents need their TTL deadline pushed
- * out: the room is renewed on every move, these only when they come
- * within [GAME_DOCS_RENEW_MARGIN_MS] of expiring (or the deadline is
- * missing or malformed), so a busy room does not rewrite them each move.
+ * Whether the players' private documents need renewing, given the room's
+ * new deadline: when theirs is missing or malformed, or no longer at least
+ * half of [GAME_DOCS_LEAD_MS] past the room's.
  */
-export function gameDocsRenewalDue(deadline: unknown, now = Date.now()): boolean {
+export function gameDocsRenewalDue(deadline: unknown, roomDeadlineMs: number): boolean {
   return !(deadline instanceof Timestamp) ||
-    deadline.toMillis() - now < GAME_DOCS_RENEW_MARGIN_MS;
+    deadline.toMillis() < roomDeadlineMs + GAME_DOCS_LEAD_MS / 2;
 }

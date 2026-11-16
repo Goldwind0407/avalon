@@ -28,7 +28,11 @@ String reviewText(GameReview r, {String? difficulty, DateTime? endedAt}) {
   ].join('、').ifEmpty('無')}');
   out.writeln('結果：${r.winner ?? '—'}勝　${r.result ?? ''}');
   out.writeln('你：${seat(r.mySeat)}（${r.roles[r.mySeat].label}）'
-      '　${r.iWon ? '你贏了' : '你輸了'}');
+      '　${switch (r.outcome) {
+    true => '你贏了',
+    false => '你輸了',
+    null => '勝負不明（${GameReview.sidesUnknown}）',
+  }}');
 
   out.writeln('\n== 身分');
   for (var s = 0; s < r.players.length; s++) {

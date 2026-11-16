@@ -69,13 +69,19 @@ void main() {
     expect(read('我不相信3號是好人'), [(suspect, 2, null)]);
     expect(read('3號是壞人嗎？'), [(ask, 2, null)]);
     // ruling out one role says nothing about the side
-    expect(PlayerSpeech.parse('3號不是刺客', names, 0).kind,
-        PlayerSpeechKind.remark);
+    expect(
+        PlayerSpeech.parse('3號不是刺客', names, 0).kind, PlayerSpeechKind.remark);
     expect(read('3號不是壞人'), [(trust, 2, null)]);
-    expect(PlayerSpeech.parse('4號說3號是壞人', names, 0).kind,
-        PlayerSpeechKind.remark);
+    expect(
+        PlayerSpeech.parse('4號說3號是壞人', names, 0).kind, PlayerSpeechKind.remark);
     expect(PlayerSpeech.parse('有人認為3號有問題', names, 0).kind,
         PlayerSpeechKind.remark);
+    // uncertainty is no stance, and a reported view belongs to nobody here
+    for (final open in ['我不確定3號是壞人', '3號不一定是壞人', '我覺得3號未必有問題', '2號懷疑3號']) {
+      expect(PlayerSpeech.parse(open, names, 0).kind, PlayerSpeechKind.remark,
+          reason: open);
+    }
+    expect(read('2號懷疑3號，但我覺得4號才可疑'), [(suspect, 3, null)]);
     // a Percival claim names Morgana only when the line does
     final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
     expect(claim.kind, PlayerSpeechKind.claimPercival);

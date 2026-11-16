@@ -103,6 +103,8 @@ class PlayerSpeech {
     bool has(String pattern) => RegExp(pattern).hasMatch(piece);
     // a question about someone asks; it does not accuse
     if (has(r'[?？]|嗎|為什麼|為何|怎麼|說說|解釋')) return PlayerSpeechKind.ask;
+    // "not sure he is evil" is no stance at all, not trust
+    if (_unsure.hasMatch(piece)) return null;
     // "not good" accuses, "not evil" vouches
     if (has(r'不信|不相信|不是好人|不是正義|不可信')) return PlayerSpeechKind.suspect;
     if (has(r'不是(壞人|邪惡|爪牙)')) return PlayerSpeechKind.trust;
@@ -127,7 +129,10 @@ class PlayerSpeech {
   static final _reporting = RegExp(r'(有人|別人|大家|他們|他|她)(說|講|認為|覺得|懷疑)');
 
   /// Words before a name that deny what follows ("我不同意3號是壞人").
-  static final _denying = RegExp(r'(不|並不|沒有?)(同意|覺得|認為|確定|相信|贊同)|未必|不見得');
+  static final _denying = RegExp(r'(不|並不|沒有?)(同意|覺得|認為|相信|贊同)');
+
+  /// Words that leave it open ("我不確定3號是壞人", "3號不一定是壞人").
+  static final _unsure = RegExp(r'不確定|不一定|未必|不見得|說不定|不好說|難說|不敢說');
 
   /// The stance of the first clause in [piece] that has one.
   static PlayerSpeechKind? _firstStance(String piece) {
@@ -176,10 +181,16 @@ class PlayerSpeech {
       final after = t.substring(end, next);
       final before = t.substring(i > 0 ? mentions[i - 1].$3 : 0, start);
       final lead = before.split(_boundary).last;
-      // someone else's view, passed on: not the speaker's own word
-      if ((i > 0 && _quoting.hasMatch(before)) || _reporting.hasMatch(lead)) {
+      // someone else's view, passed on: not the speaker's own word, about
+      // the one it is about ("…說3號…") nor about the one who holds it
+      // ("2號懷疑3號")
+      if ((i > 0 && _quoting.hasMatch(before)) ||
+          _reporting.hasMatch(lead) ||
+          (i + 1 < mentions.length && _quoting.hasMatch(after))) {
         continue;
       }
+      // the lead-in leaves it open: no stance
+      if (_unsure.hasMatch(lead)) continue;
       PlayerSpeechKind? kind;
       if (RegExp(r'^\s*(和|跟|與|、|還有|以及|及|或|或是)\s*$').hasMatch(after) &&
           i + 1 < mentions.length) {

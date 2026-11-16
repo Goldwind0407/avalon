@@ -21,7 +21,7 @@ import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
 import { voiceIceServers } from './voice_ice';
-import { gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
+import { GAME_DOCS_LEAD_MS, gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
 
 initializeApp();
 // Callable functions must be reachable by the app; who is calling is
@@ -294,7 +294,7 @@ export const startGame = onCall((req) =>
       room.status = 'playing';
       room.gen += 1;
       room.game = open;
-      room.privateExpireAt = expiry();
+      room.privateExpireAt = Timestamp.fromMillis(expiry().toMillis() + GAME_DOCS_LEAD_MS);
       tx.set(roomRef(code), touch(room));
       tx.set(secretRef(code), { gen: room.gen, ...secret, expireAt: expiry() });
       room.playerUids.forEach((playerUid, seat) => {
@@ -305,7 +305,7 @@ export const startGame = onCall((req) =>
           visible: rules.visibleSeats(state.roles, seat),
           lancelot: rules.knownLancelot(state.roles, seat),
           reveals: [],
-          expireAt: expiry(),
+          expireAt: room.privateExpireAt,
         });
       });
       return { gen: room.gen };
@@ -370,21 +370,35 @@ async function applyMove(
   const split = rules.split(state);
   room.game = split.open;
   // The room and the secret state are renewed on every move; the players'
-  // private documents (their roles) must not run out before them.
-  if (gameDocsRenewalDue(room.privateExpireAt)) {
-    room.privateExpireAt = expiry();
-    for (const playerUid of room.playerUids) {
-      tx.set(privateRef(code, playerUid), { expireAt: room.privateExpireAt },
-        { merge: true });
-    }
+  // private documents (their roles) must outlive them. Renewing rewrites
+  // each one whole from the secret state, so even one already deleted
+  // comes back complete rather than as a bare deadline.
+  const roomDeadline = expiry();
+  const rebuilt = gameDocsRenewalDue(room.privateExpireAt, roomDeadline.toMillis());
+  if (rebuilt) {
+    room.privateExpireAt = Timestamp.fromMillis(roomDeadline.toMillis() + GAME_DOCS_LEAD_MS);
+    room.playerUids.forEach((playerUid, playerSeat) => {
+      tx.set(privateRef(code, playerUid), {
+        gen: room.gen,
+        seat: playerSeat,
+        role: state.roles[playerSeat],
+        visible: rules.visibleSeats(state.roles, playerSeat),
+        lancelot: rules.knownLancelot(state.roles, playerSeat),
+        reveals: state.reveals.filter((x) => x.seat === playerSeat),
+        expireAt: room.privateExpireAt,
+      });
+    });
   }
   tx.set(roomRef(code), touch(room));
   tx.set(secretRef(code), { gen: room.gen, ...split.secret, expireAt: expiry() });
   // what the Lady or Excalibur showed goes only to the player who used it
-  for (const r of state.reveals.slice(revealed)) {
-    tx.set(privateRef(code, room.playerUids[r.seat]), {
-      reveals: state.reveals.filter((x) => x.seat === r.seat),
-    }, { merge: true });
+  // (already in place where the documents were just rebuilt)
+  if (!rebuilt) {
+    for (const r of state.reveals.slice(revealed)) {
+      tx.set(privateRef(code, room.playerUids[r.seat]), {
+        reveals: state.reveals.filter((x) => x.seat === r.seat),
+      }, { merge: true });
+    }
   }
 }
 
