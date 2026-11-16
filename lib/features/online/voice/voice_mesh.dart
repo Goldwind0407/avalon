@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'voice_controller.dart';
 import 'voice_signaling.dart';
 
 enum PeerState { connecting, connected, failed, closed }
@@ -43,14 +44,29 @@ class VoiceMesh {
     this.retryDelay = const Duration(seconds: 2),
     this.handshakeTimeout = const Duration(seconds: 20),
     this.heartbeatInterval = const Duration(seconds: 30),
+    this.heartbeatTimeout = const Duration(seconds: 10),
     this.maxAttempts = 4,
+    this.missedBeatsAllowed = 2,
   }) : session = session ?? newSession();
 
   final String uid, session;
   final VoiceSignaling signaling;
   final PeerFactory createPeer;
   final Duration retryDelay, handshakeTimeout, heartbeatInterval;
+  final Duration heartbeatTimeout;
+
+  /// Tries in a row to reach one player before giving up; a connection
+  /// that came up starts the count again.
   final int maxAttempts;
+
+  /// Presence outlives three beats, so a beat lost to a network blip is
+  /// not a disconnect: only one more than this many in a row ends voice.
+  final int missedBeatsAllowed;
+  int _missedBeats = 0;
+
+  /// Failed tries in a row per player. [_attempts] cannot serve: it fences
+  /// off stale signals and must never go back.
+  final _failures = <String, int>{};
   final _links = <String, _Link>{};
   final _present = <String, String>{};
   final _attempts = <String, int>{};
@@ -105,10 +121,16 @@ class VoiceMesh {
       if (_stopped || _refreshing) return;
       _refreshing = true;
       try {
-        await signaling.announce(VoicePresence(uid, session));
+        await signaling
+            .announce(VoicePresence(uid, session))
+            .timeout(heartbeatTimeout);
+        _missedBeats = 0;
         if (_stopped) await signaling.withdraw(VoicePresence(uid, session));
-      } catch (error, stack) {
+      } on VoiceException catch (error, stack) {
+        // taken over on another device, or the room is gone: no use waiting
         _error(error, stack);
+      } catch (error, stack) {
+        if (++_missedBeats > missedBeatsAllowed) _error(error, stack);
       } finally {
         _refreshing = false;
       }
@@ -167,6 +189,7 @@ class VoiceMesh {
     for (final entry in previous.entries) {
       if (_present[entry.key] != entry.value) {
         _attempts.remove(entry.key);
+        _failures.remove(entry.key);
         final link = _links[entry.key];
         if (link != null) _serial(entry.key, () => _close(link));
       }
@@ -324,13 +347,16 @@ class VoiceMesh {
     if (state == PeerState.connected) {
       link.timeout?.cancel();
       link.retry?.cancel();
+      _failures.remove(link.uid);
     }
     _changed();
+    final failures = _failures[link.uid] ?? 0;
     if ((state == PeerState.failed || state == PeerState.closed) &&
         uid.compareTo(link.uid) < 0 &&
-        link.attempt < maxAttempts &&
+        failures < maxAttempts - 1 &&
         !(link.retry?.isActive ?? false)) {
-      link.retry = Timer(retryDelay * (1 << (link.attempt - 1)), () {
+      _failures[link.uid] = failures + 1;
+      link.retry = Timer(retryDelay * (1 << failures), () {
         _serial(link.uid, () async {
           if (_links[link.uid] != link || link.state == PeerState.connected) {
             return;

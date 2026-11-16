@@ -14,7 +14,7 @@ import {
   getDoc,
   getDocFromServer,
   getFirestore,
-  collection, deleteDoc, getDocs, query, setDoc, Timestamp, updateDoc, where,
+  collection, deleteDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where,
 } from 'firebase/firestore';
 import {
   Functions,
@@ -427,5 +427,98 @@ describe('expansions online', () => {
     g = (await room(phones[0], code)).game;
     assert.equal(g.phase, 'questResult');
     assert.deepEqual(g.history[0].excalibur, { holder, target: leader });
+  });
+});
+
+describe('a player whose phone has gone quiet', () => {
+  const phones: Phone[] = [];
+  let outsider: Phone;
+  let code = '';
+  const presence = (p: Phone, of: Phone = p) => doc(p.db, 'rooms', code, 'presence', of.uid);
+  const here = (p: Phone) => setDoc(presence(p), {
+    at: serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
+  });
+
+  before(async () => {
+    for (let i = 0; i < 5; i++) phones.push(await phone());
+    outsider = await phone();
+    ({ code } = await phones[0].call('createRoom', { name: '亞瑟', protocolVersion: 4 }));
+    // seat 3 runs an older app, which never reports its presence
+    for (let i = 1; i < 5; i++) {
+      await phones[i].call('joinRoom', { code, name: `騎士${i}`, protocolVersion: i === 3 ? 3 : 4 });
+    }
+    await phones[0].call('setDiscussion', { code, discussion: {
+      enabled: false, speechSeconds: 45, freeSeconds: 0, selectionFree: true,
+    } });
+  });
+
+  after(async () => {
+    for (const p of phones) await p.call('leaveRoom', { code }).catch(() => {});
+    await Promise.all([...phones, outsider].map((p) => deleteApp(p.app)));
+  });
+
+  test('a phone reports only for itself, with the server clock, and nobody reads it', async () => {
+    await here(phones[1]);
+    await denied(setDoc(presence(phones[1], phones[2]), {
+      at: serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 60000),
+    }));
+    // a made-up time is refused: being here cannot be dated ahead
+    await denied(setDoc(presence(phones[1]), {
+      at: Timestamp.fromMillis(Date.now() + 3600000),
+      expireAt: Timestamp.fromMillis(Date.now() + 7200000),
+    }));
+    await denied(setDoc(presence(phones[1]), {
+      at: serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 60000), extra: 1,
+    }));
+    await denied(setDoc(presence(outsider), {
+      at: serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 60000),
+    }));
+    await denied(getDocFromServer(presence(phones[1])));
+    await denied(getDocFromServer(presence(phones[2], phones[1])));
+  });
+
+  test('the server plays for whoever is gone, and only for them', async () => {
+    await phones[0].call('startGame', { code });
+    // seats 0-2 are here; seat 3 (older app) and seat 4 say nothing
+    for (const p of phones.slice(0, 3)) await here(p);
+    for (const p of phones.slice(0, 4)) await p.call('move', { code, move: 'confirmIdentity' });
+    assert.equal((await room(phones[0], code)).game.phase, 'identity');
+    await denied(outsider.call('nudge', { code }));
+    const { moves } = await phones[1].call('nudge', { code });
+    assert.ok(moves >= 1);
+    let r = await room(phones[0], code);
+    assert.deepEqual(r.away, [4]);
+    assert.match(r.notice, /5 號.*電腦代理/);
+    // the game went on as far as it could without a player who is here
+    const leader: number = r.game.leader;
+    if (leader === 4) {
+      assert.equal(r.game.phase, 'vote');
+      assert.deepEqual(r.game.voted, [4]);
+    } else {
+      assert.equal(r.game.phase, 'team');
+      assert.equal((await phones[1].call('nudge', { code })).moves, 0);
+      const team = [leader, (leader + 1) % 4].sort((a, b) => a - b);
+      await phones[leader].call('move', { code, move: 'proposeTeam', team });
+    }
+    // everyone who is here votes; the stand-in's vote is already in or follows
+    for (const p of phones.slice(0, 4)) await p.call('move', { code, move: 'vote', approve: true });
+    await phones[0].call('nudge', { code });
+    r = await room(phones[0], code);
+    assert.equal(r.game.phase, 'voteResult');
+    assert.equal(r.game.votes.length, 5);
+    // the older app in seat 3 was never played for
+    assert.ok(!r.away.includes(3));
+  });
+
+  test('the player takes the seat back on returning', async () => {
+    await here(phones[4]);
+    await phones[4].call('nudge', { code });
+    const r = await room(phones[0], code);
+    assert.deepEqual(r.away, []);
+    assert.match(r.notice, /5 號.*回來了/);
+    // nobody is away: asking again changes nothing
+    const step = r.step;
+    assert.equal((await phones[0].call('nudge', { code })).moves, 0);
+    assert.equal((await room(phones[0], code)).step, step);
   });
 });

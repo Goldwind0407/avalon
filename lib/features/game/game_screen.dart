@@ -1022,9 +1022,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final canPick = _iPickTeam &&
         (selected.contains(i) || selected.length < game.requiredTeam);
     return SeatPlate(
-      activity: widget.voice == null
-          ? null
-          : VoiceSpeakingMark(voice: widget.voice!, uid: game.playerIds[i]),
+      activity: game.awaySeats.contains(i)
+          ? const AwayMark()
+          : widget.voice == null
+              ? null
+              : VoiceSpeakingMark(voice: widget.voice!, uid: game.playerIds[i]),
       key: ValueKey('seat$i'),
       number: i + 1,
       name: game.players[i],

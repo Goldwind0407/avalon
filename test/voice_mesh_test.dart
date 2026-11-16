@@ -67,6 +67,21 @@ class MemorySignaling implements VoiceSignaling {
   }
 }
 
+/// The next [failing] announcements are lost to the network.
+class FlakySignaling extends MemorySignaling {
+  FlakySignaling(super.bus);
+  int failing = 0, announced = 0;
+  @override
+  Future<void> announce(VoicePresence me) async {
+    if (failing > 0) {
+      failing--;
+      throw StateError('network unreachable');
+    }
+    announced++;
+    return super.announce(me);
+  }
+}
+
 class FakePeer extends VoicePeer {
   int offers = 0, answers = 0, acceptedAnswers = 0, closes = 0;
   final candidates = <Map<String, dynamic>>[];
@@ -270,6 +285,44 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(created, 4);
     expect(a.connected, isEmpty);
+  });
+
+  test('a connection that came up may be rebuilt any number of times',
+      () async {
+    final a = mesh('a');
+    final b = mesh('b');
+    await a.start();
+    await b.start();
+    await flush();
+    expect(a.connected, {'b'});
+    // the network drops and comes back more often than the retry limit
+    for (var drop = 0; drop < 7; drop++) {
+      peers['a']!.last.onState!(PeerState.failed);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await flush();
+      expect(a.connected, {'b'}, reason: 'drop ${drop + 1}');
+    }
+    expect(peers['a']!.length, 8);
+  });
+
+  test('a lost heartbeat or two is not a disconnect; a third is', () async {
+    final signaling = FlakySignaling(bus);
+    final errors = <Object>[];
+    final voice = VoiceMesh(
+        uid: 'a',
+        signaling: signaling,
+        heartbeatInterval: const Duration(milliseconds: 10),
+        createPeer: () async => FakePeer());
+    meshes.add(voice);
+    voice.changes.listen((_) {}, onError: errors.add);
+    await voice.start();
+    signaling.failing = 2;
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(errors, isEmpty);
+    expect(signaling.announced, greaterThan(3), reason: 'beats go on');
+    signaling.failing = 3;
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(errors, hasLength(1));
   });
 
   test('same UID takeover closes the old links without erasing the replacement',

@@ -60,7 +60,7 @@ class OnlineService {
     try {
       final result = await _functions
           .httpsCallable(name)
-          .call({'protocolVersion': 3, ...data});
+          .call({'protocolVersion': 4, ...data});
       return Map<String, dynamic>.from(result.data as Map? ?? const {});
     } on FirebaseFunctionsException catch (e) {
       throw GameMoveException(e.message ?? '連線發生錯誤，請再試一次');
@@ -74,6 +74,16 @@ class OnlineService {
       .snapshots()
       .where((s) => s.exists || !s.metadata.isFromCache)
       .map((s) => s.data());
+
+  /// Tells the server this phone is here (rooms/{code}/presence/{uid}); a
+  /// player not heard from for a minute is played for until they are back.
+  /// [now] is the server's time as this phone reckons it.
+  Future<void> beat(String code, String uid, int now) =>
+      FirebaseFirestore.instance.doc('rooms/$code/presence/$uid').set({
+        'at': FieldValue.serverTimestamp(),
+        'expireAt': Timestamp.fromMillisecondsSinceEpoch(
+            now + const Duration(days: 1).inMilliseconds),
+      });
 
   /// This player's own role. Nobody else can read it (firestore.rules).
   Stream<Map<String, dynamic>?> mine(String code, String uid) =>

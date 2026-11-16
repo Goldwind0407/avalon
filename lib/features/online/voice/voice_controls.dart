@@ -102,6 +102,17 @@ class VoiceControls extends StatelessWidget {
       });
 }
 
+/// Shown on the seat of a player whose phone has gone quiet.
+class AwayMark extends StatelessWidget {
+  const AwayMark({super.key});
+  @override
+  Widget build(BuildContext context) => const SizedBox(
+      width: 16,
+      child: Tooltip(
+          message: '斷線了，暫時由電腦代理',
+          child: Icon(Icons.smart_toy, size: 14, color: AvalonTheme.muted)));
+}
+
 /// Only this little indicator rebuilds on active-speaker changes.
 class VoiceSpeakingMark extends StatelessWidget {
   const VoiceSpeakingMark({super.key, required this.voice, required this.uid});
