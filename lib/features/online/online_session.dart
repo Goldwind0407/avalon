@@ -38,6 +38,10 @@ class OnlineRoom {
             Role.values.byName(r as String)
         },
         gen = (m['gen'] as num?)?.toInt() ?? 0,
+        away = {
+          for (final seat in (m['away'] as List? ?? const []))
+            (seat as num).toInt()
+        },
         notice = m['notice'] as String?,
         noticeStep = (m['noticeStep'] as num?)?.toInt(),
         game = (m['game'] as Map?)?.cast<String, dynamic>();
@@ -51,6 +55,10 @@ class OnlineRoom {
   final List<OnlinePlayer> players;
   final Set<Role> optionalRoles;
   final int gen;
+
+  /// Seats whose phone has gone quiet; the server plays for them until
+  /// their player is back.
+  final Set<int> away;
 
   /// Something to tell everyone, e.g. "阿瘋 離開了房間，對局已中止",
   /// written at [noticeStep] so each phone shows it once.
@@ -96,8 +104,10 @@ class OnlineGameSession extends GameSession {
     required Stream<Map<String, dynamic>?> room,
     required Stream<Map<String, dynamic>?> mine,
     required ServerCall call,
+    Future<void> Function(int now)? beat,
     super.notebook,
-  }) : _call = call {
+  })  : _call = call,
+        _beat = beat {
     _subs = [
       room.listen((data) {
         // once this player has left, their seat is gone: ignore the rest
@@ -121,8 +131,106 @@ class OnlineGameSession extends GameSession {
       }, onError: (Object e) => _failed(e, private: true)),
     ];
     clockReady = _synchronizeClock();
+    if (beat != null) {
+      unawaited(clockReady.then((_) => reportPresence()));
+      _beatTimer = Timer.periodic(beatInterval, (_) => reportPresence());
+    }
   }
   late final Future<void> clockReady;
+
+  // ───────────── presence and stand-ins ─────────────
+
+  /// How often this phone tells the server it is here. The server plays
+  /// for a player it has not heard from for a minute (functions/src/proxy.ts).
+  static const beatInterval = Duration(seconds: 20);
+
+  /// How long the game may stand still before this phone asks the server
+  /// to look for players who are gone: soon when someone is already known
+  /// to be away, otherwise the host first and the others after.
+  static const nudgeAwayDelay = Duration(seconds: 8),
+      nudgeHostDelay = Duration(seconds: 30),
+      nudgeDelay = Duration(seconds: 45);
+
+  final Future<void> Function(int now)? _beat;
+  Timer? _beatTimer, _nudgeTimer;
+
+  /// Tells the server this phone is here (also called when the app comes
+  /// back to the front). Failures are left to the next beat.
+  void reportPresence() {
+    final beat = _beat;
+    if (beat == null || _disposed || leaving) return;
+    unawaited(beat(nowMillis).catchError((Object _) {}));
+    // back after being played for: take the seat back without waiting
+    if (room?.away.contains(mySeat) ?? false) unawaited(_nudge());
+  }
+
+  /// Seats the game is waiting for, as far as this phone can tell.
+  Set<int> get _awaited => switch (phase) {
+        GamePhase.identity => {
+            for (var s = 0; s < players.length; s++)
+              if (!confirmedSeats.contains(s)) s
+          },
+        GamePhase.team || GamePhase.voteResult || GamePhase.questResult => {
+            leader
+          },
+        GamePhase.discussion => {if (speaker != null) speaker!},
+        GamePhase.vote => {
+            for (var s = 0; s < players.length; s++)
+              if (!votedSeats.contains(s)) s
+          },
+        GamePhase.quest => team.toSet().difference(playedSeats),
+        GamePhase.lady || GamePhase.ladyResult => {
+            if (ladyHolder != null) ladyHolder!
+          },
+        GamePhase.excalibur || GamePhase.excaliburResult => {
+            if (excaliburHolder != null) excaliburHolder!
+          },
+        // who the Assassin is stays hidden: -1 stands for "someone else"
+        GamePhase.assassination => {
+            mySeat != null && roleOf(mySeat!) == Role.assassin ? mySeat! : -1
+          },
+        _ => const {},
+      };
+
+  /// (Re)starts the wait before asking the server to play for whoever has
+  /// gone quiet. Runs on every change of the room.
+  void _scheduleNudge() {
+    _nudgeTimer?.cancel();
+    if (_beat == null || _disposed || !tableAvailable) return;
+    final me = mySeat, away = room!.away;
+    if (away.contains(me)) {
+      unawaited(_nudge());
+      return;
+    }
+    final awaited = _awaited;
+    if (awaited.every((s) => s == me)) return;
+    final known =
+        awaited.any(away.contains) || (awaited.contains(-1) && away.isNotEmpty);
+    final delay = known
+        ? nudgeAwayDelay
+        : isHost
+            ? nudgeHostDelay
+            : nudgeDelay;
+    // a little apart, so the phones do not all ask at the same moment
+    _nudgeTimer =
+        Timer(delay + Duration(milliseconds: 400 * (me ?? 0)), () async {
+      await _nudge();
+      if (!_disposed) _scheduleNudge();
+    });
+  }
+
+  bool _nudging = false;
+  Future<void> _nudge() async {
+    if (_nudging || _disposed || leaving) return;
+    _nudging = true;
+    try {
+      await _call('nudge', {'code': code});
+    } catch (_) {
+      // an older server, or no connection: the game goes on as before
+    } finally {
+      _nudging = false;
+    }
+  }
 
   int _clockOffset = 0;
   bool _disposed = false;
@@ -145,6 +253,7 @@ class OnlineGameSession extends GameSession {
 
   void _updated() {
     refreshSpeechTimer(active: tableAvailable);
+    _scheduleNudge();
     if (tableAvailable) {
       final scope = notebookScope;
       final card = _myCard;
@@ -179,6 +288,7 @@ class OnlineGameSession extends GameSession {
       room: service.room(code),
       mine: service.mine(code, uid),
       call: service.call,
+      beat: (now) => service.beat(code, uid, now),
     );
   }
 
@@ -223,6 +333,8 @@ class OnlineGameSession extends GameSession {
   @override
   void dispose() {
     _disposed = true;
+    _beatTimer?.cancel();
+    _nudgeTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -230,6 +342,8 @@ class OnlineGameSession extends GameSession {
   }
 
   bool get isHost => room?.hostUid == uid;
+  @override
+  Set<int> get awaySeats => room?.away ?? const {};
 
   Map<String, dynamic> get _game => room?.game ?? const {};
 

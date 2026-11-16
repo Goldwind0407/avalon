@@ -41,6 +41,20 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // "My phone is here", written by each phone every 20 seconds with the
+      // server's own clock. Only the server reads it, to play for a player
+      // who has gone quiet; nobody can report for anyone else.
+      match /presence/{uid} {
+        allow read: if false;
+        allow create, update: if member() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['at', 'expireAt'])
+          && request.resource.data.at == request.time
+          && request.resource.data.expireAt is timestamp
+          && request.resource.data.expireAt > request.time
+          && request.resource.data.expireAt <= request.time + duration.value(2, 'd');
+        allow delete: if request.auth != null && request.auth.uid == uid;
+      }
+
       // Players write only their own presence; game state stays server-only.
       match /voice/{uid} {
         allow read: if member();

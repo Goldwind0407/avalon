@@ -89,7 +89,9 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     session.addListener(_onRoomChanged);
     _updateVoiceFloor();
     // leaving the app (home screen, another app) always closes the microphone
-    _lifecycle = AppLifecycleListener(onHide: voice.releaseMicrophone);
+    // and coming back tells the server at once that this player is here
+    _lifecycle = AppLifecycleListener(
+        onHide: voice.releaseMicrophone, onResume: session.reportPresence);
   }
 
   @override
@@ -523,7 +525,9 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         border: me ? Border.all(color: AvalonTheme.gold) : null,
       ),
       child: Row(children: [
-        VoiceSpeakingMark(voice: voice, uid: p.uid),
+        room.away.contains(seat)
+            ? const AwayMark()
+            : VoiceSpeakingMark(voice: voice, uid: p.uid),
         Text('${seat + 1}',
             style: const TextStyle(
                 color: AvalonTheme.gold, fontWeight: FontWeight.bold)),

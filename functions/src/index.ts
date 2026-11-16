@@ -20,6 +20,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
+import * as proxy from './proxy';
 import { voiceIceServers } from './voice_ice';
 import { GAME_DOCS_LEAD_MS, gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
 
@@ -37,7 +38,7 @@ interface Player {
   uid: string;
   name: string;
   supportsDiscussion?: boolean;
-  /** App protocol: 3 understands the expansions. */
+  /** App protocol: 3 understands the expansions; 4 reports its presence. */
   protocol?: number;
 }
 
@@ -63,6 +64,9 @@ interface Room {
   noticeStep?: number;
   /** When the players' private documents of the current game expire. */
   privateExpireAt?: Timestamp;
+  /** Seats whose phone has gone quiet; a stand-in plays for them. */
+  away?: number[];
+  updatedAt?: Timestamp;
 }
 
 const roomRef = (code: string) => db.collection('rooms').doc(code);
@@ -72,6 +76,18 @@ const EXPANSION_UPDATE = '這個房間使用了擴充規則，請先更新 App �
 const secretRef = (code: string) => roomRef(code).collection('secret').doc('state');
 const privateRef = (code: string, uid: string) =>
   roomRef(code).collection('private').doc(uid);
+/** Written by each phone every 20 s (firestore.rules); read only here. */
+const presenceRef = (code: string, uid: string) =>
+  roomRef(code).collection('presence').doc(uid);
+
+/** Tells the table that [seat] is back and plays for themselves again. */
+function welcomeBack(room: Room, seat: number) {
+  if (!room.away?.includes(seat)) return false;
+  room.away = room.away.filter((x) => x !== seat);
+  room.notice = `${seat + 1} 號 ${room.players[seat].name} 回來了，交還本人操作`;
+  room.noticeStep = room.step + 1; // the step touch() is about to write
+  return true;
+}
 
 function uidOf(req: CallableRequest): string {
   const uid = req.auth?.uid;
@@ -186,7 +202,8 @@ export const joinRoom = onCall(async (req) => {
     // Coming back to a room you are already in (reopened the app, lost
     // connection) just takes you back to your seat.
     if (seat >= 0) {
-      if (room.players[seat].supportsDiscussion !== supportsDiscussion ||
+      if (welcomeBack(room, seat) ||
+          room.players[seat].supportsDiscussion !== supportsDiscussion ||
           room.players[seat].protocol !== protocol) {
         room.players[seat].supportsDiscussion = supportsDiscussion;
         room.players[seat].protocol = protocol;
@@ -213,6 +230,7 @@ export const leaveRoom = onCall(async (req) => {
     // Only this authenticated caller's private data/presence may be removed.
     const snap = await tx.get(roomRef(code));
     tx.delete(privateRef(code, uid));
+    tx.delete(presenceRef(code, uid));
     tx.delete(roomRef(code).collection('voice').doc(uid));
     if (!snap.exists) return { left: true, ended: false };
     const room = snap.data() as Room;
@@ -230,6 +248,7 @@ export const leaveRoom = onCall(async (req) => {
     }
     room.players.splice(seat, 1);
     room.playerUids.splice(seat, 1);
+    room.away = []; // seats have moved
     if (room.players.length === 0) {
       tx.delete(roomRef(code));
       return { left: true, ended };
@@ -294,6 +313,7 @@ export const startGame = onCall((req) =>
       room.status = 'playing';
       room.gen += 1;
       room.game = open;
+      room.away = [];
       room.privateExpireAt = Timestamp.fromMillis(expiry().toMillis() + GAME_DOCS_LEAD_MS);
       tx.set(roomRef(code), touch(room));
       tx.set(secretRef(code), { gen: room.gen, ...secret, expireAt: expiry() });
@@ -322,6 +342,7 @@ export const backToLobby = onCall(async (req) => {
     if (room.hostUid !== uid) throw new HttpsError('permission-denied', '只有房主可以返回大廳');
     room.status = 'lobby';
     room.game = null;
+    room.away = [];
     tx.set(roomRef(code), touch(room));
     tx.delete(secretRef(code));
     return { ok: true };
@@ -355,18 +376,31 @@ async function applyMove(
     throw new HttpsError('failed-precondition', '遊戲尚未開始');
   }
   const seat = seatOf(room, uid);
+  const state = await loadState(tx, code, room);
+  const revealed = state.reveals.length;
+  if (move(state, seat, room) === false) return;
+  // a move from a seat that was being played for: its player is back
+  welcomeBack(room, seat);
+  saveState(tx, code, room, state, revealed);
+}
+
+async function loadState(tx: Transaction, code: string, room: Room): Promise<GameState> {
   const secretSnap = await tx.get(secretRef(code));
   const secret = secretSnap.data();
   if (!secret || secret.gen !== room.gen) throw new HttpsError('internal', '遊戲資料不一致');
-  const state = rules.join(room.game, {
+  return rules.join(room.game!, {
     roles: secret.roles,
     pendingVotes: secret.pendingVotes ?? {},
     pendingCards: secret.pendingCards ?? {},
     loyaltyDeck: secret.loyaltyDeck ?? [],
     reveals: secret.reveals ?? [],
   });
-  const revealed = state.reveals.length;
-  if (move(state, seat, room) === false) return;
+}
+
+/** Writes [state] back; [revealed] is how many reveals it had when loaded. */
+function saveState(
+  tx: Transaction, code: string, room: Room, state: GameState, revealed: number,
+) {
   const split = rules.split(state);
   room.game = split.open;
   // The room and the secret state are renewed on every move; the players'
@@ -465,6 +499,60 @@ export const move = onCall((req) =>
       }),
     );
     return { ok: true, serverNow: Date.now() };
+  }),
+);
+
+/**
+ * Sent by a phone that has waited a while for the game to move. Whoever
+ * has not been heard from for a minute is marked away and played for; a
+ * player who is back is taken off the list. Being away is judged here,
+ * from what each phone itself reports, never on the caller's word.
+ */
+export const nudge = onCall((req) =>
+  guarded(async () => {
+    const uid = uidOf(req);
+    const code = cleanCode(req.data?.code);
+    return db.runTransaction(async (tx) => {
+      const room = await loadRoom(tx, code);
+      const caller = seatOf(room, uid);
+      if (room.status !== 'playing' || !room.game) return { moves: 0 };
+      const now = Date.now();
+      const seen = await Promise.all(
+        room.playerUids.map((playerUid) => tx.get(presenceRef(code, playerUid))));
+      const away = room.playerUids.map((_, seat) => seat).filter((seat) => {
+        // the caller is plainly here; older apps do not report at all
+        if (seat === caller || (room.players[seat].protocol ?? 1) < proxy.PRESENCE_PROTOCOL) {
+          return false;
+        }
+        const at = seen[seat].data()?.at;
+        return proxy.isAway(at instanceof Timestamp ? at.toMillis() : null, now);
+      });
+      const before = room.away ?? [];
+      const left = away.filter((x) => !before.includes(x));
+      const back = before.filter((x) => !away.includes(x));
+      let moves = 0, revealed = 0;
+      let state: GameState | null = null;
+      if (away.length > 0 && room.game.phase !== 'finished') {
+        state = await loadState(tx, code, room);
+        revealed = state.reveals.length;
+        const sinceChange = room.updatedAt instanceof Timestamp
+          ? now - room.updatedAt.toMillis() : Infinity;
+        moves = proxy.standIn(state, away, rng, room.players.map((p) => p.name), now, sinceChange);
+      }
+      if (moves === 0 && left.length === 0 && back.length === 0) return { moves: 0 };
+      room.away = away;
+      const label = (seat: number) => `${seat + 1} 號 ${room.players[seat].name}`;
+      if (left.length > 0) {
+        room.notice = `${left.map(label).join('、')} 斷線了，暫時由電腦代理`;
+        room.noticeStep = room.step + 1;
+      } else if (back.length > 0) {
+        room.notice = `${back.map(label).join('、')} 回來了，交還本人操作`;
+        room.noticeStep = room.step + 1;
+      }
+      if (state && moves > 0) saveState(tx, code, room, state, revealed);
+      else tx.set(roomRef(code), touch(room));
+      return { moves };
+    });
   }),
 );
 
