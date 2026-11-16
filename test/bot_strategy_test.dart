@@ -646,4 +646,28 @@ void main() {
         ].length;
     expect(stabs(at(called: true)), greaterThan(stabs(at(called: false)) + 20));
   });
+
+  test('at match point Merlin never turns down a clean team on his vote', () {
+    // A reported 10-player game at 2:2: an all-good team, seats 0, 2, 4,
+    // 5, 6 back it and the evil seats turn it down, so Merlin's (seat 7)
+    // vote decides it. A cover vote here handed evil the game.
+    final o = observe(
+        role: Role.merlin,
+        count: 10,
+        seat: 7,
+        leader: 2,
+        visible: [1, 8, 9],
+        phase: GamePhase.vote,
+        team: [2, 4, 5, 6, 7],
+        history: [
+          QuestResult([4, 6, 7], 0, true),
+          QuestResult([1, 6, 8, 9], 1, false),
+          QuestResult([2, 4, 5, 7], 0, true),
+          QuestResult([1, 4, 5, 7, 9], 2, false),
+        ]);
+    for (var seed = 0; seed < 300; seed++) {
+      expect(BotBrain(Random(seed), style: BotStyle.actor).vote(o), isTrue,
+          reason: 'seed $seed');
+    }
+  });
 }

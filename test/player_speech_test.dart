@@ -86,6 +86,15 @@ void main() {
     expect(read('我剛查7號 是壞人但我不確定他是不是蘭斯洛特'), [(lady, 6, true)]);
     expect(PlayerSpeech.parse('剛剛五張都成功沒理由不再來一次', names, 0).kind,
         PlayerSpeechKind.support);
+    // "I am good" and a view on the team, both
+    final both2 = PlayerSpeech.parse('這樣出任務沒毛病 但是我是好人 沒出我就是反對', names, 0);
+    expect(both2.kind, PlayerSpeechKind.claimGood);
+    expect(both2.supportsTeam, isFalse);
+    // "send 3 or 4 again, then we'll know who is evil" accuses nobody
+    expect(PlayerSpeech.parse('我覺得可以再給3號或4號出一次任務 這樣就知道誰是壞人', names, 0).kind,
+        isNot(PlayerSpeechKind.suspect));
+    expect(read('我覺得可以再給3號或4號出一次任務 這樣就知道誰是壞人').where((p) => p.$2 != null),
+        isEmpty);
     // a Percival claim names Morgana only when the line does
     final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
     expect(claim.kind, PlayerSpeechKind.claimPercival);

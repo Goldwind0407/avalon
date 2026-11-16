@@ -1073,8 +1073,14 @@ class BotBrain {
           o.team.every((s) => p[s] < .5) &&
           rng.nextDouble() <
               difficulty.rolePlay.clamp(0, 1) *
-                  (merlinFalseAlarm +
-                      (merlinFreeFalseAlarm - merlinFalseAlarm) * free)) {
+                  // At match point (either side one quest from winning) a
+                  // clean team turned down may hand the game to whoever
+                  // leads next, and his guess at the count can be wrong:
+                  // never then.
+                  (o.failures == 2 || o.successes == 2
+                      ? 0
+                      : merlinFalseAlarm +
+                          (merlinFreeFalseAlarm - merlinFalseAlarm) * free)) {
         // Every vote that matches where evil sits is counted by the
         // Assassin. Now and then Merlin turns down a team he knows is
         // clean: seldom when that may cost a proposal, readily when the

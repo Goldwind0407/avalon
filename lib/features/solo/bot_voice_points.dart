@@ -254,13 +254,30 @@ extension BotVoicePoints on BotVoice {
             quests: _failedWith(o, t)));
       }
     } else {
+      // a failure the Lady was said to account for is no longer open
+      final ladyEvil = {
+        for (final s in o.statements)
+          if (s.generation == o.generation &&
+              s.intent == 'interpretLady' &&
+              s.claimedEvil == true &&
+              s.target != null)
+            s.target!
+      };
+      List<int> open(int s) => [
+            for (final q in _failedWith(o, s))
+              if (o.history[q - 1].team
+                      .where((p) => p != s && ladyEvil.contains(p))
+                      .length <
+                  o.history[q - 1].fails)
+                q
+          ];
       final tainted = [
         for (final s in others)
-          if (!mine(s) && _failedWith(o, s).isNotEmpty) s
+          if (!mine(s) && open(s).isNotEmpty) s
       ];
       if (tainted.isNotEmpty) {
         final t = tainted.first;
-        final quests = _failedWith(o, t);
+        final quests = open(t);
         final shared = quests.where((q) => o.history[q - 1].team.contains(me));
         points.add(_Point(
             'member/$t',
@@ -579,6 +596,32 @@ extension BotVoicePoints on BotVoice {
             ? null
             : (gap > 0 ? a : b);
     final both = '${_n(a)}和${_n(b)}都說自己是派西維爾，一定有一個在說謊。';
+    // a side once taken is kept unless the doubt has clearly turned
+    int? before;
+    for (final s in o.statements) {
+      final topic = s.topic;
+      if (s.speaker == me &&
+          s.generation == o.generation &&
+          topic != null &&
+          topic.startsWith('claims/$a/$b/')) {
+        before = int.tryParse(topic.split('/').last);
+      }
+    }
+    if (before != null) {
+      if (believed == null || believed == before || gap.abs() < .35) {
+        return points;
+      }
+      final liar = believed == a ? b : a, who = _n(believed);
+      points.add(_Point('claims/$a/$b/$believed',
+          '我之前比較信${_n(before)}，但後面的投票和任務讓我改看法，現在我比較信$who。',
+          intent: 'weighClaims',
+          target: liar,
+          position: DiscussionPosition.suspect,
+          once: true,
+          brief: '兩個派西維爾裡，我也改信$who了。',
+          weight: 4.4));
+      return points;
+    }
     if (believed == null) {
       points.add(_Point('claims/$a/$b', '$both兩邊我都還分不出來，先看這次怎麼投。',
           intent: 'weighClaims', once: true, weight: 3.4));
