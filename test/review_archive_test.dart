@@ -4,6 +4,7 @@ import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/game_review.dart';
+import 'package:avalon_shadow_council/features/solo/review_export.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
 import 'package:avalon_shadow_council/features/solo/memory/player_model.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
@@ -380,6 +381,12 @@ void main() {
           personas: [null, 'kai', 'mia', 'zhe', null, null, null],
           review: r);
       expect(match.summary.won, isNull);
+      // the review and its text say so too, instead of a guessed result
+      expect(r.outcome, isNull);
+      expect(reviewText(r), contains('勝負不明'));
+      expect(reviewText(r), isNot(contains('你輸了')));
+      expect(reviewText(r), isNot(contains('你贏了')));
+      expect(r.scores.single.value, '—');
       expect(match.summary.traits, isEmpty);
       // nothing that depends on the player's side is remembered
       expect(match.summary.episodes['mia'], isEmpty);

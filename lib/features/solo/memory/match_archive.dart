@@ -101,6 +101,19 @@ class MatchSummary {
   /// null for a game saved before these were counted.
   final Map<String, int>? traits;
 
+  /// The same summary, its habit counts held back (not to be learned from)
+  /// until it can be worked out again.
+  MatchSummary withoutTraits() => MatchSummary(
+      id: id,
+      endedAt: endedAt,
+      players: players,
+      myRole: myRole,
+      won: won,
+      winner: winner,
+      difficulty: difficulty,
+      episodes: episodes,
+      version: version);
+
   /// The same summary with [traits] set, as worked out by this version
   /// (as far as it can be: an old game whose record is gone keeps the rest).
   MatchSummary withTraits(Map<String, int> traits) => MatchSummary(

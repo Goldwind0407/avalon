@@ -206,6 +206,13 @@ class GameReview {
       roles[mySeat].isLancelot && {...switchedDuring, switchedAtEnd}.length > 1;
   bool get iWon => winner != null && (winner == '邪惡') == iAmEvil;
 
+  /// Whether the player won, or null when it cannot be told (a Lancelot
+  /// game saved without its switch timeline).
+  bool? get outcome => sideKnown(mySeat) ? iWon : null;
+
+  /// Said where a win, a loss or a score cannot be told.
+  static const sidesUnknown = '這局缺少蘭斯洛特換邊紀錄，無法判定';
+
   /// Something about a bot's vote worth a second look, or null.
   String? oddVote(int seat, ProposalRecord p, BotVoteDecision d) {
     bool evil(int s) => evilIn(s, p.quest);
@@ -226,6 +233,10 @@ class GameReview {
 
   /// How the player did, from their own side's point of view.
   List<ReviewScore> get scores {
+    // every score depends on which side the player was on when
+    if (!sideKnown(mySeat)) {
+      return const [ReviewScore('表現', '—', '$sidesUnknown你每一輪的陣營，所以不評分。')];
+    }
     final me = mySeat, mine = iAmEvil;
     var votes = 0, helpful = 0;
     var led = 0, ledClean = 0;

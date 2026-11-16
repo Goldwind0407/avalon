@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { Timestamp } from 'firebase-admin/firestore';
-import { GAME_DOCS_RENEW_MARGIN_MS, gameDocsRenewalDue, roomHasExpired }
+import { GAME_DOCS_LEAD_MS, gameDocsRenewalDue, roomHasExpired }
   from '../src/room_lifecycle';
 
 test('room expires at its deadline, without waiting for TTL deletion', () => {
@@ -17,14 +17,22 @@ test('missing or malformed room deadlines fail closed', () => {
   }
 });
 
-test('private game documents are renewed before they could expire', () => {
-  const now = 10 * GAME_DOCS_RENEW_MARGIN_MS;
-  // far from expiring: left alone, so a busy room does not rewrite them
-  assert.equal(gameDocsRenewalDue(Timestamp.fromMillis(now + 2 * GAME_DOCS_RENEW_MARGIN_MS), now),
-    false);
-  // within the margin, already past, or a game started before the field
-  assert.equal(gameDocsRenewalDue(Timestamp.fromMillis(now + GAME_DOCS_RENEW_MARGIN_MS - 1), now),
-    true);
-  assert.equal(gameDocsRenewalDue(Timestamp.fromMillis(now - 1), now), true);
-  assert.equal(gameDocsRenewalDue(undefined, now), true);
+test('private game documents never expire while the room is still there', () => {
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+  // the reported timeline: start, a move at hour 11, the next at hour 30
+  let room = DAY;
+  let priv = DAY + GAME_DOCS_LEAD_MS;
+  for (const at of [11 * HOUR, 30 * HOUR, 30.5 * HOUR, 55 * HOUR]) {
+    assert.ok(priv > at, `private documents alive at ${at / HOUR}h`);
+    room = at + DAY;
+    if (gameDocsRenewalDue(Timestamp.fromMillis(priv), room)) {
+      priv = room + GAME_DOCS_LEAD_MS;
+    }
+    assert.ok(priv > room, `private documents outlive the room after ${at / HOUR}h`);
+  }
+  // half an hour later the room has barely moved: no rewrite yet
+  assert.equal(gameDocsRenewalDue(Timestamp.fromMillis(priv), room + HOUR / 2), false);
+  // a deadline missing (a game started before the field) is renewed
+  assert.equal(gameDocsRenewalDue(undefined, room), true);
 });

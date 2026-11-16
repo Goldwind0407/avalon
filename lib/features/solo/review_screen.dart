@@ -210,8 +210,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
       );
 
   List<Widget> _summary() => [
-        _heading(r.iWon ? '你贏了' : '你輸了',
-            color: r.iWon ? _goodColor : _evilColor),
+        _heading(
+            switch (r.outcome) {
+              true => '你贏了',
+              false => '你輸了',
+              null => '勝負不明',
+            },
+            color: switch (r.outcome) {
+              true => _goodColor,
+              false => _evilColor,
+              null => AvalonTheme.muted,
+            }),
+        if (r.outcome == null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('${GameReview.sidesUnknown}勝負。',
+                style: const TextStyle(fontSize: 12, color: AvalonTheme.muted)),
+          ),
         Text('${r.winner}陣營獲勝・${r.result ?? ''}', style: _body),
         const SizedBox(height: 4),
         Row(children: [

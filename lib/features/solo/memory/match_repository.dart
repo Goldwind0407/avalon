@@ -57,63 +57,110 @@ class MatchRepository {
     return result;
   }
 
-  Future<List<MatchSummary>> _read() async {
+  /// The index as stored, or null when it could not be read this time
+  /// (storage trouble, or text that is not a list). Null is not "no games":
+  /// nothing may be written over an index that could not be read.
+  Future<_Index?> _read() async {
+    final String? text;
     try {
-      final text = await _storage.read(_indexKey);
-      if (text == null) return [];
+      text = await _storage.read(_indexKey);
+    } catch (_) {
+      return null;
+    }
+    if (text == null) return _Index([], []); // first use: no games yet
+    try {
       final summaries = <MatchSummary>[];
+      final unreadable = <Object?>[];
       for (final entry in jsonDecode(text) as List) {
         try {
           summaries.add(MatchSummary.fromMap(Map<String, dynamic>.from(entry)));
         } catch (_) {
-          // one unreadable entry does not lose the others
+          // kept as it is, for a later version that can read it
+          unreadable.add(entry);
         }
       }
-      return summaries;
+      return _Index(summaries, unreadable);
     } catch (_) {
-      return [];
+      return null;
     }
   }
 
-  /// Newest first. Games saved before the player's habits were counted
-  /// get them counted from their full record, once.
+  Future<void> _write(_Index index) => _storage.write(
+      _indexKey,
+      jsonEncode([
+        for (final s in index.summaries) s.toMap(),
+        ...index.unreadable,
+      ]));
+
+  /// Newest first. Games saved before the current way of summing up are
+  /// worked out again from their full record, each on its own; one whose
+  /// record cannot be read this time stays as it was, without its habit
+  /// counts (so nothing stale is learned), and is tried again next time.
   Future<List<MatchSummary>> summaries() => _serial(() async {
-        final list = await _read();
-        if (list.every((s) => s.version >= MatchSummary.currentVersion)) {
-          return list;
-        }
-        try {
-          for (var i = 0; i < list.length; i++) {
-            if (list[i].version >= MatchSummary.currentVersion) continue;
-            final text = await _storage.read(_matchKey(list[i].id));
-            final match = text == null
-                ? null
-                : MatchArchive.fromMap(
-                    Map<String, dynamic>.from(jsonDecode(text) as Map));
-            // Worked out again from the full record with today's rules.
-            // Without a readable record: nothing to learn from, and what
-            // it says is kept as it was.
-            list[i] =
-                match != null ? match.summary : list[i].withTraits(const {});
+        final index = await _read();
+        if (index == null) return [];
+        final list = index.summaries;
+        final stored = List.of(list);
+        var changed = false;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].version >= MatchSummary.currentVersion) continue;
+          String? text;
+          var readable = true;
+          try {
+            text = await _storage.read(_matchKey(list[i].id));
+          } catch (_) {
+            readable = false;
           }
-          await _storage.write(
-              _indexKey, jsonEncode([for (final s in list) s.toMap()]));
-        } catch (_) {}
+          MatchArchive? match;
+          if (text != null) {
+            try {
+              match = MatchArchive.fromMap(
+                  Map<String, dynamic>.from(jsonDecode(text) as Map));
+            } catch (_) {
+              readable = false;
+            }
+          }
+          if (match != null) {
+            list[i] = match.summary;
+            changed = true;
+          } else if (readable) {
+            // the record is gone for good: nothing left to learn from it
+            list[i] = list[i].withTraits(const {});
+            changed = true;
+          } else {
+            // try again next time; meanwhile its old counts are not used
+            list[i] = list[i].withoutTraits();
+          }
+        }
+        if (changed) {
+          try {
+            await _write(_Index([
+              for (var i = 0; i < list.length; i++)
+                // an entry still waiting keeps its stored form
+                list[i].version >= MatchSummary.currentVersion
+                    ? list[i]
+                    : stored[i]
+            ], index.unreadable));
+          } catch (_) {}
+        }
         return list;
       });
 
-  /// Saving the same game twice keeps one copy.
+  /// Saving the same game twice keeps one copy. When the list of games
+  /// cannot be read, nothing is written: a game not remembered is better
+  /// than a history lost.
   Future<void> save(MatchArchive match) => _serial(() async {
         try {
-          final list = await _read();
+          final index = await _read();
+          if (index == null) return;
+          final list = index.summaries;
           if (list.any((s) => s.id == match.id)) return;
           await _storage.write(_matchKey(match.id), jsonEncode(match.toMap()));
           list.insert(0, match.summary);
           for (final old in list.skip(limit)) {
             await _storage.remove(_matchKey(old.id));
           }
-          await _storage.write(_indexKey,
-              jsonEncode([for (final s in list.take(limit)) s.toMap()]));
+          await _write(_Index(list.take(limit).toList(), index.unreadable));
         } catch (_) {}
       });
 
@@ -130,23 +177,32 @@ class MatchRepository {
 
   Future<void> delete(String id) => _serial(() async {
         try {
-          final list = await _read();
+          final index = await _read();
+          if (index == null) return;
           await _storage.remove(_matchKey(id));
-          await _storage.write(
-              _indexKey,
-              jsonEncode([
-                for (final s in list)
-                  if (s.id != id) s.toMap()
-              ]));
+          await _write(_Index([
+            for (final s in index.summaries)
+              if (s.id != id) s
+          ], index.unreadable));
         } catch (_) {}
       });
 
   Future<void> clear() => _serial(() async {
         try {
-          for (final s in await _read()) {
+          final index = await _read();
+          if (index == null) return;
+          for (final s in index.summaries) {
             await _storage.remove(_matchKey(s.id));
           }
           await _storage.remove(_indexKey);
         } catch (_) {}
       });
+}
+
+/// The list of past games as stored: what this version can read, and
+/// entries it cannot, kept as they are.
+class _Index {
+  _Index(this.summaries, this.unreadable);
+  final List<MatchSummary> summaries;
+  final List<Object?> unreadable;
 }
