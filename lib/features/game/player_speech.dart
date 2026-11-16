@@ -105,6 +105,8 @@ class PlayerSpeech {
     if (has(r'[?？]|嗎|為什麼|為何|怎麼|說說|解釋')) return PlayerSpeechKind.ask;
     // "not sure he is evil" is no stance at all, not trust
     if (_unsure.hasMatch(piece)) return null;
+    // "…就知道誰是壞人": about someone not yet known, not the one named
+    if (has(r'誰|哪個|哪一個|哪位|哪一位')) return null;
     // "not good" accuses, "not evil" vouches
     if (has(r'不信|不相信|不是好人|不是正義|不可信')) return PlayerSpeechKind.suspect;
     if (has(r'不是(壞人|邪惡|爪牙)')) return PlayerSpeechKind.trust;
@@ -246,7 +248,14 @@ class PlayerSpeech {
           more: points.skip(1).toList());
     }
     if (has(r'我是好人|我是正義|相信我')) {
-      return PlayerSpeech(PlayerSpeechKind.claimGood, text: t);
+      // "I am good, and I am against this team" says both
+      return PlayerSpeech(PlayerSpeechKind.claimGood,
+          text: t,
+          supportsTeam: teamOppose
+              ? false
+              : teamSupport
+                  ? true
+                  : null);
     }
     if (teamOppose) return PlayerSpeech(PlayerSpeechKind.oppose, text: t);
     if (teamSupport || has(r'可以')) {

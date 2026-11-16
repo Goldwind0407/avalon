@@ -44,6 +44,8 @@ String lineReading(List<ReviewLine> lines, int index) {
       parts.add('相信$who');
     } else if (s.questionTo != null) {
       parts.add('問${s.questionTo! + 1}號');
+    } else if (s.intent == 'defendSelf' && s.target == s.speaker) {
+      parts.add('說自己是好人');
     }
     if (s.supportsTeam != null) parts.add(s.supportsTeam! ? '支持這隊' : '反對這隊');
   }
