@@ -128,7 +128,11 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
 - **多人搭配電腦**：房主可以在大廳的空位按「加入電腦」把電腦排進來（✕ 移除），並點「電腦：一般」切換難度（新手／一般／高手）。要開啟「依序發言」電腦才會說話。電腦用的就是單人模式那一套（`lib/features/solo`），由獨立的 Dart 伺服器 `bot_server/` 執行；雲端裁判在輪到電腦時（由手機的 `nudge` 觸發，房主的手機優先）把整局狀態交給它，回來的每一步都照 `functions/src/rules.ts` 檢查後才執行。大家說的話記在房間文件的 `talk`：電腦的發言是文字，人在自己的發言回合可以打一句話（和單人模式同一個解析器）。設定了這台伺服器之後，斷線的玩家也由它接手，回來即交還；伺服器連不上時退回 `functions/src/proxy.ts` 的簡單代理。
   - 伺服器設定：雲端功能的環境變數 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`（16 字元以上，和伺服器的 `BOT_SERVER_SECRET` 相同）。沒設定時不能加入電腦。
   - 本機試玩：`dart compile exe bot_server/bin/server.dart -o build/bot_server.exe`，以 `PORT=8099 BOT_SERVER_SECRET=...` 執行；再以 `BOT_SERVER_URL=http://127.0.0.1:8099 BOT_SERVER_SECRET=... firebase emulators:start --only auth,firestore,functions` 啟動模擬器；App 用 `--dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2` 建置。整合測試：同樣匯出這兩個變數後 `npm run test:emulator`。
-  - 部署：根目錄的 `Dockerfile` 可用在 Cloud Run 或樹莓派（同一個映像）。**正式環境尚未部署**：目前 App 已有「加入電腦」按鈕，但在正式房間按下會失敗，要等伺服器部署並設定好環境變數。
+  - 部署（2026-11-17 已部署）：電腦伺服器在 Cloud Run 的 `avalon-bots`（asia-east1，最多 1 台、沒人用時 0 台；只開 1 台是因為每局電腦的想法存在伺服器記憶體裡）。`.gcloudignore` 只上傳 `Dockerfile`、`lib/`、`bot_server/`。更新伺服器：
+    ```sh
+    gcloud run deploy avalon-bots --source . --region asia-east1 --allow-unauthenticated       --min-instances 0 --max-instances 1 --memory 512Mi --env-vars-file <含 BOT_SERVER_SECRET 的 yaml>
+    ```
+    網址與密鑰寫在 `functions/.env.avalon-shadow-council`（不進 git），之後 `firebase deploy --only functions` 會一起帶上。換到樹莓派時，只要把網址改成樹莓派的位址再部署一次雲端功能。
   - 新增的雲端功能：`setBot`、`setBotLevel`、`say`、`nudge`；新版 App 以 protocolVersion 5 連線，有電腦的房間會拒絕舊版 App。
   - 跨局記憶：有電腦的對局結束後，伺服器會保留這局（`rooms/{房號}/pastGames`，只有伺服器讀得到）。下一局電腦會記得同一個房間最近 5 局裡跟在座真人發生過的事（依帳號對人，不依座位），開場可能提起；和單人模式一樣只影響台詞。
   - 限制：伺服器重啟時，電腦會忘記「原本打算怎麼投」，但遊戲照常進行。
