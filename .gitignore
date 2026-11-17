@@ -55,3 +55,5 @@ bot_server/pubspec.lock
 # recorded voices: made by tool/voice/make_voices.py, too large for git
 assets/voice/*/*.mp3
 assets/voice/*/*.part
+tool/voice/raw/
+tool/voice/out/

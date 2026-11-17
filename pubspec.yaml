@@ -33,6 +33,7 @@ flutter:
     - assets/images/logos/
     - assets/images/boards/
     - assets/images/brand/
+    - assets/voice/
     - assets/voice/chen/
     - assets/voice/yu/
     - assets/voice/pei/

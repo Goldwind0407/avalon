@@ -5,9 +5,12 @@
     python tool/voice/make_voices.py --only chen,yu  # some voices
     python tool/voice/make_voices.py --missing       # just list what is missing
 
-Reads tool/voice/script.csv (made by test/voice_script_test.dart) and
-writes assets/voice/<persona>/<id>.mp3, skipping recordings already there,
-so it can be stopped and run again. The app speaks a line only when every
+Reads tool/voice/script.csv (made by test/voice_script_test.dart),
+records into tool/voice/raw/<persona>/<id>.mp3 and trims each into
+assets/voice/<persona>/<id>.mp3 (trim_voices.py, needs ffmpeg), skipping
+what is already there, so it can be stopped and run again. The service
+turns away a quick run of requests: it is slow, and better for a few
+pieces than for every voice (see README.md for GPT-SoVITS on Colab). The app speaks a line only when every
 piece of it is recorded in that computer's voice.
 
 This uses edge-tts (Microsoft's online voices, free but not an official
@@ -19,11 +22,13 @@ import argparse
 import asyncio
 import csv
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'tool' / 'voice' / 'script.csv'
 OUT = ROOT / 'assets' / 'voice'
+RAW = ROOT / 'tool' / 'voice' / 'raw'
 
 # Who sounds like whom. Three Taiwanese voices, told apart by pitch and
 # pace to suit each one (lib/features/solo/persona/bot_persona.dart).
@@ -48,9 +53,10 @@ def pieces():
 async def record(persona, items, jobs):
     import edge_tts  # only needed when recording
     voice, pitch, rate = VOICES[persona]
-    folder = OUT / persona
+    folder = RAW / persona
     folder.mkdir(parents=True, exist_ok=True)
-    todo = [(i, t) for i, t in items if not (folder / f'{i}.mp3').exists()]
+    todo = [(i, t) for i, t in items
+            if not (folder / f'{i}.mp3').exists() and not (OUT / persona / f'{i}.mp3').exists()]
     done = 0
     gate = asyncio.Semaphore(jobs)
 
@@ -92,6 +98,8 @@ def main():
             print(f'{persona}: {len(gone)} of {len(items)} missing')
             continue
         asyncio.run(record(persona, items, args.jobs))
+        subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name('trim_voices.py')),
+                        str(RAW), '--only', persona], check=False)
 
 
 if __name__ == '__main__':
