@@ -110,7 +110,7 @@ class OnlineService {
 
   /// The project's iOS client (GoogleService-Info.plist CLIENT_ID).
   static const googleIosClientId =
-      '1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep.apps.googleusercontent.com';
+      '1041864366616-e8ta8flfofc0qtqhrmk5onl38pacpmsd.apps.googleusercontent.com';
 
   static const _projectWebClientId =
       '1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com';

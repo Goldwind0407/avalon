@@ -65,10 +65,12 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCobJm-hvFuKdQqgZOTONhOaIf1r5FzX38',
-    appId: '1:1041864366616:ios:9170645b798da02715416d',
+    appId: '1:1041864366616:ios:47ec6621072a4b5415416d',
     messagingSenderId: '1041864366616',
     projectId: 'avalon-shadow-council',
     storageBucket: 'avalon-shadow-council.firebasestorage.app',
-    iosBundleId: 'com.example.avalonShadowCouncil',
+    iosClientId:
+        '1041864366616-e8ta8flfofc0qtqhrmk5onl38pacpmsd.apps.googleusercontent.com',
+    iosBundleId: 'com.goldwind.avalonShadowCouncil',
   );
 }
