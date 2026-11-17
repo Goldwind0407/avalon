@@ -302,12 +302,24 @@ class OnlineGameSession extends GameSession {
         for (final line in room?.talk ?? const <Map<String, dynamic>>[])
           line['bot'] == true
               ? statementFromMap(line)
-              : DiscussionStatement(
-                  speaker: (line['by'] as num).toInt(),
-                  quest: (line['q'] as num).toInt(),
-                  attempt: (line['a'] as num?)?.toInt(),
-                  generation: (line['g'] as num?)?.toInt(),
-                  text: line['text'] as String)
+              : line['lady'] is Map
+                  // what a holder announced the Lady showed
+                  ? DiscussionStatement(
+                      speaker: (line['by'] as num).toInt(),
+                      quest: (line['q'] as num).toInt(),
+                      attempt: (line['a'] as num?)?.toInt(),
+                      generation: (line['g'] as num?)?.toInt(),
+                      target: ((line['lady'] as Map)['target'] as num).toInt(),
+                      claimedEvil: (line['lady'] as Map)['evil'] == true,
+                      intent: 'interpretLady',
+                      certainty: DiscussionCertainty.certain,
+                      text: line['text'] as String)
+                  : DiscussionStatement(
+                      speaker: (line['by'] as num).toInt(),
+                      quest: (line['q'] as num).toInt(),
+                      attempt: (line['a'] as num?)?.toInt(),
+                      generation: (line['g'] as num?)?.toInt(),
+                      text: line['text'] as String)
       ];
 
   /// What the player now speaking has put in writing this turn.
@@ -327,9 +339,27 @@ class OnlineGameSession extends GameSession {
   /// everyone else) to read.
   @override
   Future<void> say(PlayerSpeech speech) async {
+    // a good player does not misreport a Lady result of their own
+    for (final point in speech.points) {
+      if (point.kind == PlayerSpeechKind.ladyClaim &&
+          point.target != null &&
+          !mayClaimLady(point.target!, point.claimsEvil == true)) {
+        throw const GameMoveException(GameSession.goodMustNotLie);
+      }
+    }
     final text = speechText(speech, ballot: proposalHistory.lastOrNull);
     if (text.isEmpty) return;
     await _call('say', {'code': code, 'generation': generation, 'text': text});
+  }
+
+  @override
+  Future<void> announceLady(bool evil) async {
+    final check = ladyChecks.lastOrNull;
+    if (check != null && !mayClaimLady(check.target, evil)) {
+      throw const GameMoveException(GameSession.goodMustNotLie);
+    }
+    await _call(
+        'announceLady', {'code': code, 'generation': generation, 'evil': evil});
   }
 
   @override

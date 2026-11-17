@@ -354,7 +354,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       final aside = game.phase == GamePhase.discussion
           ? null
           : fresh
-              .where((s) => !s.continues && game.isComputer(s.speaker))
+              .where((s) =>
+                  !s.continues &&
+                  s.speaker != game.mySeat &&
+                  (game.isComputer(s.speaker) || s.intent == 'interpretLady'))
               .lastOrNull;
       if (aside != null) {
         _spokenKey = null;
@@ -2184,18 +2187,47 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 delay: _ms(1200),
                 child: Text(
                     lady
-                        ? '你可以說出結果（也可以說謊），但不能出示這張牌。\n湖中女神將交給 ${player(r.target)}。'
+                        ? game.hasOwnSeat
+                            // the same for everyone: nothing on this screen
+                            // may show which side its owner is on
+                            ? '好人只能照實公布，壞人可以說謊；也可以先不公布，之後發言時再說。\n湖中女神將交給 ${player(r.target)}。'
+                            : '好人只能照實說出結果，壞人可以說謊，但都不能出示這張牌。\n湖中女神將交給 ${player(r.target)}。'
                         : '這張牌已翻轉為「${bad ? '任務成功' : '任務失敗'}」，接著所有任務牌會洗勻後公開。',
                     style: _t(13, s)),
               ),
               SizedBox(height: 16 * s),
               Appear(
                 delay: _ms(1350),
-                child: TableButton(game.hasOwnSeat ? '記住了，繼續' : '記住了，隱藏並繼續',
-                    scale: s,
-                    onPressed: () => act(
-                        lady ? game.continueLady : game.continueExcalibur,
-                        interlude: true)),
+                // with a seat of one's own (solo, online), the result can be
+                // told to the table from here, true or not
+                child: lady && game.hasOwnSeat
+                    ? Wrap(spacing: 10 * s, runSpacing: 8 * s, children: [
+                        TableButton('公布：他是好人',
+                            key: const ValueKey('ladyAnnounceGood'),
+                            scale: s,
+                            onPressed: () => act(() async {
+                                  await game.announceLady(false);
+                                  await game.continueLady();
+                                }, interlude: true)),
+                        TableButton('公布：他是壞人',
+                            key: const ValueKey('ladyAnnounceEvil'),
+                            scale: s,
+                            onPressed: () => act(() async {
+                                  await game.announceLady(true);
+                                  await game.continueLady();
+                                }, interlude: true)),
+                        TableButton('先不公布',
+                            key: const ValueKey('ladyKeep'),
+                            scale: s,
+                            primary: false,
+                            onPressed: () =>
+                                act(game.continueLady, interlude: true)),
+                      ])
+                    : TableButton(game.hasOwnSeat ? '記住了，繼續' : '記住了，隱藏並繼續',
+                        scale: s,
+                        onPressed: () => act(
+                            lady ? game.continueLady : game.continueExcalibur,
+                            interlude: true)),
               ),
             ]),
       ),

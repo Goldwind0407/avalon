@@ -168,6 +168,25 @@ abstract class GameSession extends ChangeNotifier {
   /// Whether [seat] is played by a computer.
   bool isComputer(int seat) => isSolo && seat != mySeat;
 
+  /// The Lady's holder tells the table what the check showed ([evil]:
+  /// what they say it showed). A good player tells the truth (house rule:
+  /// only evil may lie about it); an evil one says what they like. Once,
+  /// while it is on show.
+  Future<void> announceLady(bool evil) async {}
+
+  /// Whether this player may say a Lady check of theirs on [target]
+  /// showed [evil]: always, unless they play for good and it did not.
+  bool mayClaimLady(int target, bool evil) {
+    final me = mySeat;
+    if (me == null || evilNow(me) != false) return true;
+    final mine = myLadyResults.where((r) => r.target == target).lastOrNull;
+    return mine == null || mine.evil == evil;
+  }
+
+  /// The line a good player would be told off for: a Lady result of
+  /// theirs said the wrong way round.
+  static const goodMustNotLie = '好人不能謊報湖中女神的結果';
+
   /// The whole game with every role, card and reason; only once it is
   /// over (and, online, once the server's record of it has arrived).
   GameReview? get review => null;
