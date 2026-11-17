@@ -1,0 +1,7 @@
+# Cloud Run builds the computer players' server (Dockerfile) from these only
+*
+!Dockerfile
+!.dockerignore
+!lib/**
+!bot_server/**
+bot_server/.dart_tool/**

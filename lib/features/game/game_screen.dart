@@ -30,6 +30,7 @@ import '../solo/persona/bot_persona.dart';
 import '../solo/bot_difficulty.dart';
 import '../solo/review_screen.dart';
 import '../solo/solo_session.dart';
+import '../../core/toast.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -332,9 +333,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _voteLanding.clear();
         _pileLanding = 0;
       });
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.message);
     }
   }
 
@@ -363,13 +362,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             BotVoices.instance.speak(game.voiceOf(aside.speaker), aside.text));
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context)
-            ..clearSnackBars()
-            ..showSnackBar(SnackBar(
-                key: const ValueKey('asideLine'),
-                duration: Duration(
-                    milliseconds: 4000 + 150 * aside.text.length.clamp(0, 40)),
-                content: Text('${player(aside.speaker)}：${aside.text}')));
+          showToast(context, aside.text,
+              title: player(aside.speaker),
+              image: aside.intent == 'interpretLady'
+                  ? Assets.ladyOfTheLake
+                  : null);
         });
         return;
       }
@@ -441,13 +438,26 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               : null;
           if (card == true) GameSounds.instance.play(GameSound.magic);
           _announceId++;
+          final delay = const [GamePhase.questResult, GamePhase.ladyResult]
+                  .contains(old.phase)
+              ? 1500
+              : 350;
+          // the Lancelots changing sides is news of its own: a card in
+          // the middle once the quest has been announced
+          if (card == true) {
+            _after(_ms(delay + 2000), () {
+              if (mounted) {
+                showToast(context, '兩位蘭斯洛特暗中交換了陣營，出牌限制與勝負都依新的陣營計算。',
+                    title: '轉換陣營卡翻開', image: Assets.loyaltySwitch);
+              }
+            });
+          }
           _announcement = (
-            card == true ? '陣營轉換' : '第${_numerals[game.questNumber - 1]}次遠征',
-            card == true
-                ? '轉換陣營卡翻開：兩位蘭斯洛特交換了陣營'
-                : '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
-                    '${game.failsRequired == 2 ? '　·　需兩張失敗' : ''}'
-                    '${card == false && game.expansions.lancelot == 1 ? '　·　轉換陣營卡：不變' : ''}',
+            '第${_numerals[game.questNumber - 1]}次遠征',
+            '隊長 ${player(game.leader)}　·　派出 ${game.requiredTeam} 人'
+                '${game.failsRequired == 2 ? '　·　需兩張失敗' : ''}'
+                '${card == true ? '　·　陣營轉換！' : ''}'
+                '${card == false && game.expansions.lancelot == 1 ? '　·　轉換陣營卡：不變' : ''}',
             const [GamePhase.questResult, GamePhase.ladyResult]
                     .contains(old.phase)
                 ? 1500
@@ -633,9 +643,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await game.leaveRoom();
     } on GameMoveException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.message);
       return;
     }
     if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);

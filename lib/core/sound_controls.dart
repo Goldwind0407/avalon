@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'bot_voices.dart';
 import 'game_sounds.dart';
+import 'toast.dart';
 
 class SoundSettingsButton extends StatelessWidget {
   const SoundSettingsButton({super.key});
@@ -82,9 +83,7 @@ Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
                                         after: _lastSample);
                                     _lastSample = who ?? _lastSample;
                                     if (who == null && context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content: Text('還沒有錄好的電腦語音')));
+                                      showToast(context, '還沒有錄好的電腦語音');
                                     }
                                   }
                                 : null)),

@@ -7,6 +7,7 @@ import 'discussion_model.dart';
 import 'game_model.dart';
 import 'game_session.dart';
 import 'player_speech.dart';
+import '../../core/toast.dart';
 
 Future<DiscussionSettings?> editDiscussion(
         BuildContext context, DiscussionSettings initial) =>
@@ -95,8 +96,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
       await game.expressOpinion(approve);
     } on GameMoveException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
+        showToast(context, error.message);
       }
     }
   }
@@ -226,8 +226,7 @@ class PlayerSpeechBar extends StatelessWidget {
       await game.say(speech);
     } on GameMoveException catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
+        showToast(context, error.message);
       }
     }
   }
