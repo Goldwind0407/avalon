@@ -1879,7 +1879,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           child: Column(children: [
             Text('${player(privateActor)}　選擇刺殺目標',
                 style: _t(20, s, color: _evil, weight: FontWeight.bold)),
-            Text('可口頭討論身分，但不能展示角色卡。請選出你認為的梅林。', style: _t(12.5, s)),
+            Text(
+                game.isSolo
+                    // the computers cannot be asked: what to look back on
+                    ? '回想誰一直知道得太多：總是反對有壞人的隊、帶的隊特別乾淨。請選出你認為的梅林。'
+                    : '可口頭討論身分，但不能展示角色卡。請選出你認為的梅林。',
+                textAlign: TextAlign.center,
+                style: _t(12.5, s)),
           ]),
         ),
         SizedBox(height: 16 * s),

@@ -107,11 +107,15 @@ class PlayerSpeech {
     if (_unsure.hasMatch(piece)) return null;
     // "…就知道誰是壞人": about someone not yet known, not the one named
     if (has(r'誰|哪個|哪一個|哪位|哪一位')) return null;
+    // "看一下2號是不是好人": wondering, not saying either way
+    if (has(r'是不是|是否|有沒有|會不會|算不算')) return null;
     // "not good" accuses, "not evil" vouches
     if (has(r'不信|不相信|不是好人|不是正義|不可信')) return PlayerSpeechKind.suspect;
     if (has(r'不是(壞人|邪惡|爪牙)')) return PlayerSpeechKind.trust;
     // "is not the Assassin" rules one role out, not a side
     if (has(r'不是(刺客|莫甘娜|莫德雷德|奧伯倫|梅林|派西)')) return null;
+    // "5號是梅林": a good role named is a word for him
+    if (has(r'(是|像|應該是)(梅林|派西)')) return PlayerSpeechKind.trust;
     // a doubt denied: "我不懷疑", "我不覺得他可疑"
     if (has(r'(不|沒有?|並不)(太)?(懷疑|覺得|認為).*?(可疑|壞|有問題)?') && has(r'懷疑|可疑|壞|有問題')) {
       return PlayerSpeechKind.trust;
@@ -171,8 +175,12 @@ class PlayerSpeech {
       return PlayerSpeech(PlayerSpeechKind.claimPercival,
           target: named?.$1, text: t);
     }
-    final teamOppose = has(r'反對|換人|不同意|不支持|不要這隊|擋下|擋掉');
-    final teamSupport = !teamOppose && has(r'支持|同意|贊成|沒理由不|再來一次|讓它過|可以過|給它過');
+    // "沒理由反對" lets the team go
+    final noObjection =
+        has(r'(沒有?|不用|不必|沒必要|不會|不想|無須|無需)(什麼)?(理由|必要)?(去)?反對|沒有?意見');
+    final teamOppose = !noObjection && has(r'反對|換人|不同意|不支持|不要這隊|擋下|擋掉');
+    final teamSupport =
+        !teamOppose && (noObjection || has(r'支持|同意|贊成|沒理由不|再來一次|讓它過|可以過|給它過'));
     final stances = <int, PlayerSpeechKind>{};
     final order = <int>[];
     final lady =
@@ -232,7 +240,7 @@ class PlayerSpeech {
               : PlayerSpeech(stances[seat]!, target: seat, text: t)
       ];
       // with players named, only a word about "this team" is a team vote
-      final aboutTeam = has(r'這隊|這組|名單|隊伍|這次');
+      final aboutTeam = has(r'這隊|這組|名單|隊伍|這次|這局|這輪');
       final first = points.first;
       return PlayerSpeech(first.kind,
           target: first.target,

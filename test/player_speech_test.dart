@@ -95,6 +95,24 @@ void main() {
         isNot(PlayerSpeechKind.suspect));
     expect(read('我覺得可以再給3號或4號出一次任務 這樣就知道誰是壞人').where((p) => p.$2 != null),
         isEmpty);
+    // from reported games (2026-11-17)
+    expect(PlayerSpeech.parse('第一次沒理由反對', names, 0).kind,
+        PlayerSpeechKind.support);
+    expect(PlayerSpeech.parse('我沒有理由反對這隊', names, 0).kind,
+        PlayerSpeechKind.support);
+    expect(
+        PlayerSpeech.parse('第一輪沒意見', names, 0).kind, PlayerSpeechKind.support);
+    expect(PlayerSpeech.parse('上一隊成功 這次多驗一個人 我沒意見', names, 0).kind,
+        PlayerSpeechKind.support);
+    final wonder = PlayerSpeech.parse('我想看一下2號是不是好人 所以我贊成這局', names, 0);
+    expect(wonder.points.where((p) => p.target != null), isEmpty);
+    expect(
+        wonder.supportsTeam ?? wonder.kind == PlayerSpeechKind.support, isTrue);
+    expect(read('5號是梅林'), [(trust, 4, null)]);
+    expect(read('我覺得3號是派西維爾'), [(trust, 2, null)]);
+    expect(read('3號不是梅林').where((p) => p.$2 != null), isEmpty);
+    // still opposed when it is said
+    expect(PlayerSpeech.parse('這隊我反對', names, 0).kind, PlayerSpeechKind.oppose);
     // a Percival claim names Morgana only when the line does
     final claim = PlayerSpeech.parse('我是派西維爾，2號是梅林，4號是莫甘娜', names, 0);
     expect(claim.kind, PlayerSpeechKind.claimPercival);
