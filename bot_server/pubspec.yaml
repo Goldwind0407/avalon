@@ -1,0 +1,6 @@
+name: avalon_bot_server
+description: The computer players of online Avalon games, as a small HTTP service.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: '>=3.3.0 <4.0.0'

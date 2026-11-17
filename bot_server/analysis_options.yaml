@@ -1,0 +1,4 @@
+analyzer:
+  errors:
+    # the computers' code lives in the app (../lib) and is shared by path
+    avoid_relative_lib_imports: ignore

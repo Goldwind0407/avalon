@@ -139,7 +139,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final free = game.phase == GamePhase.freeDiscussion;
-    final botSpeaking = game.isSolo && !free && game.speaker != game.mySeat;
+    final botSpeaking = !free && game.isComputer(game.speaker!);
     final remaining = max(0,
             ((game.speechDeadline ?? game.nowMillis) - game.nowMillis) / 1000)
         .ceil();
@@ -189,7 +189,7 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                                 color: Colors.white)),
                         const SizedBox(height: 10),
                       ],
-                      if (game.isSolo && game.speaker == game.mySeat) ...[
+                      if (game.hasComputers && game.speaker == game.mySeat) ...[
                         PlayerSpeechBar(game: game),
                         const SizedBox(height: 6),
                         Wrap(spacing: 8, children: [

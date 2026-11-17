@@ -484,11 +484,16 @@ describe('a player whose phone has gone quiet', () => {
     for (const p of phones.slice(0, 4)) await p.call('move', { code, move: 'confirmIdentity' });
     assert.equal((await room(phones[0], code)).game.phase, 'identity');
     await denied(outsider.call('nudge', { code }));
-    const { moves } = await phones[1].call('nudge', { code });
-    assert.ok(moves >= 1);
+    await phones[1].call('nudge', { code });
     let r = await room(phones[0], code);
     assert.deepEqual(r.away, [4]);
     assert.match(r.notice, /5 號.*電腦代理/);
+    // asked again until nothing more comes of it (the plain stand-in does
+    // all it can at once; the computers' server takes a step at a time)
+    for (let i = 0; i < 6; i++) {
+      if ((await phones[1].call('nudge', { code })).moves === 0) break;
+    }
+    r = await room(phones[0], code);
     // the game went on as far as it could without a player who is here
     const leader: number = r.game.leader;
     if (leader === 4) {
@@ -520,5 +525,133 @@ describe('a player whose phone has gone quiet', () => {
     const step = r.step;
     assert.equal((await phones[0].call('nudge', { code })).moves, 0);
     assert.equal((await room(phones[0], code)).step, step);
+  });
+});
+
+// Needs the computer players' server running (bot_server/) and the
+// functions told where it is: BOT_SERVER_URL and BOT_SERVER_SECRET.
+describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => {
+  const phones: Phone[] = [];
+  let outsider: Phone;
+  let code = '';
+  const v5 = (p: Phone, name: string, data: Record<string, unknown>) =>
+    p.call(name, { protocolVersion: 5, ...data });
+  const mine = async (p: Phone) =>
+    (await getDoc(doc(p.db, 'rooms', code, 'private', p.uid))).data() as any;
+
+  before(async () => {
+    for (let i = 0; i < 2; i++) phones.push(await phone());
+    outsider = await phone();
+    ({ code } = await v5(phones[0], 'createRoom', { name: '亞瑟' }));
+    await v5(phones[1], 'joinRoom', { code, name: '高文' });
+  });
+
+  after(async () => {
+    for (const p of phones) await p.call('leaveRoom', { code }).catch(() => {});
+    await Promise.all([...phones, outsider].map((p) => deleteApp(p.app)));
+  });
+
+  test('only the host seats computers; old apps cannot join them', async () => {
+    await refused(v5(phones[1], 'setBot', { code, persona: 'chen', name: '老陳', seated: true }), /房主/);
+    await refused(v5(phones[0], 'setBot', { code, persona: 'Chen!', name: '老陳', seated: true }));
+    for (const [persona, name] of [['chen', '老陳'], ['yu', '小魚'], ['zhe', '阿哲'], ['mia', '米亞']]) {
+      await v5(phones[0], 'setBot', { code, persona, name, seated: true });
+    }
+    await v5(phones[0], 'setBot', { code, persona: 'mia', name: '米亞', seated: false });
+    await refused(v5(phones[1], 'setBotLevel', { code, level: 'expert' }), /房主/);
+    await refused(v5(phones[0], 'setBotLevel', { code, level: 'godlike' }));
+    await v5(phones[0], 'setBotLevel', { code, level: 'expert' });
+    const r = await room(phones[0], code);
+    assert.deepEqual(r.players.map((p: any) => p.name), ['亞瑟', '高文', '老陳', '小魚', '阿哲']);
+    assert.deepEqual(r.players.map((p: any) => p.bot === true), [false, false, true, true, true]);
+    assert.equal(r.botLevel, 'expert');
+    await refused(outsider.call('joinRoom', { code, name: '舊版', protocolVersion: 4 }), /更新/);
+  });
+
+  test('two people and three computers play a whole game', async () => {
+    await v5(phones[0], 'setDiscussion', { code, discussion: {
+      enabled: true, speechSeconds: 30, freeSeconds: 0, selectionFree: true,
+    } });
+    await v5(phones[0], 'startGame', { code });
+    const cards = [await mine(phones[0]), await mine(phones[1])];
+    const evil = (role: string) => ['assassin', 'minion', 'morgana', 'mordred', 'oberon'].includes(role);
+    let said = 0;
+    for (let turn = 0; turn < 600; turn++) {
+      const r = await room(phones[0], code);
+      const g = r.game;
+      if (g.phase === 'finished') break;
+      const move = (seat: number, data: Record<string, unknown>) =>
+        v5(phones[seat], 'move', { code, generation: r.gen, ...data });
+      let acted = false;
+      for (const seat of [0, 1]) {
+        switch (g.phase) {
+          case 'identity':
+            if (!g.confirmed.includes(seat)) { await move(seat, { move: 'confirmIdentity' }); acted = true; }
+            break;
+          case 'team':
+            if (g.leader === seat) {
+              const size = [2, 3, 2, 3, 3][g.history.length];
+              const team = [seat, ...[0, 1, 2, 3, 4].filter((x) => x !== seat)].slice(0, size);
+              await move(seat, { move: 'proposeTeam', team });
+              acted = true;
+            }
+            break;
+          case 'discussion':
+            if ((g.leader + 1 + g.speechIndex) % 5 === seat) {
+              await v5(phones[seat], 'say', { code, generation: r.gen, text: said % 2 ? '這隊我可以接受，支持。' : '我覺得3號有點可疑' });
+              said++;
+              await refused(v5(phones[1 - seat], 'say', { code, text: '插話' }), /輪到你/);
+              await move(seat, { move: 'endSpeech', expectedVersion: g.speechVersion });
+              acted = true;
+            }
+            break;
+          case 'vote':
+            if (!g.voted.includes(seat)) { await move(seat, { move: 'vote', approve: true }); acted = true; }
+            break;
+          case 'quest':
+            if (g.team.includes(seat) && !g.played.includes(seat)) {
+              await move(seat, { move: 'playQuest', success: !evil(cards[seat].role) });
+              acted = true;
+            }
+            break;
+          case 'voteResult':
+            // the host may move on for a computer leader
+            if (seat === 0) { await move(0, { move: 'continueVote' }); acted = true; }
+            break;
+          case 'questResult':
+            if (seat === 0) { await move(0, { move: 'continueQuest' }); acted = true; }
+            break;
+          case 'assassination':
+            if (cards[seat].role === 'assassin') {
+              await move(seat, { move: 'assassinate', target: (seat + 2) % 5 });
+              acted = true;
+            }
+            break;
+        }
+        if (acted) break;
+      }
+      // nothing for a person to do: the computers are asked
+      if (!acted) await v5(phones[1], 'nudge', { code });
+    }
+    const r = await room(phones[0], code);
+    assert.equal(r.game.phase, 'finished');
+    assert.ok(['正義', '邪惡'].includes(r.game.winner));
+    const talk: any[] = r.talk;
+    const byBot = talk.filter((l) => l.bot === true);
+    const byPeople = talk.filter((l) => l.bot !== true);
+    assert.ok(byBot.length >= 3, `computers said ${byBot.length} lines`);
+    assert.ok(byBot.every((l) => [2, 3, 4].includes(l.by) && l.text.length > 0));
+    assert.ok(byPeople.length >= 1 && byPeople.every((l) => [0, 1].includes(l.by)));
+    // a computer has no card anyone could read
+    await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'private', 'bot:chen')));
+  });
+
+  test('when the people have gone, a room of computers is closed', async () => {
+    await phones[1].call('leaveRoom', { code });
+    let r = await room(phones[0], code);
+    assert.equal(r.players.length, 4);
+    assert.equal(r.status, 'lobby');
+    await phones[0].call('leaveRoom', { code });
+    await denied(getDocFromServer(doc(phones[0].db, 'rooms', code)));
   });
 });

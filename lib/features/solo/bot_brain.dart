@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
 import '../game/game_model.dart';
 import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
@@ -1125,8 +1124,7 @@ class BotBrain {
   /// Merlin can tell. The leader backs his own team; the evil players he
   /// sees want a team with one of them on it; everyone else is taken to
   /// vote as a player with only the public record would. [public] is that
-  /// record seen from nowhere in particular.
-  @visibleForTesting
+  /// record seen from nowhere in particular. For tests.
   double voteDecides(BotObservation o) =>
       _pivotal(o, suspicion(o, asServant: true));
 

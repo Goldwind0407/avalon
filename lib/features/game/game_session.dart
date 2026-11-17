@@ -160,6 +160,17 @@ abstract class GameSession extends ChangeNotifier {
   String? seatStyle(int seat) => null;
   bool get isOnline => hasOwnSeat && !isSolo;
 
+  /// Computer players sit at this table: what is said is put in writing,
+  /// and a player can type a line for them to read.
+  bool get hasComputers => isSolo;
+
+  /// Whether [seat] is played by a computer.
+  bool isComputer(int seat) => isSolo && seat != mySeat;
+
+  /// Whose voice the computer in [seat] speaks with (BotPersona.id); null
+  /// when it has none (then its lines are only shown).
+  String? voiceOf(int seat) => null;
+
   /// Online: seats whose phone has gone quiet, played by the server until
   /// their player is back.
   Set<int> get awaySeats => const {};

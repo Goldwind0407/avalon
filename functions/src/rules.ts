@@ -285,9 +285,12 @@ export interface GameState {
   /** Variant 1: loyalty cards still face down. */
   loyaltyDeck: boolean[];
   reveals: Reveal[];
+  /** What each seat itself played on each quest: {seat: {quest: success}}. */
+  cardLog: Record<string, Record<string, boolean>>;
 }
 
-export const SECRET_KEYS = ['roles', 'pendingVotes', 'pendingCards', 'loyaltyDeck', 'reveals'] as const;
+export const SECRET_KEYS =
+  ['roles', 'pendingVotes', 'pendingCards', 'loyaltyDeck', 'reveals', 'cardLog'] as const;
 
 export function newGame(
   players: number,
@@ -340,6 +343,7 @@ export function newGame(
     pendingCards: {},
     loyaltyDeck,
     reveals: [],
+    cardLog: {},
   };
   beginQuest(s);
   return s;
@@ -514,6 +518,7 @@ export function playQuest(s: GameState, seat: number, success: boolean, rng: Rng
   }
   s.played.push(seat);
   s.pendingCards[String(seat)] = success;
+  (s.cardLog[String(seat)] ??= {})[String(s.history.length + 1)] = success;
   if (s.played.length === s.team.length) {
     if (s.excaliburHolder != null) s.phase = 'excalibur';
     else resolveQuest(s, rng, null);
@@ -626,8 +631,8 @@ export function assassinate(
 
 /** Splits a state into what devices may read and what stays on the server. */
 export function split(s: GameState) {
-  const { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, ...open } = s;
-  return { open, secret: { roles, pendingVotes, pendingCards, loyaltyDeck, reveals } };
+  const { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog, ...open } = s;
+  return { open, secret: { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog } };
 }
 
 export function join(
@@ -649,5 +654,6 @@ export function join(
   state.excaliburHolder ??= null;
   state.loyaltyDeck ??= [];
   state.reveals ??= [];
+  state.cardLog ??= {};
   return state;
 }

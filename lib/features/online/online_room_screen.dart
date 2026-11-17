@@ -11,6 +11,7 @@ import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
+import '../solo/persona/bot_persona.dart';
 import 'online_session.dart';
 import 'online_service.dart';
 import 'voice/voice_controller.dart';
@@ -481,7 +482,10 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         padding: const EdgeInsets.all(10),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          SectionLabel('玩家（${room.players.length}/10）'),
+          Row(children: [
+            Expanded(child: SectionLabel('玩家（${room.players.length}/10）')),
+            if (room.hasBots) _botLevel(room),
+          ]),
           const SizedBox(height: 8),
           for (var row = 0; row < 5; row++)
             Expanded(
@@ -503,8 +507,62 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
         ]),
       );
 
+  static const _levels = {'novice': '新手', 'normal': '一般', 'expert': '高手'};
+
+  /// How well the computers play; the host taps to change it in the lobby.
+  Widget _botLevel(OnlineRoom room) {
+    final label = '電腦：${_levels[room.botLevel] ?? '一般'}';
+    final mayChange = session.isHost && !room.inGame && !_busy;
+    final order = _levels.keys.toList();
+    return SizedBox(
+      height: 24,
+      child: TextButton(
+          key: const ValueKey('botLevel'),
+          style: TextButton.styleFrom(
+              minimumSize: Size.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              foregroundColor: AvalonTheme.gold,
+              textStyle: const TextStyle(fontSize: 12)),
+          onPressed: mayChange
+              ? () => _run(() => session.setBotLevel(
+                  order[(order.indexOf(room.botLevel) + 1) % order.length]))
+              : null,
+          child: Text(mayChange ? '$label（點擊切換）' : label)),
+    );
+  }
+
+  /// The next of the cast who is not at this table yet.
+  BotPersona? _nextBot(OnlineRoom room) {
+    final seated = {for (final p in room.players) p.persona};
+    for (final p in BotPersona.cast) {
+      if (!seated.contains(p.id)) return p;
+    }
+    return null;
+  }
+
   Widget _seat(OnlineRoom room, int seat) {
     if (seat >= room.players.length) {
+      final next = _nextBot(room);
+      // the first empty seat is where the host can seat a computer
+      if (session.isHost &&
+          !room.inGame &&
+          seat == room.players.length &&
+          next != null) {
+        return OutlinedButton.icon(
+            key: const ValueKey('addBot'),
+            style: OutlinedButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                foregroundColor: AvalonTheme.gold,
+                side: const BorderSide(color: AvalonTheme.raised),
+                textStyle: const TextStyle(fontSize: 12)),
+            onPressed: _busy
+                ? null
+                : () => _run(
+                    () => session.setBot(next.id, next.name, seated: true)),
+            icon: const Icon(Icons.smart_toy_outlined, size: 16),
+            label: const Text('加入電腦'));
+      }
       return DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(9),
@@ -538,6 +596,27 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13)),
         ),
+        if (p.bot) ...[
+          const Tooltip(
+              message: '電腦玩家',
+              child: Icon(Icons.smart_toy_outlined,
+                  size: 16, color: AvalonTheme.muted)),
+          if (session.isHost && !room.inGame)
+            SizedBox(
+              width: 26,
+              child: IconButton(
+                  key: ValueKey('removeBot${p.persona}'),
+                  tooltip: '移除這位電腦',
+                  padding: EdgeInsets.zero,
+                  iconSize: 16,
+                  color: AvalonTheme.muted,
+                  onPressed: _busy
+                      ? null
+                      : () => _run(() =>
+                          session.setBot(p.persona!, p.name, seated: false)),
+                  icon: const Icon(Icons.close)),
+            ),
+        ],
         if (p.uid == room.hostUid)
           const Tooltip(
               message: '房主',

@@ -1,0 +1,5 @@
+# only what the computer players' server is built from
+*
+!lib
+!bot_server
+bot_server/.dart_tool
