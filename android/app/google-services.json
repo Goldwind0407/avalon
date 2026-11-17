@@ -12,7 +12,20 @@
           "package_name": "com.example.avalon_shadow_council"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1041864366616-c1ndjrc6j7nd2hplr7d6s9s1n0gnlibs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.avalon_shadow_council",
+            "certificate_hash": "f4426f4fe2fd5ac3756429130ff1d8e88593ad04"
+          }
+        },
+        {
+          "client_id": "1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC4PVsWG_5qKQ1kq5VwAErlduqXhPS_qsI"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.avalonShadowCouncil"
+              }
+            }
+          ]
         }
       }
     }

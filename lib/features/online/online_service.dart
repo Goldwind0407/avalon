@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../firebase_options.dart';
 import '../game/game_session.dart';
 
@@ -98,6 +99,119 @@ class OnlineService {
 
   String? get uid =>
       Firebase.apps.isEmpty ? null : FirebaseAuth.instance.currentUser?.uid;
+
+  // ───────────── Google sign-in (online play needs it) ─────────────
+
+  /// The project's web client id (google-services.json, client_type 3):
+  /// Android needs it to be given an id token Firebase accepts.
+  static const googleWebClientId = String.fromEnvironment(
+      'GOOGLE_WEB_CLIENT_ID',
+      defaultValue: _projectWebClientId);
+  static const _projectWebClientId =
+      '1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com';
+
+  Future<void>? _googleReady;
+
+  /// Whether this phone is signed in with a Google account.
+  Future<bool> hasGoogle() async {
+    try {
+      await (_starting ??= _start());
+    } catch (_) {
+      return false;
+    }
+    return _withGoogle(FirebaseAuth.instance.currentUser);
+  }
+
+  static bool _withGoogle(User? user) =>
+      user != null &&
+      user.providerData.any((p) => p.providerId == 'google.com');
+
+  /// The Google account signed in, for the player to see which one.
+  String? get googleAccount {
+    if (Firebase.apps.isEmpty) return null;
+    final user = FirebaseAuth.instance.currentUser;
+    if (!_withGoogle(user)) return null;
+    return user!.email ?? user.displayName;
+  }
+
+  /// The name on the Google account, to start the nickname from.
+  String? get googleName => Firebase.apps.isEmpty
+      ? null
+      : FirebaseAuth.instance.currentUser?.displayName;
+
+  /// Signs in with Google. An anonymous account already on this phone is
+  /// turned into the Google one, so its seats are kept; if that Google
+  /// account is in use already, this phone becomes it. Returns the id, or
+  /// null when the player backed out.
+  Future<String?> signInWithGoogle() async {
+    try {
+      await (_starting ??= _start());
+      final auth = FirebaseAuth.instance;
+      final current = auth.currentUser;
+      if (kIsWeb) {
+        final provider = GoogleAuthProvider();
+        if (current != null && current.isAnonymous) {
+          try {
+            await current.linkWithPopup(provider);
+          } on FirebaseAuthException catch (e) {
+            if (!_alreadyUsed(e)) rethrow;
+            await auth.signInWithPopup(provider);
+          }
+        } else {
+          await auth.signInWithPopup(provider);
+        }
+        return auth.currentUser?.uid;
+      }
+      final google = GoogleSignIn.instance;
+      await (_googleReady ??= google.initialize(
+          serverClientId:
+              googleWebClientId.isEmpty ? null : googleWebClientId));
+      final GoogleSignInAccount account;
+      try {
+        account = await google.authenticate();
+      } on GoogleSignInException catch (e) {
+        if (e.code == GoogleSignInExceptionCode.canceled ||
+            e.code == GoogleSignInExceptionCode.interrupted) {
+          return null;
+        }
+        rethrow;
+      }
+      final credential = GoogleAuthProvider.credential(
+          idToken: account.authentication.idToken);
+      if (current != null && current.isAnonymous) {
+        try {
+          await current.linkWithCredential(credential);
+        } on FirebaseAuthException catch (e) {
+          if (!_alreadyUsed(e)) rethrow;
+          await auth.signInWithCredential(e.credential ?? credential);
+        }
+      } else {
+        await auth.signInWithCredential(credential);
+      }
+      _checked = true;
+      return auth.currentUser?.uid;
+    } on FirebaseAuthException catch (e) {
+      throw GameMoveException('Google 登入失敗：${e.message ?? e.code}');
+    } on GoogleSignInException catch (e) {
+      throw GameMoveException('Google 登入失敗：${e.description ?? e.code.name}');
+    } on FirebaseException catch (e) {
+      throw GameMoveException('Google 登入失敗：${e.message ?? e.code}');
+    }
+  }
+
+  static bool _alreadyUsed(FirebaseAuthException e) => const {
+        'credential-already-in-use',
+        'email-already-in-use',
+        'provider-already-linked',
+      }.contains(e.code);
+
+  /// Signs this phone out of its Google account (back to a fresh start).
+  Future<void> signOutGoogle() async {
+    try {
+      if (!kIsWeb) await GoogleSignIn.instance.signOut();
+    } catch (_) {/* not signed in there */}
+    await FirebaseAuth.instance.signOut();
+  }
 
   /// Calls one of the game server's functions (functions/src/index.ts).
   Future<Map<String, dynamic>> call(
