@@ -175,13 +175,28 @@ void main() {
         final seen = s.ladyChecks.lastWhere((c) => c.holder == 0).target;
         final other = [1, 2, 3, 4, 5, 6].firstWhere(
             (t) => t != seen && !s.ladyChecks.any((c) => c.target == t));
+        // what the check really showed: a good player says just that
+        final truth = s.myLadyResults.lastWhere((r) => r.target == seen).evil!;
+        final good = s.evilNow(0) == false;
+        String side(bool evil) => evil ? '壞人' : '好人';
+        if (good) {
+          Object? refused;
+          s
+              .say(PlayerSpeech.parse(
+                  '湖中女神驗出${seen + 1}號是${side(!truth)}', s.players, 0))
+              .catchError((Object e) => refused = e);
+          time.flushMicrotasks();
+          expect(refused, isA<GameMoveException>(), reason: 'good may not lie');
+        }
         final before = s.statements.length;
         s.say(PlayerSpeech.parse(
-            '湖中女神驗出${seen + 1}號是好人所以${other + 1}號是壞人', s.players, 0));
+            '湖中女神驗出${seen + 1}號是${side(truth)}所以${other + 1}號是壞人',
+            s.players,
+            0));
         final said = s.statements.sublist(before);
         expect(said, hasLength(2));
         expect(said[0].target, seen);
-        expect(said[0].claimedEvil, isFalse);
+        expect(said[0].claimedEvil, truth);
         expect(said[0].certainty, DiscussionCertainty.certain);
         expect(said[0].continues, isFalse);
         expect(said[1].target, other);
