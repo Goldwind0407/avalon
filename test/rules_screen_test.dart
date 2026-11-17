@@ -10,8 +10,8 @@ void main() {
     addTearDown(tester.view.reset);
     for (final size in [const Size(667, 320), const Size(932, 430)]) {
       tester.view.physicalSize = size;
-      await tester.pumpWidget(MaterialApp(
-          theme: AvalonTheme.dark, home: const RulesScreen()));
+      await tester.pumpWidget(
+          MaterialApp(theme: AvalonTheme.dark, home: const RulesScreen()));
       await tester.pumpAndSettle();
       for (final topic in RulesTopic.values) {
         final tile = find.byKey(ValueKey('rules_${topic.name}'));

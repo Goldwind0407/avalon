@@ -9,6 +9,7 @@ import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_service.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 import 'package:avalon_shadow_council/features/solo/bot_table.dart';
+import 'package:avalon_shadow_council/features/solo/memory/social_memory.dart';
 
 /// A referee (the pass-and-play rules) with a [BotTable] playing some of
 /// the seats, the way the online referee and the computers' server do.
@@ -484,5 +485,73 @@ void main() {
         throwsA(isA<BotRequestError>()));
     expect(() => service.step(request()..['players'] = []),
         throwsA(isA<BotRequestError>()));
+  });
+
+  test('computers remember earlier games in the room with the people now there',
+      () {
+    // a finished game: seat 0 a person, the rest computers
+    final h = Harness(5, humans: {0}, seed: 21);
+    h.play();
+    final g = h.game;
+    Map<String, dynamic> player(int seat, {String? uid}) => seat == 0
+        ? {'uid': uid ?? 'alice', 'name': '小明', 'bot': false}
+        : {
+            'uid': 'bot:p$seat',
+            'name': '電腦$seat',
+            'bot': true,
+            'persona': ['chen', 'yu', 'zhe', 'mia'][seat - 1]
+          };
+    final finished = jsonDecode(jsonEncode({
+      'gen': 1,
+      'players': [for (var s = 0; s < 5; s++) player(s)],
+      'state': {
+        'phase': 'finished',
+        'leader': g.leader,
+        'rejections': g.rejections,
+        'team': g.team,
+        'history': [
+          for (final q in g.history)
+            {'team': q.team, 'fails': q.fails, 'succeeded': q.succeeded}
+        ],
+        'proposals': [for (final p in g.proposals) p.toMap()],
+        'roles': [for (final r in g.roles) r.name],
+        'winner': g.winner,
+        'result': g.result,
+        'cardLog': {
+          for (final e in h.cards.entries)
+            '${e.key}': {for (final c in e.value.entries) '${c.key}': c.value}
+        },
+      },
+      'talk': h.talk,
+    })) as Map;
+    // the next deal in the same room: the same people and computers
+    final next = Harness(5, humans: {0}, seed: 22);
+    final table = next.table;
+    final players = [for (var s = 0; s < 5; s++) player(s)];
+    table.step(next.state, const [], players: players, past: [finished]);
+    final memories = [for (var s = 1; s < 5; s++) table.memoryOf(s)];
+    expect(memories.whereType<Object>(), isNotEmpty,
+        reason: 'someone remembers a whole game together');
+    for (final m in memories.whereType<BotMemory>()) {
+      expect(m.humanSeat, 0);
+      expect(m.entries.single.ago, 0);
+      expect(m.entries.single.kinds, isNotEmpty);
+    }
+    // someone else in the person's seat now: nobody is remembered
+    final stranger = Harness(5, humans: {0}, seed: 23);
+    stranger.table.step(stranger.state, const [],
+        players: [player(0, uid: 'bob'), for (var s = 1; s < 5; s++) player(s)],
+        past: [finished]);
+    expect([for (var s = 1; s < 5; s++) stranger.table.memoryOf(s)],
+        everyElement(isNull));
+    // an unreadable game is passed over
+    final odd = Harness(5, humans: {0}, seed: 24);
+    odd.table.step(odd.state, const [],
+        players: players,
+        past: [
+          {'players': players, 'state': 'nonsense'}
+        ]);
+    expect([for (var s = 1; s < 5; s++) odd.table.memoryOf(s)],
+        everyElement(isNull));
   });
 }

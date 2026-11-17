@@ -98,6 +98,12 @@ class BotService {
     final result = entry.table.step(table, [
       for (final line in request['talk'] as List? ?? const [])
         if (line is Map) line
+    ], players: [
+      for (final p in players)
+        if (p is Map) p
+    ], past: [
+      for (final game in request['past'] as List? ?? const [])
+        if (game is Map) game
     ]);
     return {'say': result.say, 'moves': result.moves};
   }

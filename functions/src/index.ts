@@ -97,6 +97,13 @@ const EXPANSION_UPDATE = '這個房間使用了擴充規則，請先更新 App �
 const secretRef = (code: string) => roomRef(code).collection('secret').doc('state');
 const privateRef = (code: string, uid: string) =>
   roomRef(code).collection('private').doc(uid);
+/** Finished games of a room with computers, for them to remember (server
+ *  only: every role and card, as at the end). */
+const pastRef = (code: string, gen: number) =>
+  roomRef(code).collection('pastGames').doc(String(gen));
+/** How many finished games the computers are told about. */
+const PAST_GAMES = 5;
+
 /** Written by each phone every 20 s (firestore.rules); read only here. */
 const presenceRef = (code: string, uid: string) =>
   roomRef(code).collection('presence').doc(uid);
@@ -436,6 +443,16 @@ function saveState(
   tx: Transaction, code: string, room: Room, state: GameState, revealed: number,
 ) {
   const split = rules.split(state);
+  // a game with computers that has just ended is kept for them to remember
+  if (state.phase === 'finished' && room.game?.phase !== 'finished' && hasBots(room)) {
+    tx.set(pastRef(code, room.gen), {
+      gen: room.gen,
+      players: room.players.map((p) => ({ uid: p.uid, name: p.name, bot: p.bot === true, persona: p.persona ?? null })),
+      state,
+      talk: room.talk ?? [],
+      expireAt: expiry(),
+    });
+  }
   room.game = split.open;
   // The room and the secret state are renewed on every move; the players'
   // private documents (their roles) must outlive them. Renewing rewrites
@@ -559,8 +576,11 @@ const CONTINUES: readonly Move[] =
   ['continueVote', 'continueQuest', 'continueLady', 'continueExcalibur'];
 
 /** What the computers' server is sent: the whole game, the record so far. */
-function botRequest(code: string, room: Room, state: GameState, away: readonly number[]) {
+function botRequest(
+  code: string, room: Room, state: GameState, away: readonly number[], past: unknown[] = [],
+) {
   return {
+    past,
     room: code,
     gen: room.gen,
     seed: room.botSeed ?? 0,
@@ -795,9 +815,18 @@ export const nudge = onCall((req) =>
       // away as well, with the same reasoning as a computer seat. Without
       // it (or when it cannot be reached, below) the plain stand-in does.
       const served = botServer() != null;
+      let past: unknown[] = [];
       if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
+        if (served && bots.length > 0) {
+          const kept = await tx.get(roomRef(code).collection('pastGames')
+            .where('gen', '<', room.gen).orderBy('gen', 'desc').limit(PAST_GAMES));
+          past = kept.docs.map((d) => {
+            const { expireAt: _, ...game } = d.data();
+            return game;
+          });
+        }
         if (!served) {
           const sinceChange = room.updatedAt instanceof Timestamp
             ? now - room.updatedAt.toMillis() : Infinity;
@@ -809,7 +838,10 @@ export const nudge = onCall((req) =>
       // this transaction is through (never from inside it)
       const asked = served ? [...bots, ...away] : bots;
       const ask = state && asked.some((seat) => proxy.pending(state!, seat))
-        ? { step: room.step + (written ? 1 : 0), body: botRequest(code, room, state, served ? away : []) }
+        ? {
+          step: room.step + (written ? 1 : 0),
+          body: botRequest(code, room, state, served ? away : [], past),
+        }
         : null;
       if (!written) return { moves: 0, ask };
       room.away = away;

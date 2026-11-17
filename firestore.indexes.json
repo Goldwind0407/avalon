@@ -6,6 +6,7 @@
     { "collectionGroup": "secret", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "voice", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "presence", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "pastGames", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "voiceSignals", "fieldPath": "expireAt", "ttl": true, "indexes": [] }
   ]
 }

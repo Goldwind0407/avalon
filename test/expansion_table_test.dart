@@ -83,8 +83,8 @@ void main() {
     await tester.tap(find.text('查驗陣營'));
     await settle(2000);
     // shown straight away to the same player, no second hand-off
-    expect(find.text('${playerLabel(target, '騎士$target')} 的陣營是'),
-        findsOneWidget);
+    expect(
+        find.text('${playerLabel(target, '騎士$target')} 的陣營是'), findsOneWidget);
     expect(find.text(s.game.roles[target].isEvil ? '邪惡陣營' : '正義陣營'),
         findsOneWidget);
     await tester.tap(find.text('記住了，隱藏並繼續'));

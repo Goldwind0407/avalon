@@ -644,6 +644,14 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
     assert.ok(byPeople.length >= 1 && byPeople.every((l) => [0, 1].includes(l.by)));
     // a computer has no card anyone could read
     await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'private', 'bot:chen')));
+    // the game is kept for the computers to remember, out of everyone's reach
+    await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'pastGames', String(r.gen))));
+    // the next deal: the computers are asked with that game in mind
+    await v5(phones[0], 'startGame', { code });
+    for (const p of phones) await v5(p, 'move', { code, move: 'confirmIdentity' });
+    let moved = 0;
+    for (let i = 0; i < 4; i++) moved += (await v5(phones[1], 'nudge', { code })).moves;
+    assert.ok(moved > 0, 'the computers play the next game too');
   });
 
   test('when the people have gone, a room of computers is closed', async () => {
