@@ -19,6 +19,9 @@ class SoundSettingsButton extends StatelessWidget {
           onPressed: () => showSoundSettings(context)));
 }
 
+/// Whose voice was tried last, so the next try is someone else.
+String? _lastSample;
+
 Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
     context: context,
     builder: (context) => ListenableBuilder(
@@ -28,6 +31,8 @@ Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
           final voices = BotVoices.instance;
           return AlertDialog(
               title: const Text('遊戲音效'),
+              // phones are held sideways: the settings scroll when tall
+              scrollable: true,
               content: SizedBox(
                   width: 340,
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -65,6 +70,24 @@ Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
                                   voices.enabled ? voices.setVolume : null)),
                       Text('${(voices.volume * 100).round()}%')
                     ]),
+                    Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                            key: const ValueKey('tryBotVoice'),
+                            icon: const Icon(Icons.play_arrow, size: 18),
+                            label: const Text('試聽電腦語音'),
+                            onPressed: voices.enabled
+                                ? () async {
+                                    final who = await voices.trySample(
+                                        after: _lastSample);
+                                    _lastSample = who ?? _lastSample;
+                                    if (who == null && context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text('還沒有錄好的電腦語音')));
+                                    }
+                                  }
+                                : null)),
                   ])),
               actions: [
                 TextButton(
