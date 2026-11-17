@@ -115,8 +115,10 @@ class OnlineService {
   /// Whether this phone is signed in with a Google account.
   Future<bool> hasGoogle() async {
     try {
-      await (_starting ??= _start());
+      // no Firebase to be had (no network at start, tests): not signed in
+      await (_starting ??= _start()).timeout(const Duration(seconds: 5));
     } catch (_) {
+      _starting = null;
       return false;
     }
     return _withGoogle(FirebaseAuth.instance.currentUser);
