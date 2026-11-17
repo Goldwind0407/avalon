@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -19,6 +20,7 @@ class OnlineService {
   static const region = 'asia-east1';
 
   Future<void>? _starting;
+  bool _checked = false;
 
   Future<void> _start() async {
     if (Firebase.apps.isEmpty) {
@@ -42,11 +44,55 @@ class OnlineService {
     try {
       await (_starting ??= _start());
       final auth = FirebaseAuth.instance;
+      // once a run: an account saved earlier may no longer be usable (say,
+      // one from the local test servers); it is replaced before anyone
+      // is given its id
+      if (!_checked && auth.currentUser != null) {
+        _checked = true;
+        await _renewDeadAccount();
+      }
       final user = auth.currentUser ?? (await auth.signInAnonymously()).user;
       return user!.uid;
     } on FirebaseException catch (e) {
       _starting = null;
       throw GameMoveException('無法連線：${e.message ?? e.code}');
+    }
+  }
+
+  /// Sign-in errors that mean the saved account can no longer be used (it
+  /// was removed, or it came from the local test servers). A network
+  /// error is not one: the account is fine, the phone is offline.
+  static const _deadAccount = {
+    'user-not-found',
+    'user-disabled',
+    'invalid-user-token',
+    'user-token-expired',
+    'invalid-credential',
+    'invalid-api-key',
+  };
+
+  /// When the saved account turns out to be unusable, starts a new one.
+  /// Returns whether it did (then the call is worth trying again).
+  Future<bool> _renewDeadAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+    try {
+      await user.getIdToken(true);
+      return false;
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) debugPrint('account check: ${e.code} ${e.message}');
+      // some come back as "unknown" with the reason only in the message
+      final message = e.message ?? '';
+      if (!_deadAccount.contains(e.code) &&
+          !RegExp(r'INVALID_REFRESH_TOKEN|USER_NOT_FOUND|TOKEN_EXPIRED|USER_DISABLED|INVALID_ID_TOKEN')
+              .hasMatch(message)) {
+        return false;
+      }
+      await FirebaseAuth.instance.signOut();
+      await FirebaseAuth.instance.signInAnonymously();
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -57,16 +103,49 @@ class OnlineService {
   Future<Map<String, dynamic>> call(
       String name, Map<String, Object?> data) async {
     await signIn();
-    try {
+    Future<Map<String, dynamic>> once() async {
       final result = await _functions
           .httpsCallable(name)
           .call({'protocolVersion': 5, ...data});
       return Map<String, dynamic>.from(result.data as Map? ?? const {});
+    }
+
+    try {
+      try {
+        return await once();
+      } on FirebaseFunctionsException catch (e) {
+        if (kDebugMode) {
+          debugPrint('callable $name: ${e.code} ${e.message} ${e.details}');
+        }
+        // the phone could not even present who it is: the saved account
+        // may be one the server does not know; with a new one, once more
+        if (e.code != 'internal' &&
+            e.code != 'unknown' &&
+            e.code != 'unauthenticated') {
+          rethrow;
+        }
+        if (!await _renewDeadAccount()) rethrow;
+        return await once();
+      }
     } on FirebaseFunctionsException catch (e) {
-      throw GameMoveException(e.message ?? '連線發生錯誤，請再試一次');
+      throw GameMoveException(_readable(e));
     } on FirebaseException catch (e) {
       throw GameMoveException('連線發生錯誤：${e.message ?? e.code}');
     }
+  }
+
+  /// The server's own message, or plain words for a failure on the phone
+  /// (whose text is a Java exception nobody should have to read).
+  static String _readable(FirebaseFunctionsException e) {
+    final message = e.message;
+    if (message == null ||
+        message.contains('Exception') ||
+        message.contains('underlying tasks')) {
+      return e.code == 'unavailable' || e.code == 'deadline-exceeded'
+          ? '連不上伺服器，請檢查網路後再試'
+          : '連線發生錯誤，請稍後再試';
+    }
+    return message;
   }
 
   Stream<Map<String, dynamic>?> room(String code) => FirebaseFirestore.instance
