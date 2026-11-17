@@ -5,7 +5,7 @@
 	<!-- Google sign-in (online play): the iOS client and its URL scheme.
 	     Without them the sign-in tears the app down on iOS. -->
 	<key>GIDClientID</key>
-	<string>1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep.apps.googleusercontent.com</string>
+	<string>1041864366616-e8ta8flfofc0qtqhrmk5onl38pacpmsd.apps.googleusercontent.com</string>
 	<key>GIDServerClientID</key>
 	<string>1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
@@ -15,7 +15,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep</string>
+				<string>com.googleusercontent.apps.1041864366616-e8ta8flfofc0qtqhrmk5onl38pacpmsd</string>
 			</array>
 		</dict>
 	</array>
