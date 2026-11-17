@@ -181,6 +181,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Sets the table for the game as it is now: a fresh deal, or (online,
   /// after rejoining) a game that is already under way.
   void _startTable() {
+    // lines already on the record when the table is (re)built are not news
+    _heard = game.statements.length;
     _invalidateAnimations();
     _resetStaging();
     if (game.phase == GamePhase.identity && game.confirmedSeats.isEmpty) {
@@ -338,12 +340,45 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String? _spokenKey;
 
+  /// How many lines of the record this table has already taken in.
+  int _heard = 0;
+
   /// A computer's line, said aloud once when it appears (if it has been
-  /// recorded); a new turn cuts off the last one.
+  /// recorded); a new turn cuts off the last one. A line said outside a
+  /// speaking turn (what the Lady showed, the Assassin's choice, taking a
+  /// vote back) is also shown for a moment, as nobody's turn displays it.
   void _speakLine() {
+    final record = game.statements;
+    if (record.length > _heard) {
+      final fresh = record.sublist(min(_heard, record.length));
+      _heard = record.length;
+      final aside = game.phase == GamePhase.discussion
+          ? null
+          : fresh
+              .where((s) => !s.continues && game.isComputer(s.speaker))
+              .lastOrNull;
+      if (aside != null) {
+        _spokenKey = null;
+        unawaited(
+            BotVoices.instance.speak(game.voiceOf(aside.speaker), aside.text));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(SnackBar(
+                key: const ValueKey('asideLine'),
+                duration: Duration(
+                    milliseconds: 4000 + 150 * aside.text.length.clamp(0, 40)),
+                content: Text('${player(aside.speaker)}：${aside.text}')));
+        });
+        return;
+      }
+    }
     final speaker = game.speaker, line = game.currentStatement;
     if (game.phase != GamePhase.discussion || speaker == null || line == null) {
-      if (_spokenKey != null && game.phase != GamePhase.discussion) {
+      if (_spokenKey != null &&
+          game.phase != GamePhase.discussion &&
+          game.phase != GamePhase.vote) {
         _spokenKey = null;
         unawaited(BotVoices.instance.stop());
       }
