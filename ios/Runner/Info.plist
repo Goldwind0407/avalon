@@ -2,6 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Google sign-in (online play): the iOS client and its URL scheme.
+	     Without them the sign-in tears the app down on iOS. -->
+	<key>GIDClientID</key>
+	<string>1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep</string>
+			</array>
+		</dict>
+	</array>
     <key>NSMicrophoneUsageDescription</key>
     <string>多機遊玩時，使用麥克風與同房玩家即時討論。</string>
     <key>UIBackgroundModes</key>
