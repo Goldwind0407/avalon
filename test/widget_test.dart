@@ -54,11 +54,12 @@ void main() {
       expect(find.byType(TextField), findsNothing);
       expect(tester.takeException(), isNull);
     }
-    // online play opens its own page (it only connects when a room is made)
+    // online play opens its own page, which asks for a Google account
+    // before any room (here no account can be found)
     await tester.tap(find.text('多機遊玩'));
     await tester.pumpAndSettle();
-    expect(find.text('建立房間'), findsOneWidget);
-    expect(find.text('加入'), findsOneWidget);
+    expect(find.byKey(const ValueKey('googleSignIn')), findsOneWidget);
+    expect(find.text('建立房間'), findsNothing);
     await tester.tap(find.byTooltip('返回首頁'));
     await tester.pumpAndSettle();
     expect(find.text('一機遊玩').hitTestable(), findsOneWidget);

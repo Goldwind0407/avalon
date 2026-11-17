@@ -159,6 +159,19 @@ function uidOf(req: CallableRequest): string {
   return uid;
 }
 
+/**
+ * Online play is for signed-in Google accounts (REQUIRE_GOOGLE=true):
+ * anonymous accounts cost nothing to make, so limits per account would not
+ * hold. Without the setting (the emulators, tests) anyone signed in plays.
+ */
+function requireAccount(req: CallableRequest) {
+  const provider = (req.auth?.token as { firebase?: { sign_in_provider?: string } } | undefined)
+    ?.firebase?.sign_in_provider;
+  if (process.env.REQUIRE_GOOGLE === 'true' && provider === 'anonymous') {
+    throw new HttpsError('permission-denied', '多機遊玩需要先用 Google 登入，請更新 App 後再試');
+  }
+}
+
 function str(value: unknown, field: string): string {
   if (typeof value !== 'string') throw new HttpsError('invalid-argument', `缺少 ${field}`);
   return value;
@@ -222,6 +235,7 @@ function touch(room: Room, { renew = true } = {}) {
 export const createRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const name = cleanName(req.data?.name);
+  requireAccount(req);
   await checkLimit(uid, 'create');
   const created = await db.runTransaction(async (tx) => {
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -292,6 +306,8 @@ function joinRoomNow(req: CallableRequest, uid: string, code: string, name: stri
       }
       return { code, seat };
     }
+    // a new seat takes a Google account; coming back to one's own does not
+    requireAccount(req);
     if (room.status !== 'lobby') throw new HttpsError('failed-precondition', '遊戲已經開始，無法加入');
     if (room.players.length >= rules.MAX_PLAYERS) {
       throw new HttpsError('failed-precondition', '房間已滿（最多 10 人）');
