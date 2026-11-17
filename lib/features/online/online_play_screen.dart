@@ -102,7 +102,10 @@ class _OnlinePlayScreenState extends State<OnlinePlayScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      IntrinsicHeight(
+                      // a fixed height: sizing by the taller card came out
+                      // two pixels short on some phones (the code field)
+                      SizedBox(
+                        height: 186,
                         child: Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -123,6 +126,9 @@ class _OnlinePlayScreenState extends State<OnlinePlayScreen> {
                                       const SizedBox(height: 12),
                                       ElevatedButton.icon(
                                         key: const ValueKey('createRoom'),
+                                        style: ElevatedButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(48)),
                                         onPressed: _busy
                                             ? null
                                             : () => _enter(create: true),
@@ -163,9 +169,12 @@ class _OnlinePlayScreenState extends State<OnlinePlayScreen> {
                                         onChanged: (_) =>
                                             setState(() => _error = null),
                                       ),
-                                      const SizedBox(height: 12),
+                                      const Spacer(),
                                       OutlinedButton.icon(
                                         key: const ValueKey('joinRoom'),
+                                        style: OutlinedButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(48)),
                                         onPressed: _busy
                                             ? null
                                             : () => _enter(create: false),

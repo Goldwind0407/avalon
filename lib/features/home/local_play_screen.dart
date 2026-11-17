@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../../core/assets.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../game/game_screen.dart';
@@ -12,6 +11,7 @@ import '../game/expansion_model.dart';
 import '../game/expansion_widgets.dart';
 import '../lobby/role_presets.dart';
 import '../lobby/room_model.dart';
+import '../lobby/setup_widgets.dart';
 import '../solo/bot_difficulty.dart';
 import '../solo/memory/match_history_screen.dart';
 import '../solo/memory/match_repository.dart';
@@ -299,95 +299,39 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SectionLabel(widget.solo ? '座位・1 號是你，其餘是電腦' : '座位・點一下修改暱稱'),
         const SizedBox(height: 9),
-        for (var row = 0; row < (playerCount + 1) ~/ 2; row++)
-          Expanded(
-              child: Padding(
-            padding: EdgeInsets.only(top: row == 0 ? 0 : 6),
-            child:
-                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              for (var column = 0; column < 2; column++) ...[
-                if (column == 1) const SizedBox(width: 7),
-                Expanded(
-                    child: row * 2 + column >= playerCount
-                        ? const SizedBox.shrink()
-                        : _seat(row * 2 + column)),
-              ]
-            ]),
-          )),
+        Expanded(child: SetupGrid(count: playerCount, cell: _seat)),
       ]));
 
   Widget _seat(int index) {
     final bot = widget.solo && index > 0;
     final style = bot ? cast[index - 1].style.label : null;
-    return Material(
-      color: AvalonTheme.raised.withValues(alpha: .7),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(11),
-          side: BorderSide(
-              color: index == 0 && widget.solo
-                  ? AvalonTheme.gold.withValues(alpha: .45)
-                  : Colors.white.withValues(alpha: .05))),
-      child: InkWell(
-        key: ValueKey('playerName$index'),
-        borderRadius: BorderRadius.circular(11),
+    return SetupSeat(
+        tapKey: ValueKey('playerName$index'),
+        number: index + 1,
+        name: names[index],
+        highlight: index == 0 && widget.solo,
         onTap: () => editName(index),
-        child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            child: Row(children: [
-              Container(
-                width: 24,
-                height: 24,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AvalonTheme.bg.withValues(alpha: .6),
-                    border: Border.all(
-                        color: AvalonTheme.gold.withValues(alpha: .6))),
-                child: Text('${index + 1}',
-                    style: const TextStyle(
-                        fontSize: 11.5,
-                        color: AvalonTheme.gold,
-                        fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                  child: Text(names[index],
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13.5))),
-              if (style != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Text(style,
-                      style: const TextStyle(
-                          fontSize: 10.5, color: AvalonTheme.muted)),
-                ),
-              Icon(bot ? Icons.info_outline : Icons.edit_outlined,
-                  size: 14, color: AvalonTheme.muted),
-            ])),
-      ),
-    );
+        trailing: [
+          if (style != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(style,
+                  style: const TextStyle(
+                      fontSize: 10.5, color: AvalonTheme.muted)),
+            ),
+          Icon(bot ? Icons.info_outline : Icons.edit_outlined,
+              size: 14, color: AvalonTheme.muted),
+        ]);
   }
-
-  static const _goodColor = Color(0xFF6FA8FF), _evilColor = Color(0xFFFF7A7A);
 
   Widget _roles(List<(String, String)> options) => GoldPanel(
       padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const SectionLabel('角色配置'),
         const SizedBox(height: 9),
-        for (var row = 0; row < options.length ~/ 2; row++)
-          Expanded(
-              child: Padding(
-            padding: EdgeInsets.only(top: row == 0 ? 0 : 6),
-            child:
-                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              for (var column = 0; column < 2; column++) ...[
-                if (column == 1) const SizedBox(width: 7),
-                Expanded(child: _role(options[row * 2 + column])),
-              ]
-            ]),
-          )),
+        Expanded(
+            child: SetupGrid(
+                count: options.length, cell: (i) => _role(options[i]))),
       ]));
 
   Widget _role((String, String) option) {
@@ -396,76 +340,15 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
     final expansionRole = role.isLancelot;
     final active = expansionRole || roles.contains(name);
     final required = expansionRole || name == '梅林' || name == '刺客';
-    final sideColor = role.isEvil ? _evilColor : _goodColor;
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 160),
-      opacity: active ? 1 : .55,
-      child: Material(
-        color: active
-            ? AvalonTheme.violet.withValues(alpha: .26)
-            : AvalonTheme.raised.withValues(alpha: .6),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(11),
-            side: BorderSide(
-                color: active
-                    ? AvalonTheme.gold.withValues(alpha: .5)
-                    : Colors.white.withValues(alpha: .05))),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: ValueKey('role$name'),
-          onTap: required
-              ? null
-              : () => setState(() {
-                    active ? roles.remove(name) : roles.add(name);
-                  }),
-          child: Row(children: [
-            // the role's portrait, framed in its side's colour
-            Container(
-              width: 34,
-              margin: const EdgeInsets.fromLTRB(5, 5, 0, 5),
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(color: sideColor.withValues(alpha: .8))),
-              child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Image.asset(Assets.role(role, 0),
-                      fit: BoxFit.cover, alignment: const Alignment(0, -.55))),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-                child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(name,
-                              style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: active
-                                      ? AvalonTheme.gold
-                                      : Colors.white)),
-                          Text(side,
-                              style: TextStyle(
-                                  fontSize: 10.5,
-                                  color: sideColor.withValues(alpha: .85))),
-                        ]))),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(
-                  required
-                      ? Icons.lock_outline
-                      : active
-                          ? Icons.check_circle
-                          : Icons.circle_outlined,
-                  size: 16,
-                  color: active ? AvalonTheme.gold : AvalonTheme.muted),
-            ),
-          ]),
-        ),
-      ),
-    );
+    return SetupRole(
+        tapKey: ValueKey('role$name'),
+        role: role,
+        side: side,
+        active: active,
+        locked: required,
+        onTap: () => setState(() {
+              active ? roles.remove(name) : roles.add(name);
+            }));
   }
 
   Widget _footer(BuildContext context, Room configuration, int evilCount) =>
@@ -493,19 +376,10 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 12, color: Colors.orangeAccent)))
-                  : FittedBox(
-                      fit: BoxFit.scaleDown,
+                  : Align(
                       alignment: Alignment.centerLeft,
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        _tally(Assets.logoGood, '正義', playerCount - evilCount,
-                            _goodColor),
-                        const SizedBox(width: 8),
-                        _tally(Assets.logoEvil, '邪惡', evilCount, _evilColor),
-                        const SizedBox(width: 10),
-                        const Text('其餘名額自動補齊',
-                            style: TextStyle(
-                                fontSize: 11.5, color: AvalonTheme.muted)),
-                      ]))),
+                      child: SetupTally(
+                          good: playerCount - evilCount, evil: evilCount))),
           const SizedBox(width: 12),
           SizedBox(
               width: 168,
@@ -525,20 +399,6 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                       : null,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('開始遊戲'))),
-        ]),
-      );
-
-  /// How many play on one side, with the side's crest.
-  Widget _tally(String crest, String side, int count, Color color) => Container(
-        padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
-        decoration: ShapeDecoration(
-            color: color.withValues(alpha: .12),
-            shape: StadiumBorder(
-                side: BorderSide(color: color.withValues(alpha: .4)))),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Image.asset(crest, width: 22, height: 22),
-          const SizedBox(width: 4),
-          Text('$side $count 人', style: TextStyle(fontSize: 12, color: color)),
         ]),
       );
 }
