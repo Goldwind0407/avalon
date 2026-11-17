@@ -137,9 +137,18 @@ class OnlineService {
   }
 
   /// The name on the Google account, to start the nickname from.
-  String? get googleName => Firebase.apps.isEmpty
-      ? null
-      : FirebaseAuth.instance.currentUser?.displayName;
+  String? get googleName {
+    if (Firebase.apps.isEmpty) return null;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+    // a linked account keeps its own (empty) name: the Google one has it
+    for (final p in user.providerData) {
+      if (p.providerId == 'google.com' && (p.displayName ?? '').isNotEmpty) {
+        return p.displayName;
+      }
+    }
+    return user.displayName;
+  }
 
   /// Signs in with Google. An anonymous account already on this phone is
   /// turned into the Google one, so its seats are kept; if that Google
