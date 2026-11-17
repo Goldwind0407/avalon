@@ -484,11 +484,16 @@ describe('a player whose phone has gone quiet', () => {
     for (const p of phones.slice(0, 4)) await p.call('move', { code, move: 'confirmIdentity' });
     assert.equal((await room(phones[0], code)).game.phase, 'identity');
     await denied(outsider.call('nudge', { code }));
-    const { moves } = await phones[1].call('nudge', { code });
-    assert.ok(moves >= 1);
+    await phones[1].call('nudge', { code });
     let r = await room(phones[0], code);
     assert.deepEqual(r.away, [4]);
     assert.match(r.notice, /5 號.*電腦代理/);
+    // asked again until nothing more comes of it (the plain stand-in does
+    // all it can at once; the computers' server takes a step at a time)
+    for (let i = 0; i < 6; i++) {
+      if ((await phones[1].call('nudge', { code })).moves === 0) break;
+    }
+    r = await room(phones[0], code);
     // the game went on as far as it could without a player who is here
     const leader: number = r.game.leader;
     if (leader === 4) {

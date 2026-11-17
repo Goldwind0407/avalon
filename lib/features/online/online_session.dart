@@ -245,9 +245,8 @@ class OnlineGameSession extends GameSession {
   /// are asked to move; null when it waits for no computer. The host's
   /// phone asks first; the others only if nothing has come of that.
   Duration? _computerDelay(Set<int> awaited) {
-    final bots = room!.players;
-    final waitsForBot = awaited.any((s) => s >= 0 && bots[s].bot) ||
-        (awaited.contains(-1) && room!.hasBots);
+    final waitsForBot = awaited.any((s) => s >= 0 && isComputer(s)) ||
+        (awaited.contains(-1) && (room!.hasBots || room!.away.isNotEmpty));
     if (!waitsForBot) return null;
     final Duration wait;
     if (phase == GamePhase.discussion) {
@@ -274,12 +273,16 @@ class OnlineGameSession extends GameSession {
   }
 
   @override
-  bool get hasComputers => room?.hasBots ?? false;
+  bool get hasComputers =>
+      room != null &&
+      (room!.hasBots || room!.away.isNotEmpty || room!.talk.isNotEmpty);
+
+  /// A computer seat, or a player who is away and played for meanwhile.
   @override
   bool isComputer(int seat) =>
       seat >= 0 &&
       seat < (room?.players.length ?? 0) &&
-      room!.players[seat].bot;
+      (room!.players[seat].bot || room!.away.contains(seat));
 
   @override
   List<DiscussionStatement> get statements => [

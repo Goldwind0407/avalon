@@ -559,13 +559,15 @@ const CONTINUES: readonly Move[] =
   ['continueVote', 'continueQuest', 'continueLady', 'continueExcalibur'];
 
 /** What the computers' server is sent: the whole game, the record so far. */
-function botRequest(code: string, room: Room, state: GameState) {
+function botRequest(code: string, room: Room, state: GameState, away: readonly number[]) {
   return {
     room: code,
     gen: room.gen,
     seed: room.botSeed ?? 0,
     level: room.botLevel ?? 'normal',
-    players: room.players.map((p) => ({ name: p.name, bot: p.bot === true, persona: p.persona ?? null })),
+    // a player who is away is played for like a computer until they are back
+    players: room.players.map((p, seat) =>
+      ({ name: p.name, bot: p.bot === true || away.includes(seat), persona: p.persona ?? null })),
     state,
     cards: state.cardLog,
     talk: room.talk ?? [],
@@ -616,10 +618,12 @@ async function applyBots(
   const sinceChange = room.updatedAt instanceof Timestamp
     ? Date.now() - room.updatedAt.toMillis() : Infinity;
   const talk = room.talk ?? [];
+  // the seats the server may answer for: computers, and players marked away
+  const played = (seat: number) => isBot(room, seat) || (room.away ?? []).includes(seat);
   let done = 0;
   for (const line of answer.say) {
     if (typeof line !== 'object' || line === null || !Number.isInteger(line.by) ||
-        !isBot(room, line.by) || typeof line.text !== 'string' ||
+        !played(line.by) || typeof line.text !== 'string' ||
         line.text.length === 0 || line.text.length > 400 ||
         JSON.stringify(line).length > 2000 || talk.length >= TALK_LIMIT) {
       continue;
@@ -628,7 +632,7 @@ async function applyBots(
     done++;
   }
   for (const m of answer.moves) {
-    if (typeof m !== 'object' || m === null || !Number.isInteger(m.seat) || !isBot(room, m.seat)) {
+    if (typeof m !== 'object' || m === null || !Number.isInteger(m.seat) || !played(m.seat)) {
       continue;
     }
     // a result stays on the table long enough for people to look at it
@@ -646,6 +650,25 @@ async function applyBots(
   room.talk = talk;
   saveState(tx, code, room, state, revealed);
   return done;
+}
+
+/** The plain stand-in (proxy.ts) for the players marked away, if the game
+ *  is still where it was ([step]). Returns how many moves it made. */
+async function standInPlainly(tx: Transaction, code: string, step: number): Promise<number> {
+  const snap = await tx.get(roomRef(code));
+  const room = snap.data() as Room | undefined;
+  if (!room || room.step !== step || room.status !== 'playing' || !room.game ||
+      !room.away?.length || roomHasExpired(room.expireAt)) {
+    return 0;
+  }
+  const state = await loadState(tx, code, room);
+  const revealed = state.reveals.length;
+  const now = Date.now();
+  const sinceChange = room.updatedAt instanceof Timestamp ? now - room.updatedAt.toMillis() : Infinity;
+  const moves = proxy.standIn(
+    state, room.away, rng, room.players.map((p) => p.name), now, sinceChange);
+  if (moves > 0) saveState(tx, code, room, state, revealed);
+  return moves;
 }
 
 /** The host seats a computer in the lobby, or sends one away. */
@@ -768,18 +791,25 @@ export const nudge = onCall((req) =>
       let moves = 0, revealed = 0;
       let state: GameState | null = null;
       const bots = room.playerUids.map((_, seat) => seat).filter((seat) => isBot(room, seat));
+      // With the computer players' server set up, it plays for whoever is
+      // away as well, with the same reasoning as a computer seat. Without
+      // it (or when it cannot be reached, below) the plain stand-in does.
+      const served = botServer() != null;
       if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
-        const sinceChange = room.updatedAt instanceof Timestamp
-          ? now - room.updatedAt.toMillis() : Infinity;
-        moves = proxy.standIn(state, away, rng, room.players.map((p) => p.name), now, sinceChange);
+        if (!served) {
+          const sinceChange = room.updatedAt instanceof Timestamp
+            ? now - room.updatedAt.toMillis() : Infinity;
+          moves = proxy.standIn(state, away, rng, room.players.map((p) => p.name), now, sinceChange);
+        }
       }
       const written = moves > 0 || left.length > 0 || back.length > 0;
-      // the game now waits for a computer: its server is asked once this
-      // transaction is through (never from inside it)
-      const ask = state && bots.some((seat) => proxy.pending(state!, seat))
-        ? { step: room.step + (written ? 1 : 0), body: botRequest(code, room, state) }
+      // the game now waits for a seat the server plays: it is asked once
+      // this transaction is through (never from inside it)
+      const asked = served ? [...bots, ...away] : bots;
+      const ask = state && asked.some((seat) => proxy.pending(state!, seat))
+        ? { step: room.step + (written ? 1 : 0), body: botRequest(code, room, state, served ? away : []) }
         : null;
       if (!written) return { moves: 0, ask };
       room.away = away;
@@ -798,9 +828,13 @@ export const nudge = onCall((req) =>
     if (!first.ask) return { moves: first.moves };
     const { step, body } = first.ask;
     const answer = await askBots(body);
-    if (!answer || (answer.say.length === 0 && answer.moves.length === 0)) {
-      return { moves: first.moves };
+    if (!answer) {
+      // the server cannot be reached: nobody is left waiting for a player
+      // who is away (the computer seats wait for the server to come back)
+      const stood = await db.runTransaction((tx) => standInPlainly(tx, code, step));
+      return { moves: first.moves + stood };
     }
+    if (answer.say.length === 0 && answer.moves.length === 0) return { moves: first.moves };
     const done = await db.runTransaction((tx) => applyBots(tx, code, step, answer));
     return { moves: first.moves + done };
   }),

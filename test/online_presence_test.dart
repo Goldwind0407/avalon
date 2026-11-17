@@ -98,9 +98,11 @@ void main() {
     withSession((time, server, session, beats) {
       feed(time, server, room(voted: [0, 1, 2, 4], away: [3]));
       expect(session.awaySeats, {3});
-      time.elapse(const Duration(seconds: 7));
+      // played for like a computer: soon, the host's phone first
+      expect(session.isComputer(3), isTrue);
+      time.elapse(const Duration(seconds: 5));
       expect(nudges(server), 0);
-      time.elapse(const Duration(seconds: 2));
+      time.elapse(const Duration(milliseconds: 300));
       expect(nudges(server), 1);
     });
   });

@@ -124,6 +124,10 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
 - 遊戲狀態不能由手機直接寫入 Firestore（`firestore.rules`），遊戲動作都經過伺服器檢查；語音連線訊息則有獨立的成員及收件人權限。
 - 匿名登入；同一支手機重開 App 後，用同一個房號可以回到原座位。
 - **斷線由電腦代理**：每支手機每 20 秒向伺服器報到一次（`rooms/{房號}/presence/{玩家}`，只有伺服器讀得到）。遊戲停住一陣子後（房主 30 秒、其他人 45 秒），手機會請伺服器檢查；超過 60 秒沒報到的玩家會被標成「電腦代理」，輪到他時由伺服器照他那個座位能知道的資訊代為行動（`functions/src/proxy.ts`：確認身分、組隊、投票、出任務牌、湖中女神、刺殺；王者之劍一律不用；結果畫面至少留 6 秒才繼續）。玩家回到 App 會立刻報到並拿回座位，之後由本人操作。代理的打法很簡單，不是單人模式的電腦。主動按「離開」仍然會中止對局。舊版 App（通訊協定 3 以下）不會報到，也不會被代理。
+- **多人搭配電腦**：房主可以在大廳把電腦排進空位並選難度（新手／一般／高手）。電腦用的就是單人模式那一套（`lib/features/solo`），由獨立的 Dart 伺服器 `bot_server/` 執行；雲端裁判在輪到電腦時（由手機的 `nudge` 觸發，房主的手機優先）把整局狀態交給它，回來的每一步都照 `functions/src/rules.ts` 檢查後才執行。大家說的話記在房間文件的 `talk`：電腦的發言是文字，人在自己的發言回合可以打一句話（和單人模式同一個解析器）。設定了這台伺服器之後，斷線的玩家也由它接手，回來即交還；伺服器連不上時退回 `functions/src/proxy.ts` 的簡單代理。
+  - 伺服器設定：雲端功能的環境變數 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`（16 字元以上，和伺服器的 `BOT_SERVER_SECRET` 相同）。沒設定時不能加入電腦。
+  - 本機試玩：`dart compile exe bot_server/bin/server.dart -o build/bot_server.exe`，以 `PORT=8099 BOT_SERVER_SECRET=...` 執行；再以 `BOT_SERVER_URL=http://127.0.0.1:8099 BOT_SERVER_SECRET=... firebase emulators:start --only auth,firestore,functions` 啟動模擬器；App 用 `--dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2` 建置。整合測試：同樣匯出這兩個變數後 `npm run test:emulator`。
+  - 部署：根目錄的 `Dockerfile` 可用在 Cloud Run 或樹莓派（同一個映像）。
 - 語音連線：同一對玩家連上之後，重連次數重新計算（連續失敗 4 次才放棄）；報到漏掉一兩次不算斷線，連續三次失敗才結束語音。
 - 規則在兩處各有一份：`lib/features/game/game_model.dart`（一機）與 `functions/src/rules.ts`（多機）。修改規則時兩邊都要改，並同步更新兩邊的測試。
 

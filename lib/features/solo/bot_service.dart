@@ -67,10 +67,9 @@ class BotService {
 
     _tables.removeWhere((_, t) => at.difference(t.used) > keep);
     final key = '$room/$generation';
-    // who the computers are and how well they play, in case the same room
-    // and deal number ever come back as another table
-    final shape = '$seed/${level.name}/'
-        '${styles.entries.map((e) => '${e.key}:${e.value.name}').join(',')}';
+    // the deal's seed and the level, in case the same room and deal number
+    // ever come back as another table
+    final shape = '$seed/${level.name}';
     var entry = _tables.remove(key);
     if (entry == null || entry.shape != shape) {
       entry = (
@@ -79,6 +78,9 @@ class BotService {
         shape: shape
       );
     }
+    // who is played for may change during a game: someone goes away, or
+    // comes back and takes the seat again
+    entry.table.seat(styles);
     _tables[key] = (table: entry.table, used: at, shape: shape);
     while (_tables.length > limit) {
       _tables.remove(_tables.keys.first);

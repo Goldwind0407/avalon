@@ -180,9 +180,38 @@ class BotTable {
       {required Map<int, BotStyle> bots,
       required this.difficulty,
       required int seed})
-      : _styles = Map.unmodifiable(bots),
+      : _styles = Map.of(bots),
         _random = Random(seed);
   final Map<int, BotStyle> _styles;
+
+  /// Who the computers play for now. A game may go on while this changes:
+  /// a person who goes quiet is played for until they are back. A seat that
+  /// stays keeps what it had in mind; a new one starts from the record.
+  void seat(Map<int, BotStyle> bots) {
+    for (final gone
+        in _styles.keys.where((s) => !bots.containsKey(s)).toList()) {
+      _styles.remove(gone);
+      _brains.remove(gone);
+      _plannedVotes.remove(gone);
+      _plannedCards.remove(gone);
+    }
+    for (final MapEntry(key: seat, value: style) in bots.entries) {
+      if (_styles[seat] == style) continue;
+      _styles[seat] = style;
+      _plannedVotes.remove(seat);
+      _plannedCards.remove(seat);
+      if (_generation != null) _brains[seat] = _brain(style);
+    }
+  }
+
+  BotBrain _brain(BotStyle style) {
+    final seed = _random.nextInt(1 << 30);
+    return BotBrain(Random(seed),
+        dialogueRandom: Random(seed ^ 0x5a17),
+        style: style,
+        difficulty: difficulty);
+  }
+
   final BotDifficulty difficulty;
   final Random _random;
   final _brains = <int, BotBrain>{};
@@ -200,11 +229,7 @@ class BotTable {
     _plannedCards.clear();
     _proposalKey = null;
     for (final seat in _styles.keys) {
-      final seed = _random.nextInt(1 << 30);
-      _brains[seat] = BotBrain(Random(seed),
-          dialogueRandom: Random(seed ^ 0x5a17),
-          style: _styles[seat]!,
-          difficulty: difficulty);
+      _brains[seat] = _brain(_styles[seat]!);
     }
   }
 

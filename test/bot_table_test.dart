@@ -328,6 +328,37 @@ void main() {
     }
   });
 
+  test('a person who goes away is played for, and takes the seat back', () {
+    for (var seed = 1; seed <= 6; seed++) {
+      final humans = {0, 3};
+      final h = Harness(7,
+          humans: humans,
+          expansions: const ExpansionSettings(lady: true, excalibur: true),
+          extras: {'派西維爾', '莫甘娜'},
+          seed: seed * 13);
+      final styles = BotStyle.deal(7, Random(seed));
+      Map<int, BotStyle> seats() => {
+            for (var s = 0; s < 7; s++)
+              if (!humans.contains(s)) s: styles[s]
+          };
+      var changes = 0;
+      while (h.game.phase != GamePhase.finished) {
+        if (h.steps > 3000) fail('stuck in ${h.game.phase}');
+        // seat 3 comes and goes every so often, whatever the game is at
+        if (h.steps % 23 == 11) {
+          humans.contains(3) ? humans.remove(3) : humans.add(3);
+          h.table.seat(seats());
+          changes++;
+        }
+        h.round();
+      }
+      expect(h.game.winner, isNotNull, reason: 'seed $seed');
+      expect(changes, greaterThan(1));
+      // while away, seat 3 was spoken for; back at the table, it was not
+      expect(h.talk.where((l) => l['by'] == 3 && l['bot'] == true), isNotEmpty);
+    }
+  });
+
   test('the same answer is not needed twice: a turn already spoken ends', () {
     final h = Harness(5, humans: {}, seed: 3);
     while (h.game.phase != GamePhase.discussion) {
