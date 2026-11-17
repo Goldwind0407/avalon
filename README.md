@@ -123,13 +123,15 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
 
 - 遊戲狀態不能由手機直接寫入 Firestore（`firestore.rules`），遊戲動作都經過伺服器檢查；語音連線訊息則有獨立的成員及收件人權限。
 - 匿名登入；同一支手機重開 App 後，用同一個房號可以回到原座位。
+- **防濫用**：同一個帳號一小時內最多開 10 個房間；10 分鐘內輸入 20 次不存在的房號後，要等一段時間才能再試（`functions/src/limits.ts`，紀錄存在只有伺服器讀得到的 `limits/{帳號}`）。
 - **斷線由電腦代理**：每支手機每 20 秒向伺服器報到一次（`rooms/{房號}/presence/{玩家}`，只有伺服器讀得到）。遊戲停住一陣子後（房主 30 秒、其他人 45 秒），手機會請伺服器檢查；超過 60 秒沒報到的玩家會被標成「電腦代理」（座位上顯示機器人圖示）。輪到他時，若電腦玩家伺服器（見下一項）有設定，就由單人模式那一套電腦照他那個座位能知道的資訊代打，也會發言；沒設定或連不上時，改由 `functions/src/proxy.ts` 的簡單代理（確認身分、組隊、投票、出牌、湖中女神、刺殺；王者之劍一律不用）。結果畫面至少留 6 秒才繼續。玩家回到 App 會立刻報到並拿回座位，之後由本人操作。主動按「離開」仍然會中止對局。舊版 App（通訊協定 3 以下）不會報到，也不會被代理。
 - **多人搭配電腦**：房主可以在大廳的空位按「加入電腦」把電腦排進來（✕ 移除），並點「電腦：一般」切換難度（新手／一般／高手）。要開啟「依序發言」電腦才會說話。電腦用的就是單人模式那一套（`lib/features/solo`），由獨立的 Dart 伺服器 `bot_server/` 執行；雲端裁判在輪到電腦時（由手機的 `nudge` 觸發，房主的手機優先）把整局狀態交給它，回來的每一步都照 `functions/src/rules.ts` 檢查後才執行。大家說的話記在房間文件的 `talk`：電腦的發言是文字，人在自己的發言回合可以打一句話（和單人模式同一個解析器）。設定了這台伺服器之後，斷線的玩家也由它接手，回來即交還；伺服器連不上時退回 `functions/src/proxy.ts` 的簡單代理。
   - 伺服器設定：雲端功能的環境變數 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`（16 字元以上，和伺服器的 `BOT_SERVER_SECRET` 相同）。沒設定時不能加入電腦。
   - 本機試玩：`dart compile exe bot_server/bin/server.dart -o build/bot_server.exe`，以 `PORT=8099 BOT_SERVER_SECRET=...` 執行；再以 `BOT_SERVER_URL=http://127.0.0.1:8099 BOT_SERVER_SECRET=... firebase emulators:start --only auth,firestore,functions` 啟動模擬器；App 用 `--dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2` 建置。整合測試：同樣匯出這兩個變數後 `npm run test:emulator`。
   - 部署：根目錄的 `Dockerfile` 可用在 Cloud Run 或樹莓派（同一個映像）。**正式環境尚未部署**：目前 App 已有「加入電腦」按鈕，但在正式房間按下會失敗，要等伺服器部署並設定好環境變數。
   - 新增的雲端功能：`setBot`、`setBotLevel`、`say`、`nudge`；新版 App 以 protocolVersion 5 連線，有電腦的房間會拒絕舊版 App。
-  - 限制：電腦在多人模式不記得跨局的事；伺服器重啟時，電腦會忘記「原本打算怎麼投」，但遊戲照常進行。
+  - 跨局記憶：有電腦的對局結束後，伺服器會保留這局（`rooms/{房號}/pastGames`，只有伺服器讀得到）。下一局電腦會記得同一個房間最近 5 局裡跟在座真人發生過的事（依帳號對人，不依座位），開場可能提起；和單人模式一樣只影響台詞。
+  - 限制：伺服器重啟時，電腦會忘記「原本打算怎麼投」，但遊戲照常進行。
 - **電腦玩家語音**：電腦的台詞多半是當場組出來的（300 局就有 8 千多種不同的句子），所以不錄整句，而是錄「片段」：在標點和數字處切開（`lib/features/solo/voice_lines.dart`），數字連同單位另錄（「3號」「第1次」）。約 2,160 段就能唸出所有台詞，9 位電腦各一套聲音。播放時整句一次載入、無縫接起來，標點處插入短暫停頓。某句只要有一段沒錄到，那句就只顯示文字。單人和多人模式都會念；音效設定裡可以關掉、調音量、按「試聽電腦語音」。不搶語音通話的音訊。
   - 完整錄製流程（Google Colab + GPT-SoVITS）見 [tool/voice/README.md](tool/voice/README.md)。
   - 錄音清單：`VOICE_SCRIPT_OUT=tool/voice/script.csv VOICE_SCRIPT_GAMES=3000 flutter test test/voice_script_test.dart`（跑模擬局並展開台詞庫；修改台詞後要重跑，字沒變的片段不必重錄）。

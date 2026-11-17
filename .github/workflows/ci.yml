@@ -73,6 +73,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # the computer players' server (bot_server/), for the online tests
+      # with computers at the table
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build the computer players' server
+        working-directory: bot_server
+        run: |
+          dart pub get
+          dart analyze --fatal-infos .
+          dart compile exe bin/server.dart -o "$RUNNER_TEMP/bot_server"
+      - name: Start the computer players' server
+        run: |
+          PORT=8099 BOT_SERVER_SECRET=ci-only-bot-secret-0123 "$RUNNER_TEMP/bot_server" > "$RUNNER_TEMP/bot_server.log" 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8099/healthz && break; sleep 1; done
       - run: npm ci
       - run: npm install --global firebase-tools@15.30.0
       - run: npm test
@@ -81,6 +98,8 @@ jobs:
         env:
           AVALON_TARGET: emulator
           FIREBASE_CLI_DISABLE_UPDATE_CHECK: 'true'
+          BOT_SERVER_URL: http://127.0.0.1:8099
+          BOT_SERVER_SECRET: ci-only-bot-secret-0123
       - name: Upload emulator logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -89,6 +108,7 @@ jobs:
           path: |
             *-debug.log
             functions/*-debug.log
+            ${{ runner.temp }}/bot_server.log
           if-no-files-found: ignore
           retention-days: 7
 

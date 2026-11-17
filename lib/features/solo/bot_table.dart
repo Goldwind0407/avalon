@@ -10,6 +10,9 @@ import 'bot_observation.dart';
 import 'bot_style.dart';
 import 'bot_vote_plan.dart';
 import 'dialogue/bot_contract.dart';
+import 'game_review.dart';
+import 'memory/match_archive.dart';
+import 'memory/social_memory.dart';
 
 // The computer players of one online table. The referee (Cloud Functions)
 // sends everything it knows about the game; this answers with what each
@@ -220,10 +223,15 @@ class BotTable {
   int? _generation;
   String? _proposalKey;
 
+  /// Who the computers have played with before, for the generation that
+  /// was given them ([remember]).
+  int? _remembered;
+
   bool isBot(int? seat) => _styles.containsKey(seat);
 
   void _reset(int generation) {
     _generation = generation;
+    _remembered = null;
     _brains.clear();
     _plannedVotes.clear();
     _plannedCards.clear();
@@ -233,12 +241,101 @@ class BotTable {
     }
   }
 
+  /// Hands each computer what it remembers of earlier games in this room
+  /// with the people now at the table. [past] are finished games, newest
+  /// first, as the referee keeps them: `{players: [{uid, name, bot,
+  /// persona}], state, talk}` (the state with every role, as at the end).
+  /// [players] are this game's seats in the same form. Once a deal.
+  void remember(TableState s, List<Map> players, List<Map> past) {
+    if (_remembered == s.generation || past.isEmpty) return;
+    _remembered = s.generation;
+    // each person: their seat now, and what each computer went through
+    // with them, game by game
+    final people = <String, int>{
+      for (final (seat, p) in players.indexed)
+        if (p['bot'] != true && p['uid'] is String) p['uid'] as String: seat
+    };
+    final seatOfBot = <String, int>{
+      for (final (seat, p) in players.indexed)
+        if (p['bot'] == true && p['persona'] is String)
+          p['persona'] as String: seat
+    };
+    final memories = <int, Map<int, List<MemoryEntry>>>{};
+    for (final (ago, game) in past.indexed) {
+      final review = _review(game);
+      if (review == null) continue;
+      final seats = [for (final p in game['players'] as List) p as Map];
+      for (final (botThen, bot) in seats.indexed) {
+        final seatNow = seatOfBot[bot['persona']];
+        if (bot['bot'] != true || seatNow == null) continue;
+        for (final (personThen, person) in seats.indexed) {
+          final personNow = people[person['uid']];
+          if (person['bot'] == true || personNow == null) continue;
+          final kinds = episodesWith(review(personThen), botThen);
+          if (kinds.isEmpty) continue;
+          ((memories[seatNow] ??= {})[personNow] ??= [])
+              .add(MemoryEntry(ago, kinds));
+        }
+      }
+    }
+    for (final MapEntry(key: seat, value: byPerson) in memories.entries) {
+      // the one this computer has been through the most with
+      final person = byPerson.keys
+          .reduce((a, b) => byPerson[a]!.length >= byPerson[b]!.length ? a : b);
+      _brains[seat]?.voice.memory = BotMemory(person, byPerson[person]!);
+    }
+  }
+
+  /// What the computer in [seat] remembers of earlier games, if anything.
+  BotMemory? memoryOf(int seat) => _brains[seat]?.voice.memory;
+
+  /// A finished game as the referee kept it, seen from any seat; null when
+  /// it cannot be read.
+  GameReview Function(int seat)? _review(Map game) {
+    try {
+      final players = [for (final p in game['players'] as List) p as Map];
+      final state = TableState.fromServer(game['state'] as Map,
+          generation: (game['gen'] as num?)?.toInt() ?? 0,
+          names: [for (final p in players) '${p['name']}'],
+          cards: (game['state'] as Map)['cardLog'] as Map?);
+      final talk = readTalk(
+          state,
+          [
+            for (final line in game['talk'] as List? ?? const [])
+              if (line is Map) line
+          ],
+          any: true);
+      final raw = game['state'] as Map;
+      return (seat) => GameReview.build(
+          players: state.names,
+          roles: state.roles,
+          styles: List.filled(state.count, null),
+          mySeat: seat,
+          winner: raw['winner'] as String?,
+          result: raw['result'] as String?,
+          proposals: state.proposals,
+          history: state.history,
+          statements: talk,
+          sources: const {},
+          decisions: const {},
+          cardsBySeat: state.ownCards,
+          ladyChecks: state.ladyChecks,
+          assassinTarget: (raw['assassinTarget'] as num?)?.toInt(),
+          expansions: state.expansions,
+          switchedDuring: switchStates(state.loyalty, state.history.length),
+          switchedAtEnd: state.switched);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The record as the computers read it: their own lines as stored, and
   /// each line a person typed as what it says about whom.
-  List<DiscussionStatement> readTalk(TableState s, List<Map> talk) {
+  List<DiscussionStatement> readTalk(TableState s, List<Map> talk,
+      {bool any = false}) {
     final statements = <DiscussionStatement>[];
     for (final line in talk) {
-      if (line['g'] != null && line['g'] != s.generation) continue;
+      if (!any && line['g'] != null && line['g'] != s.generation) continue;
       if (line['bot'] == true) {
         statements.add(statementFromMap(line));
         continue;
@@ -441,8 +538,10 @@ class BotTable {
   /// stored form: the computers' own lines, and people's lines as
   /// `{'by': seat, 'q': quest, 'a': attempt, 'g': generation, 'text': ...,
   /// 'team': [...], 'switched': bool}`.
-  TableStep step(TableState s, List<Map> talk) {
+  TableStep step(TableState s, List<Map> talk,
+      {List<Map> players = const [], List<Map> past = const []}) {
     if (_generation != s.generation) _reset(s.generation);
+    remember(s, players, past);
     final out = TableStep();
     final statements = readTalk(s, talk);
     final bots = _styles.keys.where((seat) => seat < s.count).toList()..sort();

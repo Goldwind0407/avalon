@@ -141,7 +141,8 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('catching up during a deal does not leave private actions blocked',
+  testWidgets(
+      'catching up during a deal does not leave private actions blocked',
       (tester) async {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1;

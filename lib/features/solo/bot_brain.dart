@@ -29,8 +29,13 @@ class BotBrain {
   /// Merlin votes like a servant for free when his vote will not decide
   /// the proposal: always while the chance that it decides is at most
   /// [merlinFreeVote], less and less up to [merlinPivotal], where he stops.
+  /// That is for letting evil through once a quest has failed, where a
+  /// wrong guess costs a quest. Cover that costs at most a proposal (a
+  /// clean team turned down, evil let through before anything has failed)
+  /// goes by the wider [merlinFreeCover]..[merlinPivotalCover].
   static const merlinFreeVote = .15;
   static const merlinPivotal = .4;
+  static const merlinFreeCover = .25, merlinPivotalCover = .55;
 
   /// How much a leader holds back from proposing a team that was already
   /// turned down on this quest.
@@ -73,7 +78,7 @@ class BotBrain {
   /// How much more readily than his style alone Merlin, as leader, sends
   /// the team a servant would: early in the game, and on a quest that
   /// needs two Fails.
-  static const merlinLeadCover = 3.0;
+  static const merlinLeadCover = 5.0;
   static const merlinLeadCoverSafe = 3.0;
 
   /// How often he turns down a clean team that a servant would let
@@ -1066,12 +1071,12 @@ class BotBrain {
       // A vote that will not change the outcome costs nothing: the less
       // likely his vote is to decide it, the more freely he plays the
       // servant.
-      final free = disguise <= 0
+      final pivotal = _pivotal(o, public);
+      double freeWithin(double from, double to) => disguise <= 0
           ? 0.0
-          : min(1, disguise) *
-              ((merlinPivotal - _pivotal(o, public)) /
-                      (merlinPivotal - merlinFreeVote))
-                  .clamp(0.0, 1.0);
+          : min(1, disguise) * ((to - pivotal) / (to - from)).clamp(0.0, 1.0);
+      final free = freeWithin(merlinFreeVote, merlinPivotal);
+      final freeCover = freeWithin(merlinFreeCover, merlinPivotalCover);
       if (cover != real) {
         double chance;
         if (!cover) {
@@ -1082,7 +1087,7 @@ class BotBrain {
               ? 0
               : o.failures == 2
                   ? free
-                  : max(min(.85, disguise * 1.3), free);
+                  : max(min(.85, disguise * 1.3), freeCover);
         } else if (o.failures == 2) {
           // never let a doubtful team through when it would lose the game
           chance = 0;
@@ -1090,7 +1095,8 @@ class BotBrain {
           // Letting a doubtful team through can cost a whole quest. While
           // nothing is lost he can afford it now and then; once a quest has
           // failed, only where his vote will not decide the proposal.
-          chance = o.failures == 0 ? max(min(.85, disguise * .8), free) : free;
+          chance =
+              o.failures == 0 ? max(min(.85, disguise * .8), freeCover) : free;
           // Turning down the very first team, when nobody else has a
           // reason to, tells the Assassin who knows something.
           if (o.history.isEmpty) chance = max(chance, .6);
@@ -1109,7 +1115,8 @@ class BotBrain {
                   (o.failures == 2 || o.successes == 2
                       ? 0
                       : merlinFalseAlarm +
-                          (merlinFreeFalseAlarm - merlinFalseAlarm) * free)) {
+                          (merlinFreeFalseAlarm - merlinFalseAlarm) *
+                              freeCover)) {
         // Every vote that matches where evil sits is counted by the
         // Assassin. Now and then Merlin turns down a team he knows is
         // clean: seldom when that may cost a proposal, readily when the
