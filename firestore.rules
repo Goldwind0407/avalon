@@ -41,6 +41,12 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // A finished game, whole, for those who played it to look back on.
+      match /reviews/{gen} {
+        allow read: if member();
+        allow write: if false;
+      }
+
       // "My phone is here", written by each phone every 20 seconds with the
       // server's own clock. Only the server reads it, to play for a player
       // who has gone quiet; nobody can report for anyone else.

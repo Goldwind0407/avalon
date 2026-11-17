@@ -554,4 +554,69 @@ void main() {
     expect([for (var s = 1; s < 5; s++) odd.table.memoryOf(s)],
         everyElement(isNull));
   });
+
+  test('a finished game becomes a review with every card and reason', () {
+    final h = Harness(5, humans: {0}, seed: 31);
+    // the computers say why they vote: kept as the referee would
+    final reasons = <String, Map<String, dynamic>>{};
+    while (h.game.phase != GamePhase.finished) {
+      if (h.steps > 3000) fail('stuck');
+      if (h.game.phase == GamePhase.vote) {
+        final step = h.table.step(h.state, h.talk);
+        for (final m in step.moves.where((m) => m['move'] == 'vote')) {
+          expect(m['why'], isA<Map>());
+          reasons['${h.game.proposals.length}/${m['seat']}'] = {
+            'approve': m['approve'],
+            ...(m['why'] as Map).cast<String, dynamic>()
+          };
+        }
+      }
+      h.round();
+    }
+    final g = h.game;
+    final review = finishedGameReview(jsonDecode(jsonEncode({
+      'gen': 1,
+      'players': [
+        for (var s = 0; s < 5; s++)
+          {
+            'uid': 'u$s',
+            'name': '玩家${s + 1}',
+            'bot': s != 0,
+            'persona': s == 0 ? null : 'kai'
+          }
+      ],
+      'state': {
+        'phase': 'finished',
+        'leader': g.leader,
+        'rejections': g.rejections,
+        'team': g.team,
+        'history': [
+          for (final q in g.history)
+            {'team': q.team, 'fails': q.fails, 'succeeded': q.succeeded}
+        ],
+        'proposals': [for (final p in g.proposals) p.toMap()],
+        'roles': [for (final r in g.roles) r.name],
+        'winner': g.winner,
+        'result': g.result,
+        'cardLog': {
+          for (final e in h.cards.entries)
+            '${e.key}': {for (final c in e.value.entries) '${c.key}': c.value}
+        },
+        'botReasons': reasons,
+      },
+      'talk': h.talk,
+    })) as Map)!(0);
+    expect(review.winner, g.winner);
+    expect(review.quests, hasLength(g.history.length));
+    // every card each seat played is there
+    expect(review.quests.first.cards.length, g.history.first.team.length);
+    // and why each computer voted, on the proposals they voted on
+    final decided = [
+      for (final q in review.quests)
+        for (final p in q.proposals) ...p.decisions.keys
+    ];
+    expect(decided, isNotEmpty);
+    expect(decided.contains(0), isFalse, reason: 'the person gives no reasons');
+    expect(review.styles.skip(1), everyElement(isNotNull));
+  });
 }

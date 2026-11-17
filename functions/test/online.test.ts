@@ -646,6 +646,14 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
     await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'private', 'bot:chen')));
     // the game is kept for the computers to remember, out of everyone's reach
     await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'pastGames', String(r.gen))));
+    // the review: the whole game for those who played it, nobody else
+    const review = (await getDocFromServer(doc(phones[1].db, 'rooms', code, 'reviews', String(r.gen)))).data() as any;
+    assert.equal(review.state.phase, 'finished');
+    assert.equal(review.state.roles.length, 5);
+    assert.ok(Object.keys(review.state.cardLog).length > 0, 'every card');
+    assert.ok(Object.keys(review.state.botReasons).length > 0, "the computers' reasons");
+    assert.ok(Object.keys(review.state.botReasons).every((k: string) => ['2', '3', '4'].includes(k.split('/')[1])));
+    await denied(getDocFromServer(doc(outsider.db, 'rooms', code, 'reviews', String(r.gen))));
     // the next deal: the computers are asked with that game in mind
     await v5(phones[0], 'startGame', { code });
     for (const p of phones) await v5(p, 'move', { code, move: 'confirmIdentity' });

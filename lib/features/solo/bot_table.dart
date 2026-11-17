@@ -13,6 +13,7 @@ import 'dialogue/bot_contract.dart';
 import 'game_review.dart';
 import 'memory/match_archive.dart';
 import 'memory/social_memory.dart';
+import 'persona/bot_persona.dart';
 
 // The computer players of one online table. The referee (Cloud Functions)
 // sends everything it knows about the game; this answers with what each
@@ -291,73 +292,12 @@ class BotTable {
 
   /// A finished game as the referee kept it, seen from any seat; null when
   /// it cannot be read.
-  GameReview Function(int seat)? _review(Map game) {
-    try {
-      final players = [for (final p in game['players'] as List) p as Map];
-      final state = TableState.fromServer(game['state'] as Map,
-          generation: (game['gen'] as num?)?.toInt() ?? 0,
-          names: [for (final p in players) '${p['name']}'],
-          cards: (game['state'] as Map)['cardLog'] as Map?);
-      final talk = readTalk(
-          state,
-          [
-            for (final line in game['talk'] as List? ?? const [])
-              if (line is Map) line
-          ],
-          any: true);
-      final raw = game['state'] as Map;
-      return (seat) => GameReview.build(
-          players: state.names,
-          roles: state.roles,
-          styles: List.filled(state.count, null),
-          mySeat: seat,
-          winner: raw['winner'] as String?,
-          result: raw['result'] as String?,
-          proposals: state.proposals,
-          history: state.history,
-          statements: talk,
-          sources: const {},
-          decisions: const {},
-          cardsBySeat: state.ownCards,
-          ladyChecks: state.ladyChecks,
-          assassinTarget: (raw['assassinTarget'] as num?)?.toInt(),
-          expansions: state.expansions,
-          switchedDuring: switchStates(state.loyalty, state.history.length),
-          switchedAtEnd: state.switched);
-    } catch (_) {
-      return null;
-    }
-  }
+  GameReview Function(int seat)? _review(Map game) => finishedGameReview(game);
 
-  /// The record as the computers read it: their own lines as stored, and
-  /// each line a person typed as what it says about whom.
+  /// The record as the computers read it (see [readTableTalk]).
   List<DiscussionStatement> readTalk(TableState s, List<Map> talk,
-      {bool any = false}) {
-    final statements = <DiscussionStatement>[];
-    for (final line in talk) {
-      if (!any && line['g'] != null && line['g'] != s.generation) continue;
-      if (line['bot'] == true) {
-        statements.add(statementFromMap(line));
-        continue;
-      }
-      final speaker = (line['by'] as num).toInt();
-      final quest = (line['q'] as num).toInt();
-      final attempt = (line['a'] as num?)?.toInt() ?? 1;
-      final text = (line['text'] as String).trim();
-      final speech = PlayerSpeech.parse(text, s.names, speaker);
-      statements.addAll(statementsFromSpeech(speech, text,
-          speaker: speaker,
-          generation: s.generation,
-          quest: quest,
-          attempt: attempt,
-          team: [for (final x in line['team'] as List? ?? const []) x as int],
-          switched: line['switched'] == true,
-          ladyChecks: s.ladyChecks,
-          loyalty: s.loyalty,
-          questsPlayed: s.history.length));
-    }
-    return statements;
-  }
+          {bool any = false}) =>
+      readTableTalk(s, talk, any: any);
 
   // The ONLY input a brain gets: its own seat's view, as in solo play.
   BotObservation _observe(
@@ -608,8 +548,21 @@ class BotTable {
         final voters = bots.where((b) => !s.voted.contains(b)).toList();
         _reviewVotes(s, voters, statements, out, lock: true);
         for (final seat in voters) {
-          _move(out, seat, 'vote',
-              {'approve': _plannedVote(s, seat, statements)});
+          final approve = _plannedVote(s, seat, statements);
+          final why = _plannedVotes[seat]?.current;
+          _move(out, seat, 'vote', {
+            'approve': approve,
+            // why, for the review once the game is over (kept secret till then)
+            if (why != null)
+              'why': {
+                'reason': why.reason,
+                'risk': double.parse(why.risk.toStringAsFixed(3)),
+                'doubt': [
+                  for (final d in why.suspicion)
+                    double.parse(d.toStringAsFixed(3))
+                ],
+              },
+          });
         }
       case GamePhase.voteResult:
         if (isBot(s.leader)) _move(out, s.leader, 'continueVote');
@@ -674,5 +627,96 @@ class BotTable {
         break;
     }
     return out;
+  }
+}
+
+/// The record as the computers read it: their own lines as stored, and
+/// each line a person typed as what it says about whom. [any]: every line,
+/// whatever deal it was said in (for a game read back as a whole).
+List<DiscussionStatement> readTableTalk(TableState s, List<Map> talk,
+    {bool any = false}) {
+  final statements = <DiscussionStatement>[];
+  for (final line in talk) {
+    if (!any && line['g'] != null && line['g'] != s.generation) continue;
+    if (line['bot'] == true) {
+      statements.add(statementFromMap(line));
+      continue;
+    }
+    final speaker = (line['by'] as num).toInt();
+    final quest = (line['q'] as num).toInt();
+    final attempt = (line['a'] as num?)?.toInt() ?? 1;
+    final text = (line['text'] as String).trim();
+    final speech = PlayerSpeech.parse(text, s.names, speaker);
+    statements.addAll(statementsFromSpeech(speech, text,
+        speaker: speaker,
+        generation: s.generation,
+        quest: quest,
+        attempt: attempt,
+        team: [for (final x in line['team'] as List? ?? const []) x as int],
+        switched: line['switched'] == true,
+        ladyChecks: s.ladyChecks,
+        loyalty: s.loyalty,
+        questsPlayed: s.history.length));
+  }
+  return statements;
+}
+
+/// A finished online game as the referee keeps it (`{gen, players: [{uid,
+/// name, bot, persona}], state, talk}`, the state with every role, card
+/// and reason), as a review from any seat; null when it cannot be read.
+GameReview Function(int seat)? finishedGameReview(Map game) {
+  try {
+    final players = [for (final p in game['players'] as List) p as Map];
+    final raw = game['state'] as Map;
+    final state = TableState.fromServer(raw,
+        generation: (game['gen'] as num?)?.toInt() ?? 0,
+        names: [for (final p in players) '${p['name']}'],
+        cards: raw['cardLog'] as Map?);
+    final talk = readTableTalk(
+        state,
+        [
+          for (final line in game['talk'] as List? ?? const [])
+            if (line is Map) line
+        ],
+        any: true);
+    // why each computer voted as it did, by proposal
+    final decisions = <int, Map<int, BotVoteDecision>>{};
+    for (final MapEntry(:key, :value)
+        in ((raw['botReasons'] as Map?) ?? const {}).entries) {
+      final [proposal, seat] = '$key'.split('/').map(int.parse).toList();
+      final why = value as Map;
+      (decisions[proposal] ??= {})[seat] = BotVoteDecision(
+          why['approve'] == true,
+          why['reason'] as String,
+          (why['risk'] as num?)?.toDouble() ?? 0, [
+        for (final d in why['doubt'] as List? ?? const []) (d as num).toDouble()
+      ]);
+    }
+    final styles = [
+      for (final p in players)
+        p['bot'] == true
+            ? BotPersona.byId(p['persona'] as String?)?.style.label
+            : null
+    ];
+    return (seat) => GameReview.build(
+        players: state.names,
+        roles: state.roles,
+        styles: styles,
+        mySeat: seat,
+        winner: raw['winner'] as String?,
+        result: raw['result'] as String?,
+        proposals: state.proposals,
+        history: state.history,
+        statements: talk,
+        sources: const {},
+        decisions: decisions,
+        cardsBySeat: state.ownCards,
+        ladyChecks: state.ladyChecks,
+        assassinTarget: (raw['assassinTarget'] as num?)?.toInt(),
+        expansions: state.expansions,
+        switchedDuring: switchStates(state.loyalty, state.history.length),
+        switchedAtEnd: state.switched);
+  } catch (_) {
+    return null;
   }
 }

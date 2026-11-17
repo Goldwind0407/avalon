@@ -246,4 +246,70 @@ void main() {
       expect(server.calls.last.$2['move'], 'endSpeech');
     });
   });
+
+  test('when the game is over the review is fetched once a deal', () {
+    fakeAsync((time) {
+      final server = FakeServer();
+      final asked = <int>[];
+      final session = OnlineGameSession(
+          code: '123456',
+          uid: 'me',
+          room: server.rooms.stream,
+          mine: server.mine.stream,
+          call: server.call,
+          loadReview: (gen) async {
+            asked.add(gen);
+            return {
+              'gen': gen,
+              'players': [
+                for (var s = 0; s < 5; s++)
+                  {'uid': FakeServer.uids[s], 'name': '玩家$s', 'bot': false}
+              ],
+              'state': {
+                'phase': 'finished',
+                'leader': 0,
+                'rejections': 0,
+                'team': [],
+                'history': [
+                  {
+                    'team': [0, 1],
+                    'fails': 0,
+                    'succeeded': true
+                  }
+                ],
+                'proposals': [
+                  {
+                    'quest': 1,
+                    'attempt': 1,
+                    'leader': 0,
+                    'team': [0, 1],
+                    'votes': [true, true, true, true, true]
+                  }
+                ],
+                'roles': ['loyal', 'merlin', 'assassin', 'percival', 'morgana'],
+                'winner': '正義',
+                'result': '刺客選錯了',
+                'cardLog': {
+                  '0': {'1': true},
+                  '1': {'1': true}
+                },
+              },
+              'talk': [],
+            };
+          });
+      feed(time, server, room(phase: 'identity'));
+      expect(asked, isEmpty);
+      expect(session.review, isNull);
+      feed(time, server, room(phase: 'finished'));
+      expect(asked, [1]);
+      expect(session.review?.mySeat, 1);
+      expect(session.review?.winner, '正義');
+      feed(time, server, room(phase: 'finished'));
+      expect(asked, [1], reason: 'once a deal');
+      session.dispose();
+      server.rooms.close();
+      server.mine.close();
+      time.flushMicrotasks();
+    });
+  });
 }

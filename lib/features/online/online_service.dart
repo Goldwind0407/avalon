@@ -164,6 +164,14 @@ class OnlineService {
             now + const Duration(days: 1).inMilliseconds),
       });
 
+  /// A finished game, whole, as the server kept it for the players
+  /// (rooms/{code}/reviews/{gen}); null when there is none.
+  Future<Map<String, dynamic>?> review(String code, int gen) async =>
+      (await FirebaseFirestore.instance
+              .doc('rooms/$code/reviews/$gen')
+              .get(const GetOptions(source: Source.server)))
+          .data();
+
   /// This player's own role. Nobody else can read it (firestore.rules).
   Stream<Map<String, dynamic>?> mine(String code, String uid) =>
       FirebaseFirestore.instance

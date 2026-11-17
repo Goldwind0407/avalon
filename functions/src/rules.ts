@@ -287,10 +287,21 @@ export interface GameState {
   reveals: Reveal[];
   /** What each seat itself played on each quest: {seat: {quest: success}}. */
   cardLog: Record<string, Record<string, boolean>>;
+  /** Why each computer voted as it did, by `<proposal index>/<seat>`, for
+   *  the review once the game is over. */
+  botReasons: Record<string, BotReason>;
+}
+
+export interface BotReason {
+  approve: boolean;
+  reason: string;
+  risk: number;
+  /** How far that computer doubted each seat when it voted. */
+  doubt: number[];
 }
 
 export const SECRET_KEYS =
-  ['roles', 'pendingVotes', 'pendingCards', 'loyaltyDeck', 'reveals', 'cardLog'] as const;
+  ['roles', 'pendingVotes', 'pendingCards', 'loyaltyDeck', 'reveals', 'cardLog', 'botReasons'] as const;
 
 export function newGame(
   players: number,
@@ -344,6 +355,7 @@ export function newGame(
     loyaltyDeck,
     reveals: [],
     cardLog: {},
+    botReasons: {},
   };
   beginQuest(s);
   return s;
@@ -631,8 +643,11 @@ export function assassinate(
 
 /** Splits a state into what devices may read and what stays on the server. */
 export function split(s: GameState) {
-  const { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog, ...open } = s;
-  return { open, secret: { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog } };
+  const { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog, botReasons, ...open } = s;
+  return {
+    open,
+    secret: { roles, pendingVotes, pendingCards, loyaltyDeck, reveals, cardLog, botReasons },
+  };
 }
 
 export function join(
@@ -655,5 +670,6 @@ export function join(
   state.loyaltyDeck ??= [];
   state.reveals ??= [];
   state.cardLog ??= {};
+  state.botReasons ??= {};
   return state;
 }
