@@ -663,3 +663,42 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
     await denied(getDocFromServer(doc(phones[0].db, 'rooms', code)));
   });
 });
+
+describe('limits on guessing and opening rooms', () => {
+  test('a phone that keeps trying codes that lead nowhere is held off', async () => {
+    const guesser = await phone();
+    try {
+      let refused = 0;
+      for (let i = 0; i < 22; i++) {
+        try {
+          await guesser.call('joinRoom', { code: String(100000 + i), name: '猜猜看' });
+        } catch (e: any) {
+          if (/太多次/.test(String(e?.message))) refused++;
+        }
+      }
+      assert.ok(refused >= 1, 'held off after twenty misses');
+    } finally {
+      await deleteApp(guesser.app);
+    }
+  });
+
+  test('a phone that keeps opening rooms is held off', async () => {
+    const host = await phone();
+    const codes: string[] = [];
+    try {
+      let refused = 0;
+      for (let i = 0; i < 11; i++) {
+        try {
+          codes.push((await host.call('createRoom', { name: '開房' })).code);
+        } catch (e: any) {
+          if (/太頻繁/.test(String(e?.message))) refused++;
+        }
+      }
+      assert.equal(codes.length, 10);
+      assert.equal(refused, 1);
+    } finally {
+      for (const code of codes) await host.call('leaveRoom', { code }).catch(() => {});
+      await deleteApp(host.app);
+    }
+  });
+});

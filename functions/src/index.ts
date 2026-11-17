@@ -20,6 +20,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { CallableRequest, HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
+import * as limits from './limits';
 import * as proxy from './proxy';
 import { voiceIceServers } from './voice_ice';
 import { GAME_DOCS_LEAD_MS, gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
@@ -108,6 +109,36 @@ const PAST_GAMES = 5;
 const presenceRef = (code: string, uid: string) =>
   roomRef(code).collection('presence').doc(uid);
 
+/** What one player has been doing lately, for [limits] (server only). */
+const limitRef = (uid: string) => db.collection('limits').doc(uid);
+
+/** Refuses when [uid] has done [kind] too often lately. */
+async function checkLimit(uid: string, kind: limits.LimitKind) {
+  const data = (await limitRef(uid).get()).data();
+  const wait = limits.waitMs(data?.[kind], Date.now(), limits.LIMITS[kind]);
+  if (wait > 0) {
+    throw new HttpsError('resource-exhausted',
+      kind === 'create'
+        ? `建立房間太頻繁，請 ${Math.ceil(wait / 60000)} 分鐘後再試`
+        : `輸入錯誤的房號太多次，請 ${Math.ceil(wait / 60000)} 分鐘後再試`);
+  }
+}
+
+/** Counts one more [kind] for [uid]. */
+async function countLimit(uid: string, kind: limits.LimitKind) {
+  const limit = limits.LIMITS[kind];
+  await db.runTransaction(async (tx) => {
+    const ref = limitRef(uid);
+    const data = (await tx.get(ref)).data() ?? {};
+    const now = Date.now();
+    tx.set(ref, {
+      [kind]: [...limits.recent(data[kind], now, limit), now].slice(-limit.max),
+      // forgotten a day after the last use (TTL on expireAt)
+      expireAt: Timestamp.fromMillis(now + 24 * 60 * 60 * 1000),
+    }, { merge: true });
+  });
+}
+
 /** Tells the table that [seat] is back and plays for themselves again. */
 function welcomeBack(room: Room, seat: number) {
   if (!room.away?.includes(seat)) return false;
@@ -186,7 +217,8 @@ function touch(room: Room, { renew = true } = {}) {
 export const createRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const name = cleanName(req.data?.name);
-  return db.runTransaction(async (tx) => {
+  await checkLimit(uid, 'create');
+  const created = await db.runTransaction(async (tx) => {
     for (let attempt = 0; attempt < 20; attempt++) {
       const code = String(randomInt(100000, 1000000));
       const ref = roomRef(code);
@@ -210,12 +242,25 @@ export const createRoom = onCall(async (req) => {
     }
     throw new HttpsError('resource-exhausted', '暫時無法建立房間，請稍後再試');
   });
+  await countLimit(uid, 'create');
+  return created;
 });
 
 export const joinRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const code = cleanCode(req.data?.code);
   const name = cleanName(req.data?.name);
+  await checkLimit(uid, 'miss');
+  try {
+    return await joinRoomNow(req, uid, code, name);
+  } catch (e) {
+    // a code that leads nowhere counts towards the limit on guessing
+    if (e instanceof HttpsError && e.code === 'not-found') await countLimit(uid, 'miss');
+    throw e;
+  }
+});
+
+function joinRoomNow(req: CallableRequest, uid: string, code: string, name: string) {
   return db.runTransaction(async (tx) => {
     const room = await loadRoom(tx, code);
     const seat = room.playerUids.indexOf(uid);
@@ -251,7 +296,7 @@ export const joinRoom = onCall(async (req) => {
     tx.set(roomRef(code), touch(room));
     return { code, seat: room.players.length - 1 };
   });
-});
+}
 
 export const leaveRoom = onCall(async (req) => {
   const uid = uidOf(req);
