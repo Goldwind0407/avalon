@@ -107,6 +107,11 @@ class OnlineService {
   static const googleWebClientId = String.fromEnvironment(
       'GOOGLE_WEB_CLIENT_ID',
       defaultValue: _projectWebClientId);
+
+  /// The project's iOS client (GoogleService-Info.plist CLIENT_ID).
+  static const googleIosClientId =
+      '1041864366616-g7sloidhl58oqbpdho5dhqrq03g6tmep.apps.googleusercontent.com';
+
   static const _projectWebClientId =
       '1041864366616-9plva6mu2o1907fidh4531jbdvl6a0si.apps.googleusercontent.com';
 
@@ -175,6 +180,10 @@ class OnlineService {
       }
       final google = GoogleSignIn.instance;
       await (_googleReady ??= google.initialize(
+          // iOS needs its own client (also in Info.plist with its URL scheme)
+          clientId: defaultTargetPlatform == TargetPlatform.iOS
+              ? googleIosClientId
+              : null,
           serverClientId:
               googleWebClientId.isEmpty ? null : googleWebClientId));
       final GoogleSignInAccount account;
