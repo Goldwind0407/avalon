@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import 'voice_controller.dart';
+import '../../../core/toast.dart';
 
 class VoiceControls extends StatelessWidget {
   const VoiceControls(
@@ -15,16 +16,14 @@ class VoiceControls extends StatelessWidget {
   Future<void> _join(BuildContext context) async {
     await voice.join();
     if (context.mounted && voice.error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(voice.error!)));
+      showToast(context, voice.error!);
     }
   }
 
   Future<void> _microphone(BuildContext context) async {
     await voice.toggleMicrophone();
     if (context.mounted && voice.error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(voice.error!)));
+      showToast(context, voice.error!);
     }
   }
 

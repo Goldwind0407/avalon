@@ -20,6 +20,7 @@ import 'voice/voice_controller.dart';
 import 'voice/webrtc_voice_transport.dart';
 import 'voice/voice_signaling.dart';
 import 'voice/voice_controls.dart';
+import '../../core/toast.dart';
 
 /// A room before (and between) games: who is in, which roles are used.
 /// When the host deals, every phone moves to the table automatically.
@@ -214,9 +215,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     final text = room.notice!;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(text)));
+      showToast(context, text);
     });
   }
 
@@ -239,9 +238,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
       await work();
     } on GameMoveException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(content: Text(e.message)));
+        showToast(context, e.message);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -288,9 +285,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
     } on GameMoveException catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(content: Text(e.message)));
+        showToast(context, e.message);
       }
       return;
     }
@@ -468,9 +463,7 @@ class _OnlineRoomScreenState extends State<OnlineRoomScreen> {
                   customBorder: const StadiumBorder(),
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: room.code));
-                    ScaffoldMessenger.of(context)
-                      ..clearSnackBars()
-                      ..showSnackBar(const SnackBar(content: Text('已複製房號')));
+                    showToast(context, '已複製房號');
                   },
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 4, 10, 4),

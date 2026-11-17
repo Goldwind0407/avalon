@@ -7,6 +7,7 @@ import 'match_archive.dart';
 import 'match_repository.dart';
 import 'player_model.dart';
 import 'social_memory.dart';
+import '../../../core/toast.dart';
 
 /// Past solo games on this device, and the computer players who remember
 /// them. Opening a game shows its full review again.
@@ -37,8 +38,7 @@ class _MatchHistoryScreenState extends State<MatchHistoryScreen> {
     final match = await _repository.load(summary.id);
     if (!mounted) return;
     if (match == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('這局的紀錄讀不出來')));
+      showToast(context, '這局的紀錄讀不出來');
       return;
     }
     await Navigator.of(context).push(MaterialPageRoute<void>(

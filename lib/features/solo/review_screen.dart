@@ -10,6 +10,7 @@ import 'bot_brain.dart';
 import 'bot_vote_plan.dart';
 import 'game_review.dart';
 import 'review_export.dart';
+import '../../core/toast.dart';
 
 const _goodColor = Color(0xFF8FD0FF);
 const _evilColor = Color(0xFFFF8A7E);
@@ -76,8 +77,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: _text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已複製整局復盤文字')));
+    showToast(context, '已複製整局復盤文字');
   }
 
   void _show(int p) {
