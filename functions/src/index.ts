@@ -833,6 +833,53 @@ export const setBotLevel = onCall(async (req) => {
 });
 
 /**
+ * The Lady's holder tells the table what the check showed (true or not:
+ * the holder may lie), once, while the result is on the table. It goes on
+ * the record for everyone, the computers included.
+ */
+export const announceLady = onCall(async (req) => {
+  const uid = uidOf(req);
+  const code = cleanCode(req.data?.code);
+  const evil = req.data?.evil;
+  if (typeof evil !== 'boolean') throw new HttpsError('invalid-argument', '請選擇要公布的結果');
+  return db.runTransaction(async (tx) => {
+    const room = await loadRoom(tx, code);
+    const seat = seatOf(room, uid);
+    const game = room.game;
+    if (room.status !== 'playing' || !game || game.phase !== 'ladyResult') {
+      throw new HttpsError('failed-precondition', '現在不能公布查驗結果');
+    }
+    if (req.data?.generation !== undefined && req.data.generation !== room.gen) {
+      throw new HttpsError('failed-precondition', '這局已更新，請依目前畫面重新操作');
+    }
+    const check = game.ladyChecks[game.ladyChecks.length - 1];
+    if (!check || check.holder !== seat) {
+      throw new HttpsError('permission-denied', '只有湖中女神持有者可以公布');
+    }
+    // a good player tells the truth about it (house rule); evil may lie
+    const state = await loadState(tx, code, room);
+    const seen = state.reveals.filter((r) => r.seat === seat && r.kind === 'lady' &&
+      r.target === check.target).pop();
+    if (!rules.evilNow(state, seat) && seen && seen.evil !== evil) {
+      throw new HttpsError('failed-precondition', '好人不能謊報湖中女神的結果');
+    }
+    const talk = room.talk ?? [];
+    const said = talk.some((l) => l.g === room.gen && (l.lady as { quest?: number } | undefined)?.quest === check.quest);
+    if (said) return { ok: true };
+    if (talk.length >= TALK_LIMIT) throw new HttpsError('failed-precondition', '這局的發言已經太多了');
+    talk.push({
+      by: seat, q: game.history.length + 1, a: game.rejections + 1, g: room.gen,
+      team: [], switched: game.lancelotSwitched === true,
+      text: `我用湖中女神查驗了${check.target + 1}號，他是${evil ? '邪惡' : '正義'}陣營。`,
+      lady: { target: check.target, evil, quest: check.quest },
+    });
+    room.talk = talk;
+    tx.set(roomRef(code), touch(room));
+    return { ok: true };
+  });
+});
+
+/**
  * A line typed by the player whose turn it is to speak. It goes on the
  * record as typed; the computers read it for themselves.
  */

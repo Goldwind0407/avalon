@@ -636,6 +636,14 @@ class SoloGameSession extends GameSession {
     if (speech.kind == PlayerSpeechKind.challengeVote && ballot == null) {
       throw const GameMoveException('還沒有公開的投票紀錄，可以先詢問立場');
     }
+    for (final point in speech.points) {
+      if (point.kind == PlayerSpeechKind.ladyClaim &&
+          point.target != null &&
+          ladyChecks.any((c) => c.holder == me && c.target == point.target) &&
+          !mayClaimLady(point.target!, point.claimsEvil == true)) {
+        throw const GameMoveException(GameSession.goodMustNotLie);
+      }
+    }
     _statements.addAll(statementsFromSpeech(
         speech, speechText(speech, ballot: ballot),
         speaker: me,
@@ -648,6 +656,36 @@ class SoloGameSession extends GameSession {
         loyalty: loyalty,
         questsPlayed: history.length,
         ballot: ballot));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> announceLady(bool evil) async {
+    final check = ladyChecks.lastOrNull;
+    final me = mySeat!;
+    if (phase != GamePhase.ladyResult || check == null || check.holder != me) {
+      return;
+    }
+    if (!mayClaimLady(check.target, evil)) {
+      throw const GameMoveException(GameSession.goodMustNotLie);
+    }
+    final evidence = BotEvidenceId(generation, BotEvidenceKind.ladyUse,
+            'q${check.quest}/$me/${check.target}')
+        .id;
+    // once a check
+    if (_statements.any((s) => s.evidenceIds.contains(evidence))) return;
+    _statements.add(DiscussionStatement(
+        generation: generation,
+        attempt: rejections + 1,
+        speaker: me,
+        quest: questNumber,
+        target: check.target,
+        claimedEvil: evil,
+        switched: lancelotSwitched,
+        intent: BotSpeechIntent.interpretLady.name,
+        certainty: DiscussionCertainty.certain,
+        evidenceIds: [evidence],
+        text: '我用湖中女神查驗了${check.target + 1}號，他是${evil ? '邪惡' : '正義'}陣營。'));
     notifyListeners();
   }
 

@@ -646,6 +646,28 @@ List<DiscussionStatement> readTableTalk(TableState s, List<Map> talk,
     final quest = (line['q'] as num).toInt();
     final attempt = (line['a'] as num?)?.toInt() ?? 1;
     final text = (line['text'] as String).trim();
+    // a holder's announcement of what the Lady showed (true or not)
+    if (line['lady'] case final Map lady) {
+      final target = (lady['target'] as num).toInt();
+      final checked = (lady['quest'] as num?)?.toInt() ?? quest - 1;
+      statements.add(DiscussionStatement(
+          generation: s.generation,
+          attempt: attempt,
+          speaker: speaker,
+          quest: quest,
+          target: target,
+          claimedEvil: lady['evil'] == true,
+          switched: line['switched'] == true,
+          intent: 'interpretLady',
+          certainty: DiscussionCertainty.certain,
+          evidenceIds: [
+            BotEvidenceId(s.generation, BotEvidenceKind.ladyUse,
+                    'q$checked/$speaker/$target')
+                .id
+          ],
+          text: text));
+      continue;
+    }
     final speech = PlayerSpeech.parse(text, s.names, speaker);
     statements.addAll(statementsFromSpeech(speech, text,
         speaker: speaker,

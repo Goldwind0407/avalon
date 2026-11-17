@@ -312,4 +312,41 @@ void main() {
       time.flushMicrotasks();
     });
   });
+
+  test('a good holder may not misreport the Lady; an evil one may', () {
+    for (final (role, lie) in [('merlin', false), ('assassin', true)]) {
+      withSession((time, server, session, beats) {
+        final data = room(phase: 'ladyResult');
+        (data['game'] as Map)
+          ..['ladyHolder'] = 1
+          ..['ladyPast'] = [0, 1]
+          ..['ladyChecks'] = [
+            {'holder': 1, 'target': 3, 'quest': 2}
+          ];
+        server.rooms.add(data);
+        server.mine.add({
+          ...card(),
+          'role': role,
+          'reveals': [
+            {'kind': 'lady', 'quest': 2, 'target': 3, 'evil': true, 'seat': 1}
+          ],
+        });
+        time.flushMicrotasks();
+        expect(session.mayClaimLady(3, true), isTrue);
+        expect(session.mayClaimLady(3, false), lie, reason: role);
+        Object? refused;
+        session.announceLady(false).catchError((Object e) => refused = e);
+        time.flushMicrotasks();
+        expect(refused != null, !lie, reason: role);
+        expect(server.calls.any((c) => c.$1 == 'announceLady'), lie);
+        // typed the wrong way round: the same
+        Object? typed;
+        session
+            .say(PlayerSpeech.parse('我用湖中女神查了4號，他是好人', session.players, 1))
+            .catchError((Object e) => typed = e);
+        time.flushMicrotasks();
+        expect(typed != null, !lie, reason: role);
+      });
+    }
+  });
 }

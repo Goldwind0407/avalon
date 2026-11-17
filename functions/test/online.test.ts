@@ -428,6 +428,50 @@ describe('expansions online', () => {
     assert.equal(g.phase, 'questResult');
     assert.deepEqual(g.history[0].excalibur, { holder, target: leader });
   });
+
+  test('Lady: a good holder may only tell the truth; the table hears it', async () => {
+    // finish the first quest (it stopped at its result) and play the second
+    let g = (await room(phones[0], code)).game;
+    const evilRoles = ['assassin', 'minion', 'morgana', 'mordred', 'oberon'];
+    const roles: string[] = [];
+    for (const p of phones) roles.push((await mine(p)).role);
+    await v3(phones[g.leader], 'move', { move: 'continueQuest' });
+    g = (await room(phones[0], code)).game;
+    const size = 3;
+    const team = [g.leader, ...[0, 1, 2, 3, 4].filter((x) => x !== g.leader)].slice(0, size).sort((a, b) => a - b);
+    const holder = team.find((x) => x !== g.leader)!;
+    await v3(phones[g.leader], 'move', { move: 'proposeTeam', team, excalibur: holder });
+    for (const p of phones) await v3(p, 'move', { move: 'vote', approve: true });
+    await v3(phones[g.leader], 'move', { move: 'continueVote' });
+    for (const seat of team) await v3(phones[seat], 'move', { move: 'playQuest', success: true });
+    await v3(phones[holder], 'move', { move: 'useExcalibur', target: null });
+    g = (await room(phones[0], code)).game;
+    await v3(phones[g.leader], 'move', { move: 'continueQuest' });
+    g = (await room(phones[0], code)).game;
+    assert.equal(g.phase, 'lady');
+    const lady: number = g.ladyHolder;
+    const target = [0, 1, 2, 3, 4].find((x) => !g.ladyPast.includes(x))!;
+    // not yet: nothing has been checked
+    await refused(v3(phones[lady], 'announceLady', { evil: true }), /不能公布/);
+    await v3(phones[lady], 'move', { move: 'useLady', target });
+    const truth: boolean = (await mine(phones[lady])).reveals.at(-1).evil;
+    const other = (lady + 1) % 5 === target ? (lady + 2) % 5 : (lady + 1) % 5;
+    await denied(v3(phones[other], 'announceLady', { evil: truth }));
+    if (evilRoles.includes(roles[lady])) {
+      await v3(phones[lady], 'announceLady', { evil: !truth });  // evil may lie
+    } else {
+      await refused(v3(phones[lady], 'announceLady', { evil: !truth }), /好人不能謊報/);
+      await v3(phones[lady], 'announceLady', { evil: truth });
+    }
+    const r = await room(phones[0], code);
+    const said = r.talk.filter((l: any) => l.lady);
+    assert.equal(said.length, 1);
+    assert.equal(said[0].by, lady);
+    assert.equal(said[0].lady.target, target);
+    // once a check
+    await v3(phones[lady], 'announceLady', { evil: truth });
+    assert.equal((await room(phones[0], code)).talk.filter((l: any) => l.lady).length, 1);
+  });
 });
 
 describe('a player whose phone has gone quiet', () => {
