@@ -6,13 +6,14 @@ import 'game_review.dart';
 /// vote with the reason the computer had for it, the cards played, and
 /// the end. Meant to be read by a person, or pasted to someone helping to
 /// tune the computer players.
-String reviewText(GameReview r, {String? difficulty, DateTime? endedAt}) {
+String reviewText(GameReview r,
+    {String? difficulty, DateTime? endedAt, bool online = false}) {
   final out = StringBuffer();
   String seat(int s) => '${s + 1}號${r.players[s]}';
   String seats(Iterable<int> list) => list.map((s) => '${s + 1}').join('、');
   String two(int n) => n.toString().padLeft(2, '0');
 
-  out.writeln('阿瓦隆 單人模式 復盤');
+  out.writeln('阿瓦隆 ${online ? '多人模式' : '單人模式'} 復盤');
   if (endedAt != null) {
     final t = endedAt.toLocal();
     out.writeln(

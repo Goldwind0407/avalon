@@ -665,6 +665,7 @@ class SoloGameSession extends GameSession {
   bool get isSolo => true;
 
   /// The whole game with roles and the bots' reasons; only once it is over.
+  @override
   GameReview? get review => phase != GamePhase.finished
       ? null
       : GameReview.build(

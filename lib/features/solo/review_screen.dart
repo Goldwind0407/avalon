@@ -21,11 +21,18 @@ const _muted = TextStyle(fontSize: 11.5, color: AvalonTheme.muted);
 /// its reasons, every line with where it came from, every card played.
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen(
-      {super.key, required this.review, this.difficulty, this.endedAt});
+      {super.key,
+      required this.review,
+      this.difficulty,
+      this.endedAt,
+      this.online = false});
   final GameReview review;
 
   /// For the exported text: the level played and when the game ended.
   final String? difficulty;
+
+  /// A game played online (the exported text says so).
+  final bool online;
   final DateTime? endedAt;
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -45,7 +52,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   String get _text => reviewText(r,
-      difficulty: widget.difficulty, endedAt: widget.endedAt ?? _opened);
+      difficulty: widget.difficulty,
+      endedAt: widget.endedAt ?? _opened,
+      online: widget.online);
   final _opened = DateTime.now();
 
   /// The whole game as a text file, through the phone's share sheet: save

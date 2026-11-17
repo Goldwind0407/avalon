@@ -6,6 +6,8 @@ import '../game/discussion_model.dart';
 import '../game/expansion_model.dart';
 import '../game/player_speech.dart';
 import '../game/speech_statements.dart';
+import '../solo/bot_table.dart' show finishedGameReview;
+import '../solo/game_review.dart';
 import '../lobby/room_model.dart';
 import '../notebook/notebook_model.dart';
 import 'online_service.dart';
@@ -125,9 +127,11 @@ class OnlineGameSession extends GameSession {
     required Stream<Map<String, dynamic>?> mine,
     required ServerCall call,
     Future<void> Function(int now)? beat,
+    Future<Map<String, dynamic>?> Function(int gen)? loadReview,
     super.notebook,
   })  : _call = call,
-        _beat = beat {
+        _beat = beat,
+        _loadReview = loadReview {
     _subs = [
       room.listen((data) {
         // once this player has left, their seat is gone: ignore the rest
@@ -346,6 +350,52 @@ class OnlineGameSession extends GameSession {
   Future<void> setBotLevel(String level) =>
       _call('setBotLevel', {'code': code, 'level': level});
 
+  // ───────────── the review, once the game is over ─────────────
+
+  final Future<Map<String, dynamic>?> Function(int gen)? _loadReview;
+  int? _reviewGen;
+  GameReview? _review;
+
+  @override
+  GameReview? get review =>
+      _reviewGen == generation && phase == GamePhase.finished ? _review : null;
+
+  @override
+  String? get reviewDifficulty => room?.hasBots ?? false
+      ? switch (room!.botLevel) {
+          'novice' => '新手',
+          'expert' => '高手',
+          _ => '一般',
+        }
+      : null;
+
+  /// Fetches the server's record of a finished game, once a deal.
+  void _fetchReview() {
+    final load = _loadReview, seat = mySeat, gen = generation;
+    if (load == null ||
+        seat == null ||
+        phase != GamePhase.finished ||
+        _reviewGen == gen) {
+      return;
+    }
+    _reviewGen = gen;
+    _review = null;
+    unawaited(() async {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          final game = await load(gen);
+          if (_disposed || _reviewGen != gen) return;
+          if (game != null) {
+            _review = finishedGameReview(game)?.call(seat);
+            notifyListeners();
+            return;
+          }
+        } catch (_) {/* try again shortly */}
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }());
+  }
+
   bool _nudging = false;
   Future<void> _nudge() async {
     if (_nudging || _disposed || leaving) return;
@@ -381,6 +431,7 @@ class OnlineGameSession extends GameSession {
   void _updated() {
     refreshSpeechTimer(active: tableAvailable);
     _scheduleNudge();
+    _fetchReview();
     if (tableAvailable) {
       final scope = notebookScope;
       final card = _myCard;
@@ -416,6 +467,7 @@ class OnlineGameSession extends GameSession {
       mine: service.mine(code, uid),
       call: service.call,
       beat: (now) => service.beat(code, uid, now),
+      loadReview: (gen) => service.review(code, gen),
     );
   }
 

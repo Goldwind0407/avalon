@@ -8,6 +8,7 @@ import 'discussion_model.dart';
 import 'player_speech.dart';
 import 'expansion_model.dart';
 import '../notebook/notebook_model.dart';
+import '../solo/game_review.dart';
 
 /// A move was refused (wrong phase, not your turn, connection lost…).
 class GameMoveException implements Exception {
@@ -166,6 +167,13 @@ abstract class GameSession extends ChangeNotifier {
 
   /// Whether [seat] is played by a computer.
   bool isComputer(int seat) => isSolo && seat != mySeat;
+
+  /// The whole game with every role, card and reason; only once it is
+  /// over (and, online, once the server's record of it has arrived).
+  GameReview? get review => null;
+
+  /// The computers' level for the review's heading, if computers played.
+  String? get reviewDifficulty => null;
 
   /// Whose voice the computer in [seat] speaks with (BotPersona.id); null
   /// when it has none (then its lines are only shown).

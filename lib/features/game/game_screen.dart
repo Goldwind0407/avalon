@@ -2410,7 +2410,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         scale: s, onPressed: () => act(game.restart)),
                     SizedBox(width: 14 * s),
                   ],
-                  if (game case SoloGameSession(:final review?)) ...[
+                  if (game.review case final review?) ...[
                     TableButton('複盤',
                         key: const ValueKey('openReview'),
                         scale: s,
@@ -2419,7 +2419,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             MaterialPageRoute<void>(
                                 builder: (_) => ReviewScreen(
                                     review: review,
-                                    difficulty: widget.difficulty.label)))),
+                                    online: game.isOnline,
+                                    difficulty: game.isOnline
+                                        ? game.reviewDifficulty
+                                        : widget.difficulty.label)))),
                     SizedBox(width: 14 * s),
                   ],
                   TableButton(game.isOnline ? '回到房間' : '返回設定',

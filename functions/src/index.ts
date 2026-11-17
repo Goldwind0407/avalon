@@ -98,6 +98,11 @@ const EXPANSION_UPDATE = '這個房間使用了擴充規則，請先更新 App �
 const secretRef = (code: string) => roomRef(code).collection('secret').doc('state');
 const privateRef = (code: string, uid: string) =>
   roomRef(code).collection('private').doc(uid);
+/** The whole of a finished game, for everyone who played it to look back
+ *  on (roles, every card, what the Lady showed, the computers' reasons). */
+const reviewRef = (code: string, gen: number) =>
+  roomRef(code).collection('reviews').doc(String(gen));
+
 /** Finished games of a room with computers, for them to remember (server
  *  only: every role and card, as at the end). */
 const pastRef = (code: string, gen: number) =>
@@ -480,6 +485,7 @@ async function loadState(tx: Transaction, code: string, room: Room): Promise<Gam
     loyaltyDeck: secret.loyaltyDeck ?? [],
     reveals: secret.reveals ?? [],
     cardLog: secret.cardLog ?? {},
+    botReasons: secret.botReasons ?? {},
   });
 }
 
@@ -488,15 +494,25 @@ function saveState(
   tx: Transaction, code: string, room: Room, state: GameState, revealed: number,
 ) {
   const split = rules.split(state);
-  // a game with computers that has just ended is kept for them to remember
-  if (state.phase === 'finished' && room.game?.phase !== 'finished' && hasBots(room)) {
-    tx.set(pastRef(code, room.gen), {
+  if (state.phase === 'finished' && room.game?.phase !== 'finished') {
+    const players = room.players.map((p) =>
+      ({ uid: p.uid, name: p.name, bot: p.bot === true, persona: p.persona ?? null }));
+    // the game, as it ended, for the players to look back on
+    tx.set(reviewRef(code, room.gen), {
       gen: room.gen,
-      players: room.players.map((p) => ({ uid: p.uid, name: p.name, bot: p.bot === true, persona: p.persona ?? null })),
+      players,
       state,
       talk: room.talk ?? [],
-      expireAt: expiry(),
+      botLevel: room.botLevel ?? 'normal',
+      endedAt: Date.now(),
+      expireAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+    // and for the computers to remember
+    if (hasBots(room)) {
+      tx.set(pastRef(code, room.gen), {
+        gen: room.gen, players, state, talk: room.talk ?? [], expireAt: expiry(),
+      });
+    }
   }
   room.game = split.open;
   // The room and the secret state are renewed on every move; the players'
@@ -703,8 +719,21 @@ async function applyBots(
     // a result stays on the table long enough for people to look at it
     if (CONTINUES.includes(m.move) && (done > 0 || sinceChange < proxy.RESULT_VIEW_MS)) continue;
     try {
+      // the proposal being voted on: it goes on the record with the last vote
+      const proposal = state.proposals.length;
       if (perform(room, state, m.seat, m.move, m) === false) continue;
       done++;
+      const why = m.move === 'vote' ? m.why : null;
+      if (why && typeof why === 'object' && typeof why.reason === 'string' &&
+          why.reason.length <= 40 && Array.isArray(why.doubt) && why.doubt.length <= 10 &&
+          why.doubt.every((d: unknown) => typeof d === 'number')) {
+        state.botReasons[`${proposal}/${m.seat}`] = {
+          approve: m.approve === true,
+          reason: why.reason,
+          risk: typeof why.risk === 'number' ? why.risk : 0,
+          doubt: why.doubt,
+        };
+      }
     } catch (e) {
       if (!(e instanceof GameError) && !(e instanceof HttpsError)) throw e;
       console.error('computer players: move refused', m.move, (e as Error).message);
