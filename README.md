@@ -128,6 +128,10 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
   - 伺服器設定：雲端功能的環境變數 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`（16 字元以上，和伺服器的 `BOT_SERVER_SECRET` 相同）。沒設定時不能加入電腦。
   - 本機試玩：`dart compile exe bot_server/bin/server.dart -o build/bot_server.exe`，以 `PORT=8099 BOT_SERVER_SECRET=...` 執行；再以 `BOT_SERVER_URL=http://127.0.0.1:8099 BOT_SERVER_SECRET=... firebase emulators:start --only auth,firestore,functions` 啟動模擬器；App 用 `--dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2` 建置。整合測試：同樣匯出這兩個變數後 `npm run test:emulator`。
   - 部署：根目錄的 `Dockerfile` 可用在 Cloud Run 或樹莓派（同一個映像）。
+- **電腦玩家語音**：電腦的台詞多半是當場組出來的（300 局就有 8 千多種不同的句子），所以不錄整句，而是錄「片段」：在標點和數字處切開（`lib/features/solo/voice_lines.dart`），數字連同單位另錄（「3號」「第1次」）。約 2,160 段就能唸出所有台詞，播放時依序接起來，標點處停頓。某句只要有一段沒錄到，那句就只顯示文字。單人和多人模式都會念，可在音效設定裡關掉或調音量；不搶語音通話的音訊。
+  - 錄音清單：`VOICE_SCRIPT_OUT=tool/voice/script.csv VOICE_SCRIPT_GAMES=3000 flutter test test/voice_script_test.dart`（跑模擬局並展開台詞庫，修改台詞後要重跑）。
+  - 錄音：`pip install edge-tts`，然後 `python tool/voice/make_voices.py`（可加 `--only chen,yu`；`--missing` 列出還缺幾段）。會寫到 `assets/voice/<人物>/<編號>.mp3`，已存在的會跳過。檔名就是清單的 `id` 欄，換用其他引擎（GPT-SoVITS、Piper…）只要照這個檔名放。
+  - 錄好的 mp3 不放進 git（太大），要在建置 App 的電腦上產生。
 - 語音連線：同一對玩家連上之後，重連次數重新計算（連續失敗 4 次才放棄）；報到漏掉一兩次不算斷線，連續三次失敗才結束語音。
 - 規則在兩處各有一份：`lib/features/game/game_model.dart`（一機）與 `functions/src/rules.ts`（多機）。修改規則時兩邊都要改，並同步更新兩邊的測試。
 

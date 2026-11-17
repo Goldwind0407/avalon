@@ -51,3 +51,7 @@ app.*.map.json
 *-debug.log
 bot_server/.dart_tool/
 bot_server/pubspec.lock
+
+# recorded voices: made by tool/voice/make_voices.py, too large for git
+assets/voice/*/*.mp3
+assets/voice/*/*.part

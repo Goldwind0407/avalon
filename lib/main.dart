@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme.dart';
 import 'core/game_sounds.dart';
+import 'core/bot_voices.dart';
 import 'features/home/home_screen.dart';
 import 'features/intro/intro_screen.dart';
 
@@ -12,6 +13,7 @@ Future<void> main() async {
       [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   await GameSounds.instance.initialize();
+  await BotVoices.instance.initialize();
   runApp(const AvalonApp());
 }
 

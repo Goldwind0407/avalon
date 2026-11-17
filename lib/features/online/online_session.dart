@@ -277,6 +277,15 @@ class OnlineGameSession extends GameSession {
       room != null &&
       (room!.hasBots || room!.away.isNotEmpty || room!.talk.isNotEmpty);
 
+  /// A computer seat's own voice; a player who is away has none of theirs.
+  @override
+  String? voiceOf(int seat) {
+    final players = room?.players ?? const <OnlinePlayer>[];
+    return seat >= 0 && seat < players.length && players[seat].bot
+        ? players[seat].persona
+        : null;
+  }
+
   /// A computer seat, or a player who is away and played for meanwhile.
   @override
   bool isComputer(int seat) =>

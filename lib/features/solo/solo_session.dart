@@ -97,6 +97,8 @@ class SoloGameSession extends GameSession {
   /// The regular in seat [seat], if any.
   BotPersona? persona(int seat) =>
       seat == mySeat || personas == null ? null : personas![seat - 1];
+  @override
+  String? voiceOf(int seat) => persona(seat)?.id;
   Timer? _botTimer;
   bool _disposed = false, _paused = false;
   int? _pausedSpeechMillis;

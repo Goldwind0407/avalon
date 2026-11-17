@@ -7,6 +7,7 @@ import '../../core/assets.dart';
 import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';
 import '../../core/game_sounds.dart';
+import '../../core/bot_voices.dart';
 import '../../core/sound_controls.dart';
 import 'game_sound_events.dart';
 import 'local_vote_panel.dart';
@@ -217,6 +218,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     unawaited(GameSounds.instance.stop());
+    unawaited(BotVoices.instance.stop());
     for (final t in _timers) {
       t.cancel();
     }
@@ -334,6 +336,25 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  String? _spokenKey;
+
+  /// A computer's line, said aloud once when it appears (if it has been
+  /// recorded); a new turn cuts off the last one.
+  void _speakLine() {
+    final speaker = game.speaker, line = game.currentStatement;
+    if (game.phase != GamePhase.discussion || speaker == null || line == null) {
+      if (_spokenKey != null && game.phase != GamePhase.discussion) {
+        _spokenKey = null;
+        unawaited(BotVoices.instance.stop());
+      }
+      return;
+    }
+    final key = '${game.generation}/${game.speechVersion}/$line';
+    if (key == _spokenKey || !game.isComputer(speaker)) return;
+    _spokenKey = key;
+    unawaited(BotVoices.instance.speak(game.voiceOf(speaker), line));
+  }
+
   /// Plays what changed on the table since the last update.
   void _onSessionChanged() {
     if (!mounted) return;
@@ -345,6 +366,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     final old = _last, now = _Snap.of(game);
     _last = now;
+    _speakLine();
     if (old.phase != now.phase) {
       unawaited(GameSounds.instance.stop());
       final cue = phaseSound(now.phase);

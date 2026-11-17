@@ -138,7 +138,7 @@ void main() {
     await tester.tap(find.byTooltip('音效設定'));
     await tester.pumpAndSettle();
     expect(find.text('只影響遊戲音效，不會關閉多人語音。'), findsOneWidget);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byType(SwitchListTile).first);
     await tester.pumpAndSettle();
     expect(GameSounds.instance.enabled, isFalse);
     expect(events.any((e) => e.method == 'stop'), isTrue);
@@ -146,7 +146,7 @@ void main() {
     await tester.tap(find.text('試聽'));
     await tester.pump();
     expect(events.where((e) => e.method == 'play').length, played);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byType(SwitchListTile).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('試聽'));
     await tester.pump();

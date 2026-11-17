@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'bot_voices.dart';
 import 'game_sounds.dart';
 
 class SoundSettingsButton extends StatelessWidget {
@@ -21,9 +22,10 @@ class SoundSettingsButton extends StatelessWidget {
 Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
     context: context,
     builder: (context) => ListenableBuilder(
-        listenable: GameSounds.instance,
+        listenable: Listenable.merge([GameSounds.instance, BotVoices.instance]),
         builder: (context, _) {
           final sound = GameSounds.instance;
+          final voices = BotVoices.instance;
           return AlertDialog(
               title: const Text('遊戲音效'),
               content: SizedBox(
@@ -45,6 +47,24 @@ Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
                     ]),
                     const Text('只影響遊戲音效，不會關閉多人語音。',
                         style: TextStyle(fontSize: 12)),
+                    const Divider(height: 24),
+                    SwitchListTile(
+                        key: const ValueKey('botVoices'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('電腦玩家語音'),
+                        subtitle: const Text('已錄好的台詞會念出來，其餘只顯示文字',
+                            style: TextStyle(fontSize: 12)),
+                        value: voices.enabled,
+                        onChanged: voices.setEnabled),
+                    Row(children: [
+                      const Icon(Icons.record_voice_over_outlined),
+                      Expanded(
+                          child: Slider(
+                              value: voices.volume,
+                              onChanged:
+                                  voices.enabled ? voices.setVolume : null)),
+                      Text('${(voices.volume * 100).round()}%')
+                    ]),
                   ])),
               actions: [
                 TextButton(

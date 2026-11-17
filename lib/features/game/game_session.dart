@@ -167,6 +167,10 @@ abstract class GameSession extends ChangeNotifier {
   /// Whether [seat] is played by a computer.
   bool isComputer(int seat) => isSolo && seat != mySeat;
 
+  /// Whose voice the computer in [seat] speaks with (BotPersona.id); null
+  /// when it has none (then its lines are only shown).
+  String? voiceOf(int seat) => null;
+
   /// Online: seats whose phone has gone quiet, played by the server until
   /// their player is back.
   Set<int> get awaySeats => const {};
