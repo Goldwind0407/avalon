@@ -13,6 +13,10 @@ analyzer:
   exclude:
     # a package of its own (pure Dart), analyzed there
     - bot_server/**
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
 
 linter:
   # The lint rules applied to this project can be customized in the
