@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/game_sounds.dart';
 import 'package:avalon_shadow_council/core/sound_output.dart';
 import 'package:avalon_shadow_council/core/sound_controls.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/game/game_sound_events.dart';
 import 'package:avalon_shadow_council/features/table/card_reveal.dart';

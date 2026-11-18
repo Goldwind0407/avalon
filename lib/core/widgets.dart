@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'theme.dart';
 
 /// The night sky every menu screen sits on: a deep gradient, two soft

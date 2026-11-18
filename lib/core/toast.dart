@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'theme.dart';
 
 // A short message in the middle of the screen, the way iOS shows one: it

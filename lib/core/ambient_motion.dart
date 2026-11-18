@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Controls decorative loops only. Finite gameplay animations must continue
 /// while idle so their completion callbacks can advance the presentation.
