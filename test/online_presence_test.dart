@@ -239,11 +239,36 @@ void main() {
       final said = server.calls.lastWhere((c) => c.$1 == 'say').$2;
       expect(said['text'], '我懷疑3號');
       expect(said['generation'], 1);
+      expect(said['expectedVersion'], 2, reason: 'the turn it was typed in');
       session.expressOpinion(false);
       time.flushMicrotasks();
       expect(server.calls.where((c) => c.$1 == 'say').last.$2['text'],
           '這隊我不放心，想換個組合。');
       expect(server.calls.last.$2['move'], 'endSpeech');
+    });
+  });
+
+  test('an opinion ends the turn it was given in, even if a new deal begins',
+      () {
+    withSession((time, server, session, beats) {
+      final data = withBots(room(phase: 'discussion'));
+      (data['game'] as Map)['speechVersion'] = 2;
+      feed(time, server, data);
+      // the line takes its time; meanwhile a new deal starts
+      final slow = server.slow('say');
+      session.expressOpinion(true);
+      time.flushMicrotasks();
+      final next = withBots(room(phase: 'discussion'));
+      next['gen'] = 2;
+      (next['game'] as Map)['speechVersion'] = 0;
+      feed(time, server, next);
+      expect(session.generation, 2);
+      slow.complete({});
+      time.flushMicrotasks();
+      final ended = server.calls.last.$2;
+      expect(ended['move'], 'endSpeech');
+      expect(ended['generation'], 1, reason: 'not the new deal');
+      expect(ended['expectedVersion'], 2);
     });
   });
 

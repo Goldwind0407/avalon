@@ -14,8 +14,16 @@ class FakeServer {
   Future<Map<String, dynamic>> call(
       String name, Map<String, Object?> data) async {
     calls.add((name, data));
+    final held = _held.remove(name);
+    if (held != null) return held.future;
     return {'ok': true};
   }
+
+  final _held = <String, Completer<Map<String, dynamic>>>{};
+
+  /// The next [name] call is answered only when the result is completed.
+  Completer<Map<String, dynamic>> slow(String name) =>
+      _held[name] = Completer<Map<String, dynamic>>();
 
   static const uids = ['u0', 'me', 'u2', 'u3', 'u4'];
 

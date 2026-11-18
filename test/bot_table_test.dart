@@ -485,6 +485,16 @@ void main() {
         throwsA(isA<BotRequestError>()));
     expect(() => service.step(request()..['players'] = []),
         throwsA(isA<BotRequestError>()));
+    // a person away for now is played for, and seat 0 with them
+    final away = request(room: '777777')
+      ..['players'] = [
+        for (var s = 0; s < 5; s++)
+          s < 2
+              ? {'uid': 'u$s', 'name': '玩家$s', 'bot': false, 'away': s == 1}
+              : {'uid': 'bot:$s', 'name': '電腦$s', 'bot': true, 'persona': 'kai'}
+      ];
+    expect([for (final m in service.step(away)['moves'] as List) m['seat']],
+        [1, 2, 3, 4]);
   });
 
   test('computers remember earlier games in the room with the people now there',
@@ -537,6 +547,17 @@ void main() {
       expect(m.entries.single.ago, 0);
       expect(m.entries.single.kinds, isNotEmpty);
     }
+    // the person away for now (played for, but still themselves) is
+    // remembered all the same
+    final back = Harness(5, humans: {0}, seed: 22);
+    back.table.step(back.state, const [], players: [
+      {...player(0), 'away': true},
+      for (var s = 1; s < 5; s++) player(s)
+    ], past: [
+      finished
+    ]);
+    expect([for (var s = 1; s < 5; s++) back.table.memoryOf(s)],
+        [for (final m in memories) m == null ? isNull : isNotNull]);
     // someone else in the person's seat now: nobody is remembered
     final stranger = Harness(5, humans: {0}, seed: 23);
     stranger.table.step(stranger.state, const [],

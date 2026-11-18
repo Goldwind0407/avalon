@@ -645,6 +645,10 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
               await v5(phones[seat], 'say', { code, generation: r.gen, text: said % 2 ? '這隊我可以接受，支持。' : '我覺得3號有點可疑' });
               said++;
               await refused(v5(phones[1 - seat], 'say', { code, text: '插話' }), /輪到你/);
+              // a line from an earlier turn that arrives late is not hung on this one
+              await refused(v5(phones[seat], 'say', {
+                code, generation: r.gen, expectedVersion: g.speechVersion - 1, text: '遲到的話',
+              }), /結束/);
               await move(seat, { move: 'endSpeech', expectedVersion: g.speechVersion });
               acted = true;
             }
@@ -748,6 +752,27 @@ describe('limits on guessing and opening rooms', () => {
       }
       assert.equal(codes.length, 10);
       assert.equal(refused, 1);
+    } finally {
+      for (const code of codes) await host.call('leaveRoom', { code }).catch(() => {});
+      await deleteApp(host.app);
+    }
+  });
+
+  test('asking all at once does not get round the limits', async () => {
+    const host = await phone();
+    const codes: string[] = [];
+    try {
+      const tries = await Promise.allSettled(
+        Array.from({ length: 16 }, () => host.call('createRoom', { name: '同時開房' })));
+      for (const t of tries) if (t.status === 'fulfilled') codes.push(t.value.code);
+      assert.ok(codes.length <= 10, `${codes.length} rooms opened at once`);
+      await refused(host.call('createRoom', { name: '再開' }), /太頻繁/);
+      const misses = await Promise.allSettled(Array.from({ length: 30 }, (_, i) =>
+        host.call('joinRoom', { code: String(200000 + i), name: '同時猜' })));
+      const notFound = misses.filter((m) => m.status === 'rejected' &&
+        /找不到/.test(String((m as PromiseRejectedResult).reason?.message))).length;
+      assert.ok(notFound <= 20, `${notFound} misses let through at once`);
+      await refused(host.call('joinRoom', { code: '299999', name: '再猜' }), /太多次/);
     } finally {
       for (const code of codes) await host.call('leaveRoom', { code }).catch(() => {});
       await deleteApp(host.app);
