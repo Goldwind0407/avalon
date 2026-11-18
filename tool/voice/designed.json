@@ -1,0 +1,38 @@
+{
+  "mia": {
+    "id": "voice_g0w03dyd8tck",
+    "description": "A young Taiwanese woman in her twenties from Taipei, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Bright, clear voice with punch; confident and a bit playful, emotions clearly rising and falling."
+  },
+  "chen": {
+    "id": "voice_fx8sy4aipzlk",
+    "description": "A Taiwanese man in his fifties, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Low, slightly husky voice; speaks slowly and thoughtfully, pausing to weigh things before committing, like a calm uncle."
+  },
+  "yu": {
+    "id": "voice_6ihbjqil52l1",
+    "description": "A Taiwanese girl in her early twenties, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Light, sweet, high voice; lively and quick, a little coquettish, laughs easily and does not take things too seriously."
+  },
+  "pei": {
+    "id": "voice_fbe2kyqxof33",
+    "description": "A Taiwanese woman around thirty, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Warm, gentle medium voice; easy-going and agreeable, often goes along with others, polite and soft-spoken."
+  },
+  "zhe": {
+    "id": "voice_yaiu2cysdwxq",
+    "description": "A Taiwanese man around thirty, an engineer type, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Clear, even medium voice; calm and methodical, lays out facts in order as if reading data, rarely emotional."
+  },
+  "kai": {
+    "id": "voice_668pyczol2rn",
+    "description": "A Taiwanese man in his late twenties, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Firm, slightly rough voice; blunt and impatient, says what he thinks straight out, quick and forceful."
+  },
+  "wei": {
+    "id": "voice_bvb0n5yf05ep",
+    "description": "A Taiwanese man in his thirties, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Relaxed, smooth medium voice with a smile in it; laid-back and jokey, never in a hurry."
+  },
+  "rong": {
+    "id": "voice_g6efbvgbvc76",
+    "description": "A Taiwanese woman around forty, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Soft, calm, gentle voice; quiet and reserved, says little, speaks unhurriedly and with composure."
+  },
+  "hu": {
+    "id": "voice_5kt52d1y4hor",
+    "description": "A Taiwanese young man around twenty, speaking Taiwan Mandarin (台灣國語) with a natural Taiwanese accent, not mainland Chinese: soft retroflex sounds, light neutral tones, casual Taiwanese sentence endings like 啦、耶、喔. Sounds like chatting with friends over a board game, never like a news anchor or an audiobook. Upbeat, youthful, slightly high voice; excitable and impulsive, easily swayed, speaks fast when worked up."
+  }
+}
