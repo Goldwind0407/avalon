@@ -38,7 +38,7 @@
 
 ## 啟動
 
-已包含 Android、iOS、Web 啟動專案。建議使用 Flutter 3.41 或更新的相容版本。
+已包含 Android、iOS、Web 啟動專案。建議使用 Flutter 3.50 或更新的相容版本。
 
 ```sh
 flutter pub get
@@ -270,7 +270,7 @@ npm run test:cloud      # 同樣的測試，直接打已部署的正式環境；
 - **Server rules and Firebase integration**：後端規則測試，以及 Auth／Firestore／Functions 模擬器的多人對局、權限與語音信令測試。
 - **Android debug build**：Android APK 編譯。成功後可從該次執行的 Artifacts 下載 `avalon-android-debug`；Web 產物為 `avalon-web`，保留 7 天。
 
-CI 固定使用 Flutter 3.41.0、Node 22、Java 21 與 Firebase CLI 15.30.0。模擬器測試使用 `demo-avalon-ci`，不需 Firebase 金鑰、不執行正式環境測試或部署。同一分支有新提交時會取消尚未結束的舊執行。
+CI 固定使用 Flutter 3.50.0、Node 22、Java 21 與 Firebase CLI 15.30.0。模擬器測試使用 `demo-avalon-ci`，不需 Firebase 金鑰、不執行正式環境測試或部署。同一分支有新提交時會取消尚未結束的舊執行。
 
 語音測試目前涵蓋模擬連線與控麥流程；CI 尚未加入實際音訊傳輸測試，也無法替代真機麥克風、耳機、背景行為與發熱驗收。Android 產物是測試用 APK；iPhone 不能安裝 APK。
 
