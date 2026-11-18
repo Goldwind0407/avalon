@@ -346,6 +346,10 @@ void main() {
     if (Platform.environment['BALANCE_BUS'] == 'off') {
       BotBrain.bussingChance = 0;
     }
+    // BALANCE_BIGTABLE=n: Merlin's long cover from n players (99: never)
+    if (Platform.environment['BALANCE_BIGTABLE'] case final n?) {
+      BotBrain.merlinBigTable = int.parse(n);
+    }
     // BALANCE_HARDLINE=off: no Morgana plays the hard push
     if (Platform.environment['BALANCE_HARDLINE'] == 'off') {
       BotBrain.hardlineChance = 0;
