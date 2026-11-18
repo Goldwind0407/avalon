@@ -248,6 +248,9 @@ abstract class GameSession extends ChangeNotifier {
 
   /// Online only: give up this player's seat (ends a game in progress).
   bool get canLeaveRoom => false;
+
+  /// Online: the room's code, shown so a player can find the way back.
+  String? get roomCode => null;
   Future<void> leaveRoom() async {}
 
   // ───────────── expansions ─────────────

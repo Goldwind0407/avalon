@@ -416,7 +416,9 @@ class OnlineGameSession extends GameSession {
         }
       : null;
 
-  /// Fetches the server's record of a finished game, once a deal.
+  /// Fetches the server's record of a finished game, once a deal. If it
+  /// cannot be had (no network, say), it is tried again a little later and
+  /// on the next change to the room, for as long as the game stays over.
   void _fetchReview() {
     final load = _loadReview, seat = mySeat, gen = generation;
     if (load == null ||
@@ -427,6 +429,7 @@ class OnlineGameSession extends GameSession {
     }
     _reviewGen = gen;
     _review = null;
+    _reviewRetry?.cancel();
     unawaited(() async {
       for (var attempt = 0; attempt < 3; attempt++) {
         try {
@@ -440,8 +443,16 @@ class OnlineGameSession extends GameSession {
         } catch (_) {/* try again shortly */}
         await Future<void>.delayed(const Duration(seconds: 2));
       }
+      if (_disposed || _reviewGen != gen) return;
+      // not this time: free to be asked again
+      _reviewGen = null;
+      _reviewRetry = Timer(reviewRetry, _fetchReview);
     }());
   }
+
+  /// How long after three failed tries the review is asked for again.
+  static const reviewRetry = Duration(seconds: 20);
+  Timer? _reviewRetry;
 
   bool _nudging = false;
   Future<void> _nudge() async {
@@ -559,6 +570,7 @@ class OnlineGameSession extends GameSession {
   @override
   void dispose() {
     _disposed = true;
+    _reviewRetry?.cancel();
     _beatTimer?.cancel();
     _nudgeTimer?.cancel();
     for (final s in _subs) {
@@ -626,6 +638,8 @@ class OnlineGameSession extends GameSession {
 
   @override
   bool get canLeaveRoom => true;
+  @override
+  String? get roomCode => code;
   @override
   Future<void> leaveRoom() => leave();
 

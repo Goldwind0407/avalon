@@ -234,6 +234,22 @@ class OnlineService {
   }
 
   /// Calls one of the game server's functions (functions/src/index.ts).
+  /// The rooms where this account still has a seat, most recent first.
+  Future<List<MyRoom>> myRooms() async {
+    await signIn();
+    final found = await call('myRooms', const {});
+    return [
+      for (final r in found['rooms'] as List? ?? const [])
+        if (r is Map)
+          MyRoom(
+              code: '${r['code']}',
+              status: '${r['status']}',
+              players: (r['players'] as num?)?.toInt() ?? 0,
+              host: '${r['host'] ?? ''}',
+              finished: r['finished'] == true)
+    ];
+  }
+
   Future<Map<String, dynamic>> call(
       String name, Map<String, Object?> data) async {
     await signIn();
@@ -312,4 +328,17 @@ class OnlineService {
           .doc('rooms/$code/private/$uid')
           .snapshots()
           .map((s) => s.data());
+}
+
+/// A room where the player still has a seat (see [OnlineService.myRooms]).
+class MyRoom {
+  const MyRoom(
+      {required this.code,
+      required this.status,
+      required this.players,
+      required this.host,
+      required this.finished});
+  final String code, status, host;
+  final int players;
+  final bool finished;
 }

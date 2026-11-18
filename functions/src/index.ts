@@ -329,6 +329,30 @@ function joinRoomNow(req: CallableRequest, uid: string, code: string, name: stri
   });
 }
 
+/**
+ * The rooms where the caller still has a seat, most recently active
+ * first: how a phone that dropped out (or a new phone, signed in to the
+ * same account) finds its way back without the code.
+ */
+export const myRooms = onCall(async (req) => {
+  const uid = uidOf(req);
+  const found = await db.collection('rooms')
+    .where('playerUids', 'array-contains', uid).limit(10).get();
+  const rooms = found.docs
+    .map((d) => d.data() as Room)
+    .filter((room) => !roomHasExpired(room.expireAt))
+    .sort((a, b) => (b.updatedAt?.toMillis() ?? 0) - (a.updatedAt?.toMillis() ?? 0))
+    .slice(0, 3)
+    .map((room) => ({
+      code: room.code,
+      status: room.status,
+      players: room.players.length,
+      host: room.players.find((p) => p.uid === room.hostUid)?.name ?? '',
+      finished: room.game?.phase === 'finished',
+    }));
+  return { rooms };
+});
+
 export const leaveRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const code = cleanCode(req.data?.code);
@@ -527,6 +551,9 @@ function saveState(
     tx.set(reviewRef(code, room.gen), {
       gen: room.gen,
       players,
+      // who may read it: the people who played it, not whoever is in the
+      // room later
+      uids: room.players.filter((p) => !p.bot).map((p) => p.uid),
       state,
       talk: room.talk ?? [],
       botLevel: room.botLevel ?? 'normal',
@@ -664,10 +691,12 @@ const CONTINUES: readonly Move[] =
 
 /** What the computers' server is sent: the whole game, the record so far. */
 function botRequest(
-  code: string, room: Room, state: GameState, away: readonly number[], past: unknown[] = [],
+  code: string, room: Room, state: GameState, away: readonly number[], past?: unknown[],
 ) {
   return {
-    past,
+    // only when read (with the first quest, or when asked for): absent, the
+    // computers keep what they took in, or ask for it again (needPast)
+    ...(past ? { past } : {}),
     room: code,
     gen: room.gen,
     seed: room.botSeed ?? 0,
@@ -684,7 +713,54 @@ function botRequest(
   };
 }
 
-async function askBots(body: unknown): Promise<{ say: any[]; moves: any[] } | null> {
+/** Words without which a line says nothing about a Lady check. */
+const LADY_WORDS = /湖|女神|查|驗/;
+
+/**
+ * The Lady results [text], typed by [uid] in room [code], claims: as the
+ * computers' server reads it. Empty without that server (a test setup);
+ * null when it is set up but cannot be reached, so cannot tell.
+ */
+async function ladyClaimsOf(code: string, uid: string, text: string):
+  Promise<{ target: number; evil: boolean }[] | null> {
+  const server = botServer();
+  if (!server) return [];
+  const room = (await roomRef(code).get()).data() as Room | undefined;
+  const seat = room?.playerUids.indexOf(uid) ?? -1;
+  if (!room || seat < 0) return [];
+  try {
+    const response = await fetch(`${server.url}/speech`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-bot-secret': server.secret },
+      body: JSON.stringify({ text, names: room.players.map((p) => p.name), seat }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const answer = (await response.json()) as { lady?: unknown };
+    if (!Array.isArray(answer.lady)) return null;
+    return answer.lady.filter((c): c is { target: number; evil: boolean } =>
+      typeof c?.target === 'number' && typeof c?.evil === 'boolean');
+  } catch (e) {
+    console.error('computer players: unreachable for speech', e);
+    return null;
+  }
+}
+
+type BotAnswer = { say: any[]; moves: any[]; needPast: boolean };
+
+/** The room's games before deal [gen], newest first, for the computers'
+ *  memory (in [tx] when given). */
+async function pastGames(code: string, gen: number, tx?: Transaction) {
+  const query = roomRef(code).collection('pastGames')
+    .where('gen', '<', gen).orderBy('gen', 'desc').limit(PAST_GAMES);
+  const kept = tx ? await tx.get(query) : await query.get();
+  return kept.docs.map((d) => {
+    const { expireAt: _, ...game } = d.data();
+    return game;
+  });
+}
+
+async function askBots(body: unknown): Promise<BotAnswer | null> {
   const server = botServer();
   if (!server) return null;
   try {
@@ -698,10 +774,11 @@ async function askBots(body: unknown): Promise<{ say: any[]; moves: any[] } | nu
       console.error('computer players: HTTP', response.status, await response.text());
       return null;
     }
-    const answer = (await response.json()) as { say?: unknown; moves?: unknown };
+    const answer = (await response.json()) as { say?: unknown; moves?: unknown; needPast?: unknown };
     return {
       say: Array.isArray(answer.say) ? answer.say : [],
       moves: Array.isArray(answer.moves) ? answer.moves : [],
+      needPast: answer.needPast === true,
     };
   } catch (e) {
     console.error('computer players: unreachable', e);
@@ -894,9 +971,7 @@ export const announceLady = onCall(async (req) => {
     }
     // a good player tells the truth about it (house rule); evil may lie
     const state = await loadState(tx, code, room);
-    const seen = state.reveals.filter((r) => r.seat === seat && r.kind === 'lady' &&
-      r.target === check.target).pop();
-    if (!rules.evilNow(state, seat) && seen && seen.evil !== evil) {
+    if (rules.misreportsLady(state, seat, [{ target: check.target, evil }])) {
       throw new HttpsError('failed-precondition', '好人不能謊報湖中女神的結果');
     }
     const talk = room.talk ?? [];
@@ -926,12 +1001,22 @@ export const say = onCall(async (req) => {
   if (text.length < 1 || text.length > LINE_LENGTH) {
     throw new HttpsError('invalid-argument', `發言需為 1～${LINE_LENGTH} 個字`);
   }
+  // the deal and speaking turn the line was typed in: without them a line
+  // that arrives late could be hung on a later turn (apps before these
+  // were sent are asked to update)
+  const generation = req.data?.generation, expectedVersion = req.data?.expectedVersion;
+  if (typeof generation !== 'number' || typeof expectedVersion !== 'number') {
+    throw new HttpsError('failed-precondition', '請更新 App 後再發言');
+  }
+  // what the line says about Lady checks, read the way the computers read
+  // it (only for a line that may be about one)
+  const claims = LADY_WORDS.test(text) ? await ladyClaimsOf(code, uid, text) : [];
   return db.runTransaction(async (tx) => {
     const room = await loadRoom(tx, code);
     const seat = seatOf(room, uid);
     const game = room.game;
     if (room.status !== 'playing' || !game) throw new HttpsError('failed-precondition', '遊戲尚未開始');
-    if (req.data?.generation !== undefined && req.data.generation !== room.gen) {
+    if (generation !== room.gen) {
       throw new HttpsError('failed-precondition', '這局已更新，請依目前畫面重新操作');
     }
     const speaker = game.phase === 'discussion'
@@ -939,8 +1024,22 @@ export const say = onCall(async (req) => {
     if (seat !== speaker) throw new HttpsError('failed-precondition', '輪到你發言時才能送出');
     // a line typed in an earlier turn (it took long to arrive) is not
     // hung on this one
-    if (req.data?.expectedVersion !== undefined && req.data.expectedVersion !== game.speechVersion) {
+    if (expectedVersion !== game.speechVersion) {
       throw new HttpsError('failed-precondition', '這次發言已經結束了');
+    }
+    // a good player does not misreport a Lady result of their own, typed
+    // any more than announced (house rule; the app checks it too)
+    if (LADY_WORDS.test(text)) {
+      const state = await loadState(tx, code, room);
+      const checked = state.reveals.some((r) => r.seat === seat && r.kind === 'lady');
+      if (checked && !rules.evilNow(state, seat)) {
+        if (claims === null) {
+          throw new HttpsError('unavailable', '暫時無法確認湖中女神的說法，請稍後再送');
+        }
+        if (rules.misreportsLady(state, seat, claims)) {
+          throw new HttpsError('failed-precondition', '好人不能謊報湖中女神的結果');
+        }
+      }
     }
     const talk = room.talk ?? [];
     const mine = talk.filter((l) => l.by === seat && l.sv === game.speechVersion && l.bot !== true);
@@ -994,19 +1093,14 @@ export const nudge = onCall((req) =>
       // away as well, with the same reasoning as a computer seat. Without
       // it (or when it cannot be reached, below) the plain stand-in does.
       const served = botServer() != null;
-      let past: unknown[] = [];
+      let past: unknown[] | undefined;
       if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
         // earlier games are for the computers' memory, which they take in
         // as a game begins: only read while the first quest is on
         if (served && bots.length > 0 && state.history.length === 0) {
-          const kept = await tx.get(roomRef(code).collection('pastGames')
-            .where('gen', '<', room.gen).orderBy('gen', 'desc').limit(PAST_GAMES));
-          past = kept.docs.map((d) => {
-            const { expireAt: _, ...game } = d.data();
-            return game;
-          });
+          past = await pastGames(code, room.gen, tx);
         }
         if (!served) {
           const sinceChange = room.updatedAt instanceof Timestamp
@@ -1040,7 +1134,12 @@ export const nudge = onCall((req) =>
     });
     if (!first.ask) return { moves: first.moves };
     const { step, body } = first.ask;
-    const answer = await askBots(body);
+    let answer = await askBots(body);
+    // the computers' server was restarted (or another instance answered)
+    // after the first quest: it wants the earlier games again
+    if (answer?.needPast && !('past' in body)) {
+      answer = await askBots({ ...body, past: await pastGames(code, body.gen) });
+    }
     if (!answer) {
       // the server cannot be reached: nobody is left waiting for a player
       // who is away (the computer seats wait for the server to come back)

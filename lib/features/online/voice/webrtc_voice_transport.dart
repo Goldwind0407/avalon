@@ -1,3 +1,4 @@
+import 'voice_cleanup.dart';
 import 'dart:async';
 import 'voice_controller.dart';
 import 'voice_mesh.dart';
@@ -138,15 +139,13 @@ class WebRtcVoiceTransport implements VoiceTransport, VoiceFloorTransport {
     _ready = false;
     _levels?.cancel();
     final cancelled = _subscription?.cancel();
-    try {
-      // Stop the physical mic before any Firestore cleanup can wait on network.
-      await _audio.close();
-    } finally {
-      try {
-        await _mesh?.stop();
-      } catch (_) {/* Offline cleanup expires. */}
-      await cancelled;
-      await _updates.close();
-    }
+    // Stop the physical mic before any Firestore cleanup can wait on
+    // network. Each step has its own time limit: a native call that never
+    // returns must not keep the connections and heartbeat from stopping.
+    await cleanupStep(_audio.close);
+    // offline, what is left expires on the server
+    if (_mesh case final mesh?) await cleanupStep(mesh.stop);
+    if (cancelled != null) await cleanupStep(() => cancelled);
+    await cleanupStep(_updates.close);
   }
 }

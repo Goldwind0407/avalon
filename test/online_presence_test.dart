@@ -239,6 +239,7 @@ void main() {
       final said = server.calls.lastWhere((c) => c.$1 == 'say').$2;
       expect(said['text'], '我懷疑3號');
       expect(said['generation'], 1);
+      expect(said['expectedVersion'], isA<int>());
       expect(said['expectedVersion'], 2, reason: 'the turn it was typed in');
       session.expressOpinion(false);
       time.flushMicrotasks();
@@ -331,6 +332,35 @@ void main() {
       expect(session.review?.winner, '正義');
       feed(time, server, room(phase: 'finished'));
       expect(asked, [1], reason: 'once a deal');
+      session.dispose();
+      server.rooms.close();
+      server.mine.close();
+      time.flushMicrotasks();
+    });
+  });
+
+  test('a review that cannot be had is asked for again later', () {
+    fakeAsync((time) {
+      final server = FakeServer();
+      var tries = 0;
+      final session = OnlineGameSession(
+          code: '123456',
+          uid: 'me',
+          room: server.rooms.stream,
+          mine: server.mine.stream,
+          call: server.call,
+          loadReview: (gen) async {
+            tries++;
+            // offline for the first three tries
+            if (tries <= 3) throw StateError('offline');
+            return null; // then: reached, but not written yet
+          });
+      feed(time, server, room(phase: 'finished'));
+      time.elapse(const Duration(seconds: 7));
+      expect(tries, 3);
+      // not given up on for good
+      time.elapse(OnlineGameSession.reviewRetry);
+      expect(tries, greaterThan(3));
       session.dispose();
       server.rooms.close();
       server.mine.close();

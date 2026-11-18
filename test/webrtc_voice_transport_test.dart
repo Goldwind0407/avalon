@@ -42,6 +42,7 @@ class AudioDevice implements VoiceAudio {
 }
 
 void main() {
+  hungCleanupTests();
   late Bus bus;
   late List<WebRtcVoiceTransport> transports;
   setUp(() {
@@ -136,5 +137,31 @@ void main() {
     await pending;
     expect(bus.people, isEmpty);
     expect(audio.captures, 0);
+  });
+}
+
+/// A device whose native release never returns.
+class HungAudioDevice extends AudioDevice {
+  @override
+  Future<void> close() => Completer<void>().future;
+}
+
+void hungCleanupTests() {
+  test('a native release that never returns does not keep the rest from '
+      'stopping', () async {
+    final bus = Bus();
+    final voice = WebRtcVoiceTransport(
+        uid: 'a',
+        audio: HungAudioDevice(),
+        signaling: MemorySignaling(bus),
+        sampleInterval: const Duration(milliseconds: 3));
+    await voice.connect();
+    await flush();
+    expect(bus.people.keys, contains('a'));
+    // the audio step is given up on after its limit; the mesh still stops
+    // and withdraws this phone from the room's voice
+    await voice.close().timeout(const Duration(seconds: 8));
+    expect(bus.people.keys, isNot(contains('a')));
+    await bus.changes.close();
   });
 }

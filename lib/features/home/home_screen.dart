@@ -40,7 +40,7 @@ class HomeScreen extends StatelessWidget {
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _ModeCard(
+                              ModeCard(
                                 key: const ValueKey('openLocal'),
                                 icon: Icons.phone_iphone,
                                 title: '一機遊玩',
@@ -50,7 +50,7 @@ class HomeScreen extends StatelessWidget {
                                     _open(context, const LocalPlayScreen()),
                               ),
                               const SizedBox(height: 10),
-                              _ModeCard(
+                              ModeCard(
                                 key: const ValueKey('openOnline'),
                                 icon: Icons.devices,
                                 title: '多機遊玩',
@@ -59,7 +59,7 @@ class HomeScreen extends StatelessWidget {
                                     _open(context, const OnlinePlayScreen()),
                               ),
                               const SizedBox(height: 10),
-                              _ModeCard(
+                              ModeCard(
                                 key: const ValueKey('openSolo'),
                                 icon: Icons.smart_toy_outlined,
                                 title: '跟電腦遊玩',
@@ -155,115 +155,4 @@ class _Crest extends StatelessWidget {
         AvalonTheme.gold.withValues(alpha: left ? 0 : .7),
         AvalonTheme.gold.withValues(alpha: left ? .7 : 0),
       ])));
-}
-
-/// One way to play: an icon in a ring, a name and what it means.
-class _ModeCard extends StatelessWidget {
-  const _ModeCard(
-      {super.key,
-      required this.icon,
-      required this.title,
-      required this.subtitle,
-      required this.onTap,
-      this.primary = false,
-      this.badge});
-  final IconData icon;
-  final String title, subtitle;
-  final VoidCallback onTap;
-  final bool primary;
-  final String? badge;
-  @override
-  Widget build(BuildContext context) => Material(
-        color: Colors.transparent,
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: primary
-                    ? [const Color(0xFF3A3156), const Color(0xFF232348)]
-                    : [const Color(0xFF222746), const Color(0xFF181D38)]),
-            border: Border.all(
-                color: AvalonTheme.gold.withValues(alpha: primary ? .7 : .28),
-                width: primary ? 1.3 : 1),
-            boxShadow: [
-              if (primary)
-                BoxShadow(
-                    color: AvalonTheme.gold.withValues(alpha: .14),
-                    blurRadius: 18),
-              const BoxShadow(
-                  color: Color(0x44000000),
-                  blurRadius: 12,
-                  offset: Offset(0, 6)),
-            ],
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              child: Row(children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: primary
-                        ? const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFFF1D594), Color(0xFFC9A257)])
-                        : null,
-                    color: primary ? null : AvalonTheme.raised,
-                    border: Border.all(
-                        color: AvalonTheme.gold.withValues(alpha: .5)),
-                  ),
-                  child: Icon(icon,
-                      size: 21,
-                      color: primary ? AvalonTheme.bg : AvalonTheme.gold),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Text(title,
-                              style: TextStyle(
-                                  fontSize: 16.5,
-                                  letterSpacing: 1,
-                                  fontWeight: FontWeight.bold,
-                                  color: primary
-                                      ? AvalonTheme.gold
-                                      : Colors.white)),
-                          if (badge != null) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 7, vertical: 1),
-                              decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                      color: AvalonTheme.violet
-                                          .withValues(alpha: .8))),
-                              child: Text(badge!,
-                                  style: const TextStyle(
-                                      fontSize: 10, color: Color(0xFFB9AEF0))),
-                            ),
-                          ],
-                        ]),
-                        const SizedBox(height: 2),
-                        Text(subtitle,
-                            style: const TextStyle(
-                                fontSize: 12, color: AvalonTheme.muted)),
-                      ]),
-                ),
-                Icon(Icons.chevron_right,
-                    color: AvalonTheme.gold.withValues(alpha: .7)),
-              ]),
-            ),
-          ),
-        ),
-      );
 }

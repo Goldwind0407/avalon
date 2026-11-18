@@ -1,3 +1,4 @@
+import 'voice_cleanup.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -139,13 +140,10 @@ class WebRtcVoiceAudio implements VoiceAudio {
     if (_closed) return;
     _closed = true;
     ++_captureGeneration;
-    try {
-      await _stopCapture();
-    } finally {
-      await Future.wait([
-        for (final peer in [..._peers]) peer.close()
-      ]);
-    }
+    await cleanupStep(_stopCapture);
+    await Future.wait([
+      for (final peer in [..._peers]) cleanupStep(peer.close)
+    ]);
   }
 }
 
@@ -314,12 +312,11 @@ class WebRtcVoicePeer extends VoicePeer {
     closed = true;
     _disconnectTimer?.cancel();
     onClosed?.call();
-    try {
-      await pc.close();
-    } finally {
-      await pc.dispose();
-      await _renderer?.dispose();
-      await _playbackStream?.dispose();
-    }
+    // each with its own time limit, so one native call that hangs does not
+    // keep the others from releasing
+    await cleanupStep(pc.close);
+    await cleanupStep(pc.dispose);
+    if (_renderer case final renderer?) await cleanupStep(renderer.dispose);
+    if (_playbackStream case final stream?) await cleanupStep(stream.dispose);
   }
 }

@@ -1,3 +1,4 @@
+import 'voice_cleanup.dart';
 import 'dart:async';
 import 'dart:math';
 import 'voice_controller.dart';
@@ -159,14 +160,11 @@ class VoiceMesh {
     final cancelled = [for (final sub in _subs) sub.cancel()];
     // Release audio before waiting on network operations or subscriptions.
     await Future.wait([
-      for (final link in [..._links.values]) _close(link)
+      for (final link in [..._links.values]) cleanupStep(() => _close(link))
     ]);
-    await Future.wait(cancelled);
-    try {
-      await signaling.withdraw(VoicePresence(uid, session));
-    } finally {
-      await _changes.close();
-    }
+    await cleanupStep(() => Future.wait(cancelled));
+    await cleanupStep(() => signaling.withdraw(VoicePresence(uid, session)));
+    await cleanupStep(_changes.close);
   }
 
   void _serial(String peer, Future<void> Function() work) {

@@ -1,3 +1,4 @@
+import '../game/player_speech.dart';
 import 'bot_difficulty.dart';
 import 'bot_style.dart';
 import 'bot_table.dart';
@@ -12,6 +13,24 @@ class BotRequestError implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// The Lady results a typed line claims, for the referee to hold a good
+/// speaker to the truth: `{text, names: [...], seat}` in, `{lady: [{target,
+/// evil}]}` out (read as the computers read it).
+Map<String, dynamic> ladyClaimsIn(Map request) {
+  final text = request['text'], names = request['names'], seat = request['seat'];
+  if (text is! String || names is! List || seat is! int) {
+    throw const BotRequestError('缺少或錯誤的欄位');
+  }
+  final speech = PlayerSpeech.parse(text, [for (final n in names) '$n'], seat);
+  return {
+    'lady': [
+      for (final p in speech.points)
+        if (p.kind == PlayerSpeechKind.ladyClaim && p.target != null)
+          {'target': p.target, 'evil': p.claimsEvil == true}
+    ]
+  };
 }
 
 /// Keeps the computer players of every table that is being played, and
@@ -102,10 +121,18 @@ class BotService {
     ], players: [
       for (final p in players)
         if (p is Map) p
-    ], past: [
-      for (final game in request['past'] as List? ?? const [])
-        if (game is Map) game
-    ]);
-    return {'say': result.say, 'moves': result.moves};
+    ], past: request['past'] is List
+        ? [
+            for (final game in request['past'] as List)
+              if (game is Map) game
+          ]
+        : null);
+    return {
+      'say': result.say,
+      'moves': result.moves,
+      // made anew mid-game (a restart, another instance): the earlier
+      // games, to remember them by, are wanted with the next request
+      if (!entry.table.remembers(generation)) 'needPast': true,
+    };
   }
 }

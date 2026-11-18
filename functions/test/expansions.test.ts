@@ -172,6 +172,20 @@ describe('expansions mirror expansion_test.dart', () => {
     assert.ok(!('reveals' in r.split(s).open));
   });
 
+  test('a good player may not misreport a Lady check of their own; evil may', () => {
+    const s = game({ lady: true });
+    s.reveals.push({ seat: 0, kind: 'lady', quest: 2, target: ASSASSIN, evil: true });
+    s.reveals.push({ seat: LANCELOT_EVIL, kind: 'lady', quest: 3, target: 0, evil: false });
+    // Merlin (good) checked the Assassin
+    assert.equal(r.misreportsLady(s, 0, [{ target: ASSASSIN, evil: false }]), true);
+    assert.equal(r.misreportsLady(s, 0, [{ target: ASSASSIN, evil: true }]), false);
+    // nothing said about someone never checked is held against them
+    assert.equal(r.misreportsLady(s, 0, [{ target: 3, evil: true }]), false);
+    assert.equal(r.misreportsLady(s, 0, []), false);
+    // the evil Lancelot may lie
+    assert.equal(r.misreportsLady(s, LANCELOT_EVIL, [{ target: 0, evil: true }]), false);
+  });
+
   test('Lady sees a switched Lancelot on their current side', () => {
     const s = game({ lady: true, lancelot: 2 });
     s.loyalty = [true, false, false, false, false];
