@@ -12,6 +12,20 @@
 | `gpt_sovits_batch.py` | 在 Colab 上用 GPT-SoVITS 錄全部片段 |
 | `trim_voices.py` | 把錄好的檔案剪掉頭尾靜音、壓縮，放進 `assets/voice/` |
 | `make_voices.py` | 另一條路：直接用 edge-tts 錄（會被微軟限速，不建議錄全部） |
+| `gemini_voices.py` | **目前使用的**：Gemini 語音設計 + 批次 API 錄全部片段 |
+| `designed.json` | 9 位電腦在 Gemini 上設計好的聲音編號（屬於你的 Google 專案） |
+
+## 路線一（目前使用）：Gemini 語音
+
+現在 `assets/voice/` 裡的聲音是這樣做的。每位電腦用一段文字描述（在 `gemini_voices.py` 的 `DESIGNS`）「設計」出自己的聲音，台灣口音和個性都在聲音本身，所以可以走批次 API：半價，而且不受 Tier 1 即時呼叫一天 100 次的限制。2026-11 全部 2,161 段 × 9 人約花 3～4 美元，幾十分鐘完成。
+
+1. 設定金鑰（一次就好，設完重開終端機）：`setx GEMINI_API_KEY "..."`
+2. 設計聲音：`python tool/voice/gemini_voices.py design`。已設計過的會跳過，每人一段試聽檔在 `tool/voice/samples/<人物>-design.wav`。不滿意就改 `DESIGNS` 的描述，再加 `--only <人物> --again` 重做那一位。
+3. 錄全部片段：`python tool/voice/gemini_voices.py batch`。每位電腦送一個批次，完成後寫進 `tool/voice/gemini/<人物>/`。已經有的不會重送，中途關掉可以用 `collect` 把送出的批次抓回來。
+4. 剪靜音、放進 App：`python tool/voice/trim_voices.py tool/voice/gemini`
+5. 檢查有沒有念錯：偶爾會有一段念得太長（模型自己多講），把那段的 `.wav` 和 `assets/voice` 裡的 `.mp3` 移走，再跑一次 `batch` 和第 4 步，就只會補那幾段。
+
+台詞改了以後：先重跑錄音清單（見主 README），再跑第 3、4 步，只會錄新的片段。這些是 AI 生成的聲音，App 的音效設定裡有註明。
 
 ## 路線二：Google Colab + GPT-SoVITS
 

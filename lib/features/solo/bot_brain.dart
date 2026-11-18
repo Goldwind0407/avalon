@@ -81,6 +81,10 @@ class BotBrain {
   static const merlinLeadCover = 5.0;
   static const merlinLeadCoverSafe = 3.0;
 
+  /// From this many players on, Merlin's servant-style leads go on after a
+  /// failed quest (see [chooseTeam]).
+  static int merlinBigTable = 7;
+
   /// How often he turns down a clean team that a servant would let
   /// through: when his vote may decide it, and when it surely will not.
   static const merlinFalseAlarm = .3;
@@ -843,7 +847,11 @@ class BotBrain {
     collect([], 0);
     // Early on, Merlin sometimes sends the team an ordinary servant would,
     // so that his proposals are not always spotless.
-    final early = o.failures == 0 && o.successes < 2;
+    final early = o.failures == 0 && o.successes < 2 ||
+        // at a big table a servant's team is more often dirty than not, so
+        // spotless teams stand out all game: he keeps it up after a failed
+        // quest too, short of match point
+        (o.count >= merlinBigTable && o.failures < 2 && o.successes < 2);
     // A quest that needs two Fails cannot be failed by one evil player:
     // there a servant's team costs him nothing.
     final safe = o.failsRequired == 2 && o.failures < 2;

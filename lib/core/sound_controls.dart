@@ -58,7 +58,7 @@ Future<void> showSoundSettings(BuildContext context) => showDialog<void>(
                         key: const ValueKey('botVoices'),
                         contentPadding: EdgeInsets.zero,
                         title: const Text('電腦玩家語音'),
-                        subtitle: const Text('已錄好的台詞會念出來，其餘只顯示文字',
+                        subtitle: const Text('電腦的台詞會念出來。聲音由 AI 生成，不是真人錄音',
                             style: TextStyle(fontSize: 12)),
                         value: voices.enabled,
                         onChanged: voices.setEnabled),

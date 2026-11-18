@@ -138,7 +138,7 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
   - 跨局記憶：有電腦的對局結束後，伺服器會保留這局（`rooms/{房號}/pastGames`，只有伺服器讀得到）。下一局電腦會記得同一個房間最近 5 局裡跟在座真人發生過的事（依帳號對人，不依座位），開場可能提起；和單人模式一樣只影響台詞。
   - 限制：伺服器重啟時，電腦會忘記「原本打算怎麼投」，但遊戲照常進行。
 - **電腦玩家語音**：電腦的台詞多半是當場組出來的（300 局就有 8 千多種不同的句子），所以不錄整句，而是錄「片段」：在標點和數字處切開（`lib/features/solo/voice_lines.dart`），數字連同單位另錄（「3號」「第1次」）。約 2,160 段就能唸出所有台詞，9 位電腦各一套聲音。播放時整句一次載入、無縫接起來，標點處插入短暫停頓。某句只要有一段沒錄到，那句就只顯示文字。單人和多人模式都會念；音效設定裡可以關掉、調音量、按「試聽電腦語音」。不搶語音通話的音訊。
-  - 完整錄製流程（Google Colab + GPT-SoVITS）見 [tool/voice/README.md](tool/voice/README.md)。
+  - 目前的聲音是用 Gemini 語音設計做的（台灣口音，9 位各一個 AI 聲音，App 內有註明）。做法與另一條路（Google Colab + GPT-SoVITS）見 [tool/voice/README.md](tool/voice/README.md)。
   - 錄音清單：`VOICE_SCRIPT_OUT=tool/voice/script.csv VOICE_SCRIPT_GAMES=3000 flutter test test/voice_script_test.dart`（跑模擬局並展開台詞庫；修改台詞後要重跑，字沒變的片段不必重錄）。
   - 參考聲音：`python tool/voice/make_references.py` 為每位電腦產生 `tool/voice/references/<人物>.wav` 與 `.txt`，給 GPT-SoVITS 模仿。
   - 剪靜音：語音引擎在每段頭尾留約 1.4 秒空白，`python tool/voice/trim_voices.py <資料夾>` 會剪掉並壓縮（需要 ffmpeg：`winget install Gyan.FFmpeg`），放進 `assets/voice/<人物>/<編號>.mp3`。

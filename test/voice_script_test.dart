@@ -78,6 +78,8 @@ void main() {
           ];
         }
         for (final line in lines) {
+          // the one swapped out is never the one swapped in
+          if (line.contains('我換成我') || line.contains('你自己換成你自己')) continue;
           add(line, 'catalog');
         }
       }

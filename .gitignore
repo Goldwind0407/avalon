@@ -57,3 +57,5 @@ assets/voice/*/*.mp3
 assets/voice/*/*.part
 tool/voice/raw/
 tool/voice/out/
+tool/voice/gemini/
+tool/voice/samples/
