@@ -42,30 +42,30 @@ Future<void> _handle(
 
   try {
     if (request.uri.path == '/healthz') {
-      return reply(200, {'ok': true, 'tables': service.tables});
+      return await reply(200, {'ok': true, 'tables': service.tables});
     }
     if (request.method != 'POST' || request.uri.path != '/step') {
-      return reply(404, {'error': 'not found'});
+      return await reply(404, {'error': 'not found'});
     }
     if (!_same(request.headers.value('x-bot-secret') ?? '', secret)) {
-      return reply(401, {'error': 'unauthorized'});
+      return await reply(401, {'error': 'unauthorized'});
     }
     final bytes = <int>[];
     await for (final chunk in request) {
       bytes.addAll(chunk);
-      if (bytes.length > maxBody) return reply(413, {'error': 'too large'});
+      if (bytes.length > maxBody) return await reply(413, {'error': 'too large'});
     }
     final Object? body;
     try {
       body = jsonDecode(utf8.decode(bytes));
     } on FormatException {
-      return reply(400, {'error': 'not JSON'});
+      return await reply(400, {'error': 'not JSON'});
     }
-    if (body is! Map) return reply(400, {'error': 'not an object'});
+    if (body is! Map) return await reply(400, {'error': 'not an object'});
     try {
-      return reply(200, service.step(body));
+      return await reply(200, service.step(body));
     } on BotRequestError catch (e) {
-      return reply(400, {'error': e.message});
+      return await reply(400, {'error': e.message});
     }
   } catch (e, stack) {
     stderr.writeln('$e\n$stack');
