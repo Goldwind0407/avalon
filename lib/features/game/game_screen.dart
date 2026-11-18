@@ -615,7 +615,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           builder: (context) => AlertDialog(
                 title: Text(online ? '離開這場對局？' : '結束這場對局？'),
                 content: Text(online
-                    ? '暫時離開：對局繼續進行，之後用同一個房號回到你的座位。\n'
+                    ? '暫時離開：對局繼續進行，之後在「多機遊玩」按「回到房間 '
+                        '${game.roomCode ?? ''}」就能回到你的座位。\n'
                         '離開房間：讓出座位，這局會中止，所有人回到房間大廳。'
                     : '目前進度不會保存，返回後可以重新發牌。'),
                 actions: [
@@ -1248,6 +1249,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return Row(children: [
       _roundIcon(Icons.arrow_back, s, leave, game.isOnline ? '離開對局' : '返回設定'),
       const SoundSettingsButton(),
+      // the room's code, for finding the way back after dropping out
+      if (game.roomCode case final code?)
+        Padding(
+          padding: EdgeInsets.only(left: 6 * s),
+          child: Text('房號 $code',
+              key: const ValueKey('tableRoomCode'),
+              style: TextStyle(
+                  fontSize: 11 * s, letterSpacing: 1, color: AvalonTheme.muted)),
+        ),
       Expanded(
         child: AnimatedSwitcher(
           duration: _ms(380),

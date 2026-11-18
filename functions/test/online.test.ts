@@ -578,6 +578,7 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
   const phones: Phone[] = [];
   let outsider: Phone;
   let code = '';
+  let finishedGen = 0;
   const v5 = (p: Phone, name: string, data: Record<string, unknown>) =>
     p.call(name, { protocolVersion: 5, ...data });
   const mine = async (p: Phone) =>
@@ -642,9 +643,16 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
             break;
           case 'discussion':
             if ((g.leader + 1 + g.speechIndex) % 5 === seat) {
-              await v5(phones[seat], 'say', { code, generation: r.gen, text: said % 2 ? '這隊我可以接受，支持。' : '我覺得3號有點可疑' });
+              // an app that does not say which turn the line is for is asked to update
+              await refused(v5(phones[seat], 'say', { code, text: '舊版的話' }), /更新/);
+              await v5(phones[seat], 'say', {
+                code, generation: r.gen, expectedVersion: g.speechVersion,
+                text: said % 2 ? '這隊我可以接受，支持。' : '我覺得3號有點可疑',
+              });
               said++;
-              await refused(v5(phones[1 - seat], 'say', { code, text: '插話' }), /輪到你/);
+              await refused(v5(phones[1 - seat], 'say', {
+                code, generation: r.gen, expectedVersion: g.speechVersion, text: '插話',
+              }), /輪到你/);
               // a line from an earlier turn that arrives late is not hung on this one
               await refused(v5(phones[seat], 'say', {
                 code, generation: r.gen, expectedVersion: g.speechVersion - 1, text: '遲到的話',
@@ -702,12 +710,30 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
     assert.ok(Object.keys(review.state.botReasons).length > 0, "the computers' reasons");
     assert.ok(Object.keys(review.state.botReasons).every((k: string) => ['2', '3', '4'].includes(k.split('/')[1])));
     await denied(getDocFromServer(doc(outsider.db, 'rooms', code, 'reviews', String(r.gen))));
+    finishedGen = r.gen;
     // the next deal: the computers are asked with that game in mind
     await v5(phones[0], 'startGame', { code });
     for (const p of phones) await v5(p, 'move', { code, move: 'confirmIdentity' });
     let moved = 0;
     for (let i = 0; i < 4; i++) moved += (await v5(phones[1], 'nudge', { code })).moves;
     assert.ok(moved > 0, 'the computers play the next game too');
+  });
+
+  test('a review is for those who played it, not whoever joins later', async () => {
+    await v5(phones[0], 'backToLobby', { code });
+    await v5(outsider, 'joinRoom', { code, name: '後來的人' });
+    const path = ['rooms', code, 'reviews', String(finishedGen)] as const;
+    await denied(getDocFromServer(doc(outsider.db, ...path)));
+    assert.equal((await getDocFromServer(doc(phones[1].db, ...path))).exists(), true);
+    await outsider.call('leaveRoom', { code });
+  });
+
+  test('a player finds the rooms they still have a seat in', async () => {
+    const mineNow = (await v5(phones[1], 'myRooms', {})).rooms;
+    assert.deepEqual(mineNow.map((x: any) => x.code), [code]);
+    assert.equal(mineNow[0].status, 'lobby');
+    assert.equal(mineNow[0].host, '亞瑟');
+    assert.deepEqual((await v5(outsider, 'myRooms', {})).rooms, []);
   });
 
   test('when the people have gone, a room of computers is closed', async () => {

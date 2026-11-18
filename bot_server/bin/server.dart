@@ -8,11 +8,16 @@
 //
 // Run locally:  dart run bot_server/bin/server.dart
 // Runs the same on Cloud Run and on a Raspberry Pi (see ../Dockerfile).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import '../../lib/features/solo/bot_service.dart';
 
 const maxBody = 2 * 1024 * 1024;
+
+/// A request whose body has not all arrived by then is turned away, so a
+/// slow or stalled caller holds up nobody but itself.
+const bodyTimeout = Duration(seconds: 10);
 
 Future<void> main() async {
   final secret = Platform.environment['BOT_SERVER_SECRET'] ?? '';
@@ -23,37 +28,47 @@ Future<void> main() async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ?? 8080;
   final service = BotService();
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+  server.idleTimeout = const Duration(seconds: 30);
   stdout.writeln('Computer players listening on :$port');
+  // Each request is handled on its own: one that is slow to arrive does
+  // not hold up the others. The thinking itself (service.step) is
+  // synchronous, so two requests about one table never interleave.
   await for (final request in server) {
-    // one at a time: a table's computers think in turn
-    await _handle(request, service, secret);
+    unawaited(handle(request, service, secret));
   }
 }
 
-Future<void> _handle(
+Future<void> handle(
     HttpRequest request, BotService service, String secret) async {
   Future<void> reply(int status, Object body) async {
     request.response
       ..statusCode = status
       ..headers.contentType = ContentType.json
       ..write(jsonEncode(body));
-    await request.response.close();
+    await request.response.close().timeout(bodyTimeout);
   }
 
   try {
     if (request.uri.path == '/healthz') {
       return await reply(200, {'ok': true, 'tables': service.tables});
     }
-    if (request.method != 'POST' || request.uri.path != '/step') {
+    final path = request.uri.path;
+    if (request.method != 'POST' || (path != '/step' && path != '/speech')) {
       return await reply(404, {'error': 'not found'});
     }
     if (!_same(request.headers.value('x-bot-secret') ?? '', secret)) {
       return await reply(401, {'error': 'unauthorized'});
     }
     final bytes = <int>[];
-    await for (final chunk in request) {
-      bytes.addAll(chunk);
-      if (bytes.length > maxBody) return await reply(413, {'error': 'too large'});
+    try {
+      await for (final chunk in request.timeout(bodyTimeout)) {
+        bytes.addAll(chunk);
+        if (bytes.length > maxBody) {
+          return await reply(413, {'error': 'too large'});
+        }
+      }
+    } on TimeoutException {
+      return await reply(408, {'error': 'request body too slow'});
     }
     final Object? body;
     try {
@@ -63,7 +78,8 @@ Future<void> _handle(
     }
     if (body is! Map) return await reply(400, {'error': 'not an object'});
     try {
-      return await reply(200, service.step(body));
+      return await reply(
+          200, path == '/speech' ? ladyClaimsIn(body) : service.step(body));
     } on BotRequestError catch (e) {
       return await reply(400, {'error': e.message});
     }

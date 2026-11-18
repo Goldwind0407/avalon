@@ -495,6 +495,28 @@ void main() {
       ];
     expect([for (final m in service.step(away)['moves'] as List) m['seat']],
         [1, 2, 3, 4]);
+    // a table made anew without the earlier games asks for them, once they
+    // are sent (even none) it no longer does
+    final fresh = BotService();
+    final later = request(room: '888888')..remove('past');
+    expect(fresh.step(later)['needPast'], isTrue);
+    expect(fresh.step(later)['needPast'], isTrue);
+    expect(fresh.step(later..['past'] = [])['needPast'], isNull);
+    expect(fresh.step(later..remove('past'))['needPast'], isNull);
+  });
+
+  test('the Lady results a typed line claims are read for the referee', () {
+    final names = ['甲', '乙', '丙', '丁', '戊'];
+    Map<String, dynamic> read(String text) =>
+        ladyClaimsIn({'text': text, 'names': names, 'seat': 0});
+    expect(read('我用湖中女神查了3號，他是好人')['lady'], [
+      {'target': 2, 'evil': false}
+    ]);
+    expect(read('我驗了4號，是壞人')['lady'], [
+      {'target': 3, 'evil': true}
+    ]);
+    expect(read('我覺得3號可疑')['lady'], isEmpty);
+    expect(() => ladyClaimsIn({'text': 1}), throwsA(isA<BotRequestError>()));
   });
 
   test('computers remember earlier games in the room with the people now there',

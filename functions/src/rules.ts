@@ -673,3 +673,20 @@ export function join(
   state.botReasons ??= {};
   return state;
 }
+
+/**
+ * Whether [seat], saying it saw [claims] with the Lady, gets a check of
+ * its own the wrong way round while on the good side: a house rule (the
+ * good tell the truth; evil may lie). A target it never checked is not
+ * held against it.
+ */
+export function misreportsLady(
+  s: GameState, seat: number, claims: readonly { target: number; evil: boolean }[],
+): boolean {
+  if (evilNow(s, seat)) return false;
+  const mine = s.reveals.filter((x) => x.seat === seat && x.kind === 'lady');
+  return claims.some((claim) => {
+    const seen = mine.filter((x) => x.target === claim.target).pop();
+    return seen !== undefined && seen.evil !== claim.evil;
+  });
+}

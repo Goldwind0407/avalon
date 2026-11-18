@@ -228,6 +228,11 @@ class BotTable {
   /// was given them ([remember]).
   int? _remembered;
 
+  /// Whether the earlier games have been taken in for deal [generation]
+  /// (even if there were none). A table made anew after the first quest,
+  /// by a server that restarted, has not: it asks for them.
+  bool remembers(int generation) => _remembered == generation;
+
   bool isBot(int? seat) => _styles.containsKey(seat);
 
   void _reset(int generation) {
@@ -248,8 +253,9 @@ class BotTable {
   /// persona}], state, talk}` (the state with every role, as at the end).
   /// [players] are this game's seats in the same form. Once a deal.
   void remember(TableState s, List<Map> players, List<Map> past) {
-    if (_remembered == s.generation || past.isEmpty) return;
+    if (_remembered == s.generation) return;
     _remembered = s.generation;
+    if (past.isEmpty) return;
     // each person: their seat now, and what each computer went through
     // with them, game by game
     final people = <String, int>{
@@ -479,9 +485,11 @@ class BotTable {
   /// `{'by': seat, 'q': quest, 'a': attempt, 'g': generation, 'text': ...,
   /// 'team': [...], 'switched': bool}`.
   TableStep step(TableState s, List<Map> talk,
-      {List<Map> players = const [], List<Map> past = const []}) {
+      {List<Map> players = const [], List<Map>? past = const []}) {
     if (_generation != s.generation) _reset(s.generation);
-    remember(s, players, past);
+    // [past] null: the earlier games were not sent this time (they come
+    // with the first quest); taken in when they are
+    if (past != null) remember(s, players, past);
     final out = TableStep();
     final statements = readTalk(s, talk);
     final bots = _styles.keys.where((seat) => seat < s.count).toList()..sort();

@@ -41,9 +41,11 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
-      // A finished game, whole, for those who played it to look back on.
+      // A finished game, whole, for those who played it to look back on
+      // (only they: not someone who joined the room afterwards).
       match /reviews/{gen} {
-        allow read: if member();
+        allow read: if request.auth != null &&
+          request.auth.uid in resource.data.get('uids', []);
         allow write: if false;
       }
 
