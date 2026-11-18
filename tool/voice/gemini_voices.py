@@ -31,15 +31,19 @@ voices: say so in the app.
 """
 
 import argparse
+import array
 import base64
 import csv
+import io
 import json
+import math
 import os
 import pathlib
 import sys
 import time
 import urllib.error
 import urllib.request
+import wave
 
 HERE = pathlib.Path(__file__).resolve().parent
 HOST = 'https://generativelanguage.googleapis.com'
@@ -243,23 +247,74 @@ def batch(args):
         if not todo:
             print(f'{persona}: all there')
             continue
+        # several pieces to a request, spoken in one take (one manner and
+        # pitch for all of them), then cut apart at the pauses
+        size = max(1, args.packed)
+        groups = [todo[k:k + size] for k in range(0, len(todo), size)]
         lines = OUT / f'{persona}.jsonl'
         with open(lines, 'w', encoding='utf-8') as f:
-            for piece, text in todo:
-                f.write(json.dumps({'key': piece,
-                                    'request': tts_request(text, made[persona]['id'])},
-                                   ensure_ascii=False) + '\n')
+            for n, group in enumerate(groups):
+                f.write(json.dumps({'key': f'g{n}', 'request': tts_request(
+                    '\n'.join(f'{text}。' for _, text in group), made[persona]['id'])},
+                    ensure_ascii=False) + '\n')
         name = upload(lines)
         job = request('POST', f'models/{MODEL}:batchGenerateContent', {'batch': {
             'display_name': f'avalon-{persona}', 'input_config': {'file_name': name}}})
-        kept[job['name']] = {'persona': persona, 'count': len(todo)}
+        kept[job['name']] = {'persona': persona, 'count': len(todo),
+                             'groups': {f'g{n}': [i for i, _ in group]
+                                        for n, group in enumerate(groups)}}
         save_jobs(kept)
         lines.unlink()
-        print(f'{persona}: {len(todo)} pieces sent as {job["name"]}')
+        print(f'{persona}: {len(todo)} pieces in {len(groups)} takes, sent as {job["name"]}')
     collect(args)
 
 
+def cut(wav, count):
+    """[wav] (one take of [count] pieces, a pause after each) cut into
+    [count] WAVs at the [count] - 1 longest pauses; None when the pauses do
+    not stand out clearly enough to tell where one piece ends."""
+    with wave.open(io.BytesIO(wav)) as w:
+        rate, width = w.getframerate(), w.getsampwidth()
+        samples = array.array('h', w.readframes(w.getnframes()))
+    if count == 1:
+        return [wav]
+    frame = int(rate * .02)
+    quiet = []
+    for i in range(0, len(samples) - frame, frame):
+        chunk = samples[i:i + frame]
+        quiet.append(math.sqrt(sum(v * v for v in chunk) / frame) < 300)
+    runs, start = [], None
+    for i, q in enumerate(quiet):
+        if q and start is None:
+            start = i
+        if not q and start is not None:
+            runs.append((start, i))
+            start = None
+    inner = sorted((r for r in runs if r[0] > 0), key=lambda r: r[1] - r[0], reverse=True)
+    if len(inner) < count - 1:
+        return None
+    used = inner[:count - 1]
+    shortest = min(b - a for a, b in used)
+    following = inner[count - 1][1] - inner[count - 1][0] if len(inner) >= count else 0
+    # a pause after a piece is long; one inside a piece is short
+    if shortest < 15 or following > shortest * .8:
+        return None
+    bounds = [0] + sorted(((a + b) // 2) * frame for a, b in used) + [len(samples)]
+    out = []
+    for k in range(count):
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(width)
+            w.setframerate(rate)
+            w.writeframes(samples[bounds[k]:bounds[k + 1]].tobytes())
+        out.append(buffer.getvalue())
+    return out
+
+
 def collect(_):
+    with open(HERE / 'script.csv', encoding='utf-8') as f:
+        texts = {row['id']: row['text'] for row in csv.DictReader(f)}
     kept = jobs()
     for name, info in list(kept.items()):
         persona = info['persona']
@@ -270,6 +325,7 @@ def collect(_):
             del kept[name]
             save_jobs(kept)
             continue
+        groups = info.get('groups')
         result = job.get('response', {}).get('responsesFile')
         written = failed = 0
         with request('GET', f'{HOST}/download/v1beta/{result}:download?alt=media',
@@ -279,15 +335,34 @@ def collect(_):
                     continue
                 item = json.loads(line)
                 wav = audio_of(item.get('response'))
-                if wav:
-                    (OUT / persona / f'{item["key"]}.wav').write_bytes(wav)
-                    written += 1
+                pieces = groups[item['key']] if groups else [item['key']]
+                clips = cut(wav, len(pieces)) if wav else None
+                # each clip about as long as its words (a take that skipped or
+                # added something does not line up)
+                if clips and all(_fits(clip, texts.get(p, '')) for clip, p in zip(clips, pieces)):
+                    for clip, piece in zip(clips, pieces):
+                        (OUT / persona / f'{piece}.wav').write_bytes(clip)
+                    written += len(pieces)
+                    # which pieces came in one take (for evening takes out)
+                    takes_file = OUT / persona / 'takes.json'
+                    takes = json.loads(takes_file.read_text(encoding='utf-8')) \
+                        if takes_file.exists() else []
+                    takes.append(pieces)
+                    takes_file.write_text(json.dumps(takes), encoding='utf-8')
                 else:
-                    failed += 1
+                    failed += len(pieces)
         print(f'{persona}: {written} written, {failed} failed '
-              f'(the failed are sent again by the next `batch`)')
+              f'(the failed are sent again by the next `batch`, in smaller takes '
+              f'with --packed)')
         del kept[name]
         save_jobs(kept)
+
+
+def _fits(clip, text):
+    with wave.open(io.BytesIO(clip)) as w:
+        seconds = w.getnframes() / w.getframerate()
+    chars = max(1, len(text))
+    return .25 <= seconds <= 1.6 + chars * .45
 
 
 def main():
@@ -299,6 +374,8 @@ def main():
     b = sub.add_parser('batch')
     b.add_argument('--only', nargs='*', choices=PERSONAS)
     b.add_argument('--limit', type=int, help='at most this many per persona')
+    b.add_argument('--packed', type=int, default=16,
+                   help='pieces spoken in one take (1: each on its own)')
     sub.add_parser('collect')
     sub.add_parser('voices')
     args = parser.parse_args()

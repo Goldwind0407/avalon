@@ -21,7 +21,7 @@
 
 1. 設定金鑰（一次就好，設完重開終端機）：`setx GEMINI_API_KEY "..."`
 2. 設計聲音：`python tool/voice/gemini_voices.py design`。已設計過的會跳過，每人一段試聽檔在 `tool/voice/samples/<人物>-design.wav`。不滿意就改 `DESIGNS` 的描述，再加 `--only <人物> --again` 重做那一位。
-3. 錄全部片段：`python tool/voice/gemini_voices.py batch`。每位電腦送一個批次，完成後寫進 `tool/voice/gemini/<人物>/`。已經有的不會重送，中途關掉可以用 `collect` 把送出的批次抓回來。
+3. 錄全部片段：`python tool/voice/gemini_voices.py batch`。預設每次請求念 16 段（`--packed`），開頭先念該角色的參考句再切掉（`--no-lead` 可關），同一次念的語氣和音高一致；切不準的那組會留到下一次，用 `--packed 8`、`4`、`2`、`1` 依序再跑補齊。分開生成時同一角色的音高起伏很大（小虎 3.25 半音），這樣做降到 2.80，偏離超過 4 個半音的片段從 23% 降到 13%。每位電腦送一個批次，完成後寫進 `tool/voice/gemini/<人物>/`。已經有的不會重送，中途關掉可以用 `collect` 把送出的批次抓回來。
 4. 剪靜音、放進 App：`python tool/voice/trim_voices.py tool/voice/gemini`
 5. 檢查有沒有念錯：偶爾會有一段念得太長（模型自己多講），把那段的 `.wav` 和 `assets/voice` 裡的 `.mp3` 移走，再跑一次 `batch` 和第 4 步，就只會補那幾段。
 
