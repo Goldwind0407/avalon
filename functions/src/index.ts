@@ -118,9 +118,14 @@ const presenceRef = (code: string, uid: string) =>
 const limitRef = (uid: string) => db.collection('limits').doc(uid);
 
 /** Refuses when [uid] has done [kind] too often lately. */
-async function checkLimit(uid: string, kind: limits.LimitKind) {
-  const data = (await limitRef(uid).get()).data();
-  const wait = limits.waitMs(data?.[kind], Date.now(), limits.LIMITS[kind]);
+/** What [uid] has done lately, read inside [tx] (before its writes). */
+async function readLimits(tx: Transaction, uid: string) {
+  return (await tx.get(limitRef(uid))).data() ?? {};
+}
+
+/** Refuses when [data] (from [readLimits]) shows [kind] done too often. */
+function checkLimit(data: Record<string, unknown>, kind: limits.LimitKind) {
+  const wait = limits.waitMs(data[kind], Date.now(), limits.LIMITS[kind]);
   if (wait > 0) {
     throw new HttpsError('resource-exhausted',
       kind === 'create'
@@ -129,19 +134,17 @@ async function checkLimit(uid: string, kind: limits.LimitKind) {
   }
 }
 
-/** Counts one more [kind] for [uid]. */
-async function countLimit(uid: string, kind: limits.LimitKind) {
+/** Counts one more [kind] for [uid], in the transaction that checked it,
+ *  so requests sent at once cannot all slip under the limit. */
+function countLimit(tx: Transaction, uid: string, data: Record<string, unknown>,
+  kind: limits.LimitKind) {
   const limit = limits.LIMITS[kind];
-  await db.runTransaction(async (tx) => {
-    const ref = limitRef(uid);
-    const data = (await tx.get(ref)).data() ?? {};
-    const now = Date.now();
-    tx.set(ref, {
-      [kind]: [...limits.recent(data[kind], now, limit), now].slice(-limit.max),
-      // forgotten a day after the last use (TTL on expireAt)
-      expireAt: Timestamp.fromMillis(now + 24 * 60 * 60 * 1000),
-    }, { merge: true });
-  });
+  const now = Date.now();
+  tx.set(limitRef(uid), {
+    [kind]: [...limits.recent(data[kind], now, limit), now].slice(-limit.max),
+    // forgotten a day after the last use (TTL on expireAt)
+    expireAt: Timestamp.fromMillis(now + 24 * 60 * 60 * 1000),
+  }, { merge: true });
 }
 
 /** Tells the table that [seat] is back and plays for themselves again. */
@@ -236,8 +239,9 @@ export const createRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const name = cleanName(req.data?.name);
   requireAccount(req);
-  await checkLimit(uid, 'create');
-  const created = await db.runTransaction(async (tx) => {
+  return db.runTransaction(async (tx) => {
+    const used = await readLimits(tx, uid);
+    checkLimit(used, 'create');
     for (let attempt = 0; attempt < 20; attempt++) {
       const code = String(randomInt(100000, 1000000));
       const ref = roomRef(code);
@@ -257,31 +261,37 @@ export const createRoom = onCall(async (req) => {
         game: null,
       };
       tx.set(ref, touch(room));
+      countLimit(tx, uid, used, 'create');
       return { code };
     }
     throw new HttpsError('resource-exhausted', '暫時無法建立房間，請稍後再試');
   });
-  await countLimit(uid, 'create');
-  return created;
 });
 
 export const joinRoom = onCall(async (req) => {
   const uid = uidOf(req);
   const code = cleanCode(req.data?.code);
   const name = cleanName(req.data?.name);
-  await checkLimit(uid, 'miss');
-  try {
-    return await joinRoomNow(req, uid, code, name);
-  } catch (e) {
-    // a code that leads nowhere counts towards the limit on guessing
-    if (e instanceof HttpsError && e.code === 'not-found') await countLimit(uid, 'miss');
-    throw e;
-  }
+  const joined = await joinRoomNow(req, uid, code, name);
+  // a code that leads nowhere is counted (in the same transaction) and
+  // only then refused, so the count is kept
+  if (joined === null) throw new HttpsError('not-found', '找不到這個房間');
+  return joined;
 });
 
 function joinRoomNow(req: CallableRequest, uid: string, code: string, name: string) {
   return db.runTransaction(async (tx) => {
-    const room = await loadRoom(tx, code);
+    const used = await readLimits(tx, uid);
+    checkLimit(used, 'miss');
+    const snap = await tx.get(roomRef(code));
+    if (!snap.exists) {
+      countLimit(tx, uid, used, 'miss');
+      return null;
+    }
+    const room = snap.data() as Room;
+    if (roomHasExpired(room.expireAt)) {
+      throw new HttpsError('failed-precondition', '房間已到期');
+    }
     const seat = room.playerUids.indexOf(uid);
     const protocol = protocolOf(req);
     const supportsDiscussion = protocol >= 2;
@@ -662,9 +672,12 @@ function botRequest(
     gen: room.gen,
     seed: room.botSeed ?? 0,
     level: room.botLevel ?? 'normal',
-    // a player who is away is played for like a computer until they are back
-    players: room.players.map((p, seat) =>
-      ({ name: p.name, bot: p.bot === true || away.includes(seat), persona: p.persona ?? null })),
+    // a person who is away is played for until back, but stays a person
+    // (with their account, for the computers' memory of them)
+    players: room.players.map((p, seat) => ({
+      uid: p.uid, name: p.name, bot: p.bot === true, away: away.includes(seat),
+      persona: p.persona ?? null,
+    })),
     state,
     cards: state.cardLog,
     talk: room.talk ?? [],
@@ -712,6 +725,8 @@ async function applyBots(
   }
   const state = await loadState(tx, code, room);
   const revealed = state.reveals.length;
+  // someone who was away may be back by now: they play for themselves
+  const returned = await welcomeBackThoseHere(tx, code, room);
   const sinceChange = room.updatedAt instanceof Timestamp
     ? Date.now() - room.updatedAt.toMillis() : Infinity;
   const talk = room.talk ?? [];
@@ -756,10 +771,30 @@ async function applyBots(
     }
     if (proxy.showsResult(state)) break;
   }
-  if (done === 0) return 0;
+  if (done === 0 && !returned) return 0;
   room.talk = talk;
   saveState(tx, code, room, state, revealed);
   return done;
+}
+
+/**
+ * Takes the players marked away who have reported in since (read inside
+ * [tx], before its writes) off the list; returns whether anyone was.
+ */
+async function welcomeBackThoseHere(tx: Transaction, code: string, room: Room) {
+  const away = room.away ?? [];
+  if (away.length === 0) return false;
+  const now = Date.now();
+  const seen = await Promise.all(
+    away.map((seat) => tx.get(presenceRef(code, room.playerUids[seat]))));
+  let back = false;
+  away.forEach((seat, i) => {
+    const at = seen[i].data()?.at;
+    if (!proxy.isAway(at instanceof Timestamp ? at.toMillis() : null, now)) {
+      back = welcomeBack(room, seat) || back;
+    }
+  });
+  return back;
 }
 
 /** The plain stand-in (proxy.ts) for the players marked away, if the game
@@ -773,11 +808,12 @@ async function standInPlainly(tx: Transaction, code: string, step: number): Prom
   }
   const state = await loadState(tx, code, room);
   const revealed = state.reveals.length;
+  const returned = await welcomeBackThoseHere(tx, code, room);
   const now = Date.now();
   const sinceChange = room.updatedAt instanceof Timestamp ? now - room.updatedAt.toMillis() : Infinity;
   const moves = proxy.standIn(
-    state, room.away, rng, room.players.map((p) => p.name), now, sinceChange);
-  if (moves > 0) saveState(tx, code, room, state, revealed);
+    state, room.away ?? [], rng, room.players.map((p) => p.name), now, sinceChange);
+  if (moves > 0 || returned) saveState(tx, code, room, state, revealed);
   return moves;
 }
 
@@ -901,6 +937,11 @@ export const say = onCall(async (req) => {
     const speaker = game.phase === 'discussion'
       ? (game.leader + 1 + game.speechIndex) % room.players.length : null;
     if (seat !== speaker) throw new HttpsError('failed-precondition', '輪到你發言時才能送出');
+    // a line typed in an earlier turn (it took long to arrive) is not
+    // hung on this one
+    if (req.data?.expectedVersion !== undefined && req.data.expectedVersion !== game.speechVersion) {
+      throw new HttpsError('failed-precondition', '這次發言已經結束了');
+    }
     const talk = room.talk ?? [];
     const mine = talk.filter((l) => l.by === seat && l.sv === game.speechVersion && l.bot !== true);
     if (mine.length >= 3 || talk.length >= TALK_LIMIT) {
@@ -932,14 +973,15 @@ export const nudge = onCall((req) =>
       const caller = seatOf(room, uid);
       if (room.status !== 'playing' || !room.game) return { moves: 0, ask: null };
       const now = Date.now();
+      // whether each person is still here (a computer never reports: its
+      // presence is not read, which would cost a read for nothing)
+      const watched = room.playerUids.map((_, seat) => seat).filter((seat) =>
+        seat !== caller && !isBot(room, seat) &&
+        (room.players[seat].protocol ?? 1) >= proxy.PRESENCE_PROTOCOL);
       const seen = await Promise.all(
-        room.playerUids.map((playerUid) => tx.get(presenceRef(code, playerUid))));
-      const away = room.playerUids.map((_, seat) => seat).filter((seat) => {
-        // the caller is plainly here; older apps do not report at all
-        if (seat === caller || (room.players[seat].protocol ?? 1) < proxy.PRESENCE_PROTOCOL) {
-          return false;
-        }
-        const at = seen[seat].data()?.at;
+        watched.map((seat) => tx.get(presenceRef(code, room.playerUids[seat]))));
+      const away = watched.filter((seat, i) => {
+        const at = seen[i].data()?.at;
         return proxy.isAway(at instanceof Timestamp ? at.toMillis() : null, now);
       });
       const before = room.away ?? [];
@@ -956,7 +998,9 @@ export const nudge = onCall((req) =>
       if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
-        if (served && bots.length > 0) {
+        // earlier games are for the computers' memory, which they take in
+        // as a game begins: only read while the first quest is on
+        if (served && bots.length > 0 && state.history.length === 0) {
           const kept = await tx.get(roomRef(code).collection('pastGames')
             .where('gen', '<', room.gen).orderBy('gen', 'desc').limit(PAST_GAMES));
           past = kept.docs.map((d) => {

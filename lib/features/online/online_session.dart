@@ -349,7 +349,13 @@ class OnlineGameSession extends GameSession {
     }
     final text = speechText(speech, ballot: proposalHistory.lastOrNull);
     if (text.isEmpty) return;
-    await _call('say', {'code': code, 'generation': generation, 'text': text});
+    await _call('say', {
+      'code': code,
+      'generation': generation,
+      // the turn it was typed in: a line arriving late is not hung on the next
+      'expectedVersion': speechVersion,
+      'text': text
+    });
   }
 
   @override
@@ -364,13 +370,24 @@ class OnlineGameSession extends GameSession {
 
   @override
   Future<void> expressOpinion(bool approve) async {
+    // the turn and deal as they are now: if a new deal has begun by the time
+    // the line is through, its speaking turn is not ended by this
     final version = speechVersion;
+    final deal = generation;
+    final quest = history.length;
+    final rejected = rejections;
     await _call('say', {
       'code': code,
-      'generation': generation,
+      'generation': deal,
+      'expectedVersion': version,
       'text': approve ? '這隊我可以接受，支持。' : '這隊我不放心，想換個組合。'
     });
-    await endSpeech(version);
+    await _move('endSpeech', {
+      'expectedVersion': version,
+      'generation': deal,
+      'historyLength': quest,
+      'rejections': rejected,
+    });
   }
 
   /// Host: seats the computer [persona] under [name], or sends it away.

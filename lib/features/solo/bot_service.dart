@@ -59,7 +59,8 @@ class BotService {
     }
     final styles = <int, BotStyle>{
       for (final (seat, p) in players.indexed)
-        if (p is Map && p['bot'] == true)
+        // computers, and people away for now (played for until back)
+        if (p is Map && (p['bot'] == true || p['away'] == true))
           seat: BotPersona.byId(p['persona'] as String?)?.style ??
               BotStyle.balanced
     };
