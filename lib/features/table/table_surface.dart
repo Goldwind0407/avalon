@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Dark walnut table top filling the whole screen.
 class WoodTable extends StatelessWidget {

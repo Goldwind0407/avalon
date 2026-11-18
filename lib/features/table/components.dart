@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../core/assets.dart';
 import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';

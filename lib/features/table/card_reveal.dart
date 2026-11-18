@@ -1,6 +1,6 @@
 import 'dart:math';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'components.dart';
 import 'effects.dart';
 
