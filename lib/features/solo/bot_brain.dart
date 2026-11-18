@@ -1047,19 +1047,19 @@ class BotBrain {
       if (o.team.contains(o.seat) && rng.nextDouble() < .9) {
         return decide(true, 'evilBlend');
       }
+      // A clean team that would give good its third quest: backing it hands
+      // the quests over and buys nothing (votes say nothing about Merlin), so
+      // it is always turned down, in case the vote is closer than it looks.
+      if (o.successes == 2) return decide(false, 'evilMatchPoint');
       var blend = o.history.isEmpty
           ? .85
-          : o.successes == 2
-              ? .1
-              : o.quest <= 2
-                  ? .55
-                  : .3;
+          : o.quest <= 2
+              ? .55
+              : .3;
       // Morgana wants Percival to take her for Merlin: she backs clean teams.
-      if (o.role == Role.morgana && o.successes < 2) {
-        blend += .2 * difficulty.rolePlay;
-      }
+      if (o.role == Role.morgana) blend += .2 * difficulty.rolePlay;
       // Mordred can afford to look agreeable: Merlin does not see him.
-      if (o.role == Role.mordred && o.successes < 2) blend += .1;
+      if (o.role == Role.mordred) blend += .1;
       final approveChance = o.history.isEmpty
           ? .9 // whatever the style: objecting to the first team stands out
           : min(.9, blend * style.blend * difficulty.blend);

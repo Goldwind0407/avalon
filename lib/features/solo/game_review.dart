@@ -12,6 +12,7 @@ const voteReasonLabels = {
   'concealAlly': '暫時與可疑隊友切割',
   'sabotageOpportunity': '隊伍有機會破壞任務',
   'evilBlend': '邪惡方評估偽裝與阻擋收益',
+  'evilMatchPoint': '好人差一次就贏，乾淨的隊一定擋',
   'noviceSlip': '新手判斷失誤',
   'merlinDisguise': '梅林刻意偽裝',
   'acceptableRisk': '隊伍風險在可接受範圍',

@@ -93,6 +93,17 @@ extension BotVoiceClaims on BotVoice {
             real[r] <= real[r == a ? b : a] + .1) {
           return null;
         }
+        // Even then, coming out against Merlin hands him to the Assassin,
+        // while one quiet round costs little: only speak when it matters
+        // now (the claimant leads or rides this team) or one more failed
+        // quest would lose the game. Until then, votes do the work.
+        if (inPair &&
+            rival.target != me &&
+            o.failures < 2 &&
+            o.leader != r &&
+            !o.team.contains(r)) {
+          return null;
+        }
         final named = inPair ? r : (gap >= .25 ? morgana : null);
         if (!sayable(named)) return null;
         _claimGeneration = o.generation;
