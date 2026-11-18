@@ -769,10 +769,20 @@ describe('limits on guessing and opening rooms', () => {
       await refused(host.call('createRoom', { name: '再開' }), /太頻繁/);
       const misses = await Promise.allSettled(Array.from({ length: 30 }, (_, i) =>
         host.call('joinRoom', { code: String(200000 + i), name: '同時猜' })));
-      const notFound = misses.filter((m) => m.status === 'rejected' &&
+      let notFound = misses.filter((m) => m.status === 'rejected' &&
         /找不到/.test(String((m as PromiseRejectedResult).reason?.message))).length;
-      assert.ok(notFound <= 20, `${notFound} misses let through at once`);
-      await refused(host.call('joinRoom', { code: '299999', name: '再猜' }), /太多次/);
+      // some tries at once may fail on contention without being counted;
+      // one at a time, the rest of the twenty run out and no more
+      for (let i = 0; i < 25; i++) {
+        try {
+          await host.call('joinRoom', { code: String(300000 + i), name: '再猜' });
+        } catch (e: any) {
+          if (/太多次/.test(String(e?.message))) break;
+          if (/找不到/.test(String(e?.message))) notFound++;
+        }
+      }
+      assert.ok(notFound <= 20, `${notFound} misses let through`);
+      await refused(host.call('joinRoom', { code: '399999', name: '再猜' }), /太多次/);
     } finally {
       for (const code of codes) await host.call('leaveRoom', { code }).catch(() => {});
       await deleteApp(host.app);
