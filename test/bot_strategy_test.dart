@@ -4,6 +4,7 @@ import 'package:avalon_shadow_council/features/game/discussion_model.dart';
 import 'package:avalon_shadow_council/features/game/expansion_model.dart';
 import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
+import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 import 'support/bot_dialogue_fixtures.dart';
@@ -52,6 +53,41 @@ void main() {
           ]);
       expect(share((b) => b.questCard(later)), lessThan(.35));
     });
+  });
+
+  test('evil never backs the clean team that would win good its third quest',
+      () {
+    // the game from a user's review: six players, two quests each way, the
+    // Assassin (seat 4) off a team of four good players on the last chance
+    final decisive = observe(
+        role: Role.assassin,
+        evil: true,
+        count: 6,
+        seat: 4,
+        visible: [0],
+        leader: 5,
+        rejections: 2,
+        phase: GamePhase.vote,
+        team: [1, 2, 3, 5],
+        history: [
+          QuestResult([0, 2], 0, true),
+          QuestResult([0, 1, 5], 1, false),
+          QuestResult([0, 1, 2, 3], 0, true),
+          QuestResult([0, 2, 3], 1, false),
+        ]);
+    for (final style in BotStyle.values) {
+      for (final level in BotDifficulty.values) {
+        var backed = 0;
+        for (var seed = 0; seed < 100; seed++) {
+          final b = BotBrain(Random(seed), style: style, difficulty: level);
+          if (b.vote(decisive)) backed++;
+        }
+        expect(backed, 0, reason: '${style.name} ${level.name}');
+      }
+    }
+    final brain = BotBrain(Random(1));
+    brain.vote(decisive);
+    expect(brain.lastVoteDecision?.reason, 'evilMatchPoint');
   });
 
   group('an evil player alone with Excalibur', () {
