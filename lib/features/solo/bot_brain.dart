@@ -75,6 +75,18 @@ class BotBrain {
   /// far this level weighs claims.
   static const ladyCorroboration = .6, ladyCorroborationCap = .15;
 
+  /// How readily evil plays Fail where too few of them sit on a quest that
+  /// needs two Fails to fail it (the card would show, and sink nothing).
+  static const lonelyFail = .25;
+
+  /// Whether a Lady result from a seat all but surely good counts nearly as
+  /// a fact (switched off only to measure it: BALANCE_LADYFACT=off).
+  static bool trustLadyFromGood = true;
+
+  /// How much more a good leader weighs the risk of a failing team when one
+  /// more failed quest loses the game.
+  static const lastChanceRisk = 4.0;
+
   /// How much more readily than his style alone Merlin, as leader, sends
   /// the team a servant would: early in the game, and on a quest that
   /// needs two Fails.
@@ -310,6 +322,27 @@ class BotBrain {
     if (!o.evil) _reconcile(o, p);
     if (knows) _checkClaims(o, p);
     p[o.seat] = o.evil ? 1 : 0;
+    // The good tell the truth about the Lady (a house rule the game holds
+    // them to): a result announced by a seat this one is all but sure is
+    // good, on the sides as they stand now, counts nearly as its own check.
+    if (!asServant && !o.evil && trustLadyFromGood) {
+      for (final claim in o.statements) {
+        final target = claim.target, evil = claim.claimedEvil;
+        if (evil == null ||
+            target == null ||
+            claim.quotedFrom != null ||
+            claim.speaker == o.seat ||
+            claim.generation != o.generation ||
+            claim.switched != o.switched ||
+            p[claim.speaker] > .2 ||
+            p[target] == (evil ? 0 : 1)) {
+          continue;
+        }
+        // as far as the speaker is surely good: all the way when certain
+        final sure = 1 - p[claim.speaker];
+        p[target] += sure * ((evil ? 1.0 : 0.0) - p[target]);
+      }
+    }
     return [for (final value in p) value.clamp(0.0, 1.0)];
   }
 
@@ -669,8 +702,9 @@ class BotBrain {
         if (e.value == 0 || e.value == 1) e.key: e.value == 1,
       me: o.evil,
     };
-    // (other team members, Fail cards, how readily evil fails, switched)
-    final quests = <(List<int>, int, double, bool)>[];
+    // (other team members, Fail cards, how readily evil fails, switched,
+    // Fails the quest needed)
+    final quests = <(List<int>, int, double, bool, int)>[];
     for (var q = 0; q < o.history.length; q++) {
       if (o.history[q].excaliburTarget != null) continue;
       quests.add((
@@ -682,7 +716,8 @@ class BotBrain {
         q == 0
             ? 1 - (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
             : .8,
-        _switchedAt(o, q)
+        _switchedAt(o, q),
+        n >= 7 && q == 3 ? 2 : 1
       ));
     }
     // The good Lancelot only matters once the sides have been switched.
@@ -723,7 +758,7 @@ class BotBrain {
         if (evilAt(seat, switched) != evil) return;
       }
       var likelihood = 1.0;
-      for (final (team, fails, f, switched) in quests) {
+      for (final (team, fails, f, switched, needed) in quests) {
         final lancelot = switched ? goodOne : evilOne;
         var k = 0;
         for (final s in team) {
@@ -732,7 +767,10 @@ class BotBrain {
         if (k < fails) return;
         if (fails == 0) {
           if (o.expansions.lancelot == 2 && team.contains(lancelot)) return;
-          likelihood *= pow(1 - f, k);
+          // Too few of them to fail a two-Fail quest: a Fail would only
+          // show without sinking it, so evil mostly holds back there, and
+          // a clean result says little about who was on it.
+          likelihood *= pow(1 - (k < needed ? lonelyFail : f), k);
         }
       }
       fits++;
@@ -920,7 +958,11 @@ class BotBrain {
         (
           team,
           -2.0 * team.where(accused.contains).length +
-              (o.evil && !pose ? 1 : -1) * _risk(o, p, team) +
+              (o.evil && !pose ? 1 : -1) *
+                  // one more failed quest loses the game: for a good leader
+                  // a team that may fail weighs more than any other concern
+                  (!o.evil && o.failures == 2 ? lastChanceRisk : 1) *
+                  _risk(o, p, team) +
               (team.contains(o.seat) ? selfBias : 0) +
               // An evil leader brings just enough saboteurs: every extra
               // ally on a failed quest is one more player exposed.
@@ -1005,7 +1047,22 @@ class BotBrain {
 
     // The fifth proposal passes whatever a minority does (a tie or less is
     // needed to reject), and votes are public: rejecting only exposes evil.
-    if (o.rejections == 4) return decide(true, 'fifthProposal');
+    // Except a clean team that would win good its third quest: then there
+    // is nothing left to hide (votes say nothing about Merlin) and, should
+    // enough of the good side balk, turning it down wins the game outright.
+    if (o.rejections == 4) {
+      // (only for one who knows every ally: with Oberon about, a team that
+      // looks clean may carry one)
+      final allies = _knownAllies(o);
+      if (o.evil &&
+          o.successes == 2 &&
+          allies.length >= Room.evilCount(o.count) &&
+          !o.team.contains(o.seat) &&
+          !o.team.any(allies.contains)) {
+        return decide(false, 'evilMatchPoint');
+      }
+      return decide(true, 'fifthProposal');
+    }
     // A leader who turns down the team he just picked makes no sense to
     // anyone at the table, whatever he is hiding.
     if (o.leader == o.seat) return decide(true, 'ownTeam');

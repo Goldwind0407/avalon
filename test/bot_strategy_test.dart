@@ -19,6 +19,7 @@ double share(bool Function(BotBrain) act) {
 }
 
 void main() {
+  fifthProposalTests();
   group('a lone evil player on the first quest', () {
     BotObservation first(int count, List<int> team) => observe(
         role: Role.minion,
@@ -707,3 +708,48 @@ void main() {
     }
   });
 }
+
+void fifthProposalTests() {
+  test('on the fifth proposal too, evil turns down the team that would win '
+      'good its third quest', () {
+    final o = observe(
+        role: Role.assassin,
+        evil: true,
+        count: 7,
+        seat: 5,
+        visible: [0, 1],
+        leader: 2,
+        rejections: 4,
+        phase: GamePhase.vote,
+        team: [2, 3, 4, 6],
+        history: [
+          QuestResult([4, 6], 0, true),
+          QuestResult([1, 2, 3], 1, false),
+          QuestResult([3, 4, 5], 1, false),
+          QuestResult([0, 2, 4, 6], 1, true),
+        ]);
+    final b = BotBrain(Random(1), difficulty: BotDifficulty.expert);
+    expect(b.vote(o), isFalse);
+    expect(b.lastVoteDecision?.reason, 'evilMatchPoint');
+    // not at match point, or with an ally on it: the fifth passes anyway
+    final withAlly = observe(
+        role: Role.assassin,
+        evil: true,
+        count: 7,
+        seat: 5,
+        visible: [0, 1],
+        leader: 2,
+        rejections: 4,
+        phase: GamePhase.vote,
+        team: [1, 2, 3, 4],
+        history: decisiveHistory);
+    expect(BotBrain(Random(1)).vote(withAlly), isTrue);
+  });
+}
+
+final decisiveHistory = [
+  QuestResult([4, 6], 0, true),
+  QuestResult([1, 2, 3], 1, false),
+  QuestResult([3, 4, 5], 1, false),
+  QuestResult([0, 2, 4, 6], 1, true),
+];

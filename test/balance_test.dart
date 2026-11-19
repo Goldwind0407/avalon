@@ -350,6 +350,10 @@ void main() {
     if (Platform.environment['BALANCE_BIGTABLE'] case final n?) {
       BotBrain.merlinBigTable = int.parse(n);
     }
+    // BALANCE_LADYFACT=off: Lady results from trusted seats are not facts
+    if (Platform.environment['BALANCE_LADYFACT'] == 'off') {
+      BotBrain.trustLadyFromGood = false;
+    }
     // BALANCE_HARDLINE=off: no Morgana plays the hard push
     if (Platform.environment['BALANCE_HARDLINE'] == 'off') {
       BotBrain.hardlineChance = 0;
