@@ -283,7 +283,7 @@ void main() {
           room: server.rooms.stream,
           mine: server.mine.stream,
           call: server.call,
-          loadReview: (gen) async {
+          loadReview: (gen, _) async {
             asked.add(gen);
             return {
               'gen': gen,
@@ -349,7 +349,7 @@ void main() {
           room: server.rooms.stream,
           mine: server.mine.stream,
           call: server.call,
-          loadReview: (gen) async {
+          loadReview: (gen, _) async {
             tries++;
             // offline for the first three tries
             if (tries <= 3) throw StateError('offline');

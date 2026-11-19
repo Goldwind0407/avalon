@@ -315,12 +315,27 @@ class OnlineService {
       });
 
   /// A finished game, whole, as the server kept it for the players
-  /// (rooms/{code}/reviews/{gen}); null when there is none.
-  Future<Map<String, dynamic>?> review(String code, int gen) async =>
-      (await FirebaseFirestore.instance
-              .doc('rooms/$code/reviews/$gen')
-              .get(const GetOptions(source: Source.server)))
-          .data();
+  /// (rooms/{code}/reviews/{roomId}-{gen}); null when there is none.
+  /// Reviews kept before rooms had their own ids are under the deal number
+  /// alone, and are still found there.
+  Future<Map<String, dynamic>?> review(
+      String code, String? roomId, int gen) async {
+    Future<Map<String, dynamic>?> at(String id) async {
+      try {
+        return (await FirebaseFirestore.instance
+                .doc('rooms/$code/reviews/$id')
+                .get(const GetOptions(source: Source.server)))
+            .data();
+      } on FirebaseException catch (e) {
+        // not one of those who played it (or not there): nothing to show
+        if (e.code == 'permission-denied') return null;
+        rethrow;
+      }
+    }
+
+    final kept = roomId == null ? null : await at('$roomId-$gen');
+    return kept ?? await at('$gen');
+  }
 
   /// This player's own role. Nobody else can read it (firestore.rules).
   Stream<Map<String, dynamic>?> mine(String code, String uid) =>

@@ -100,13 +100,22 @@ const privateRef = (code: string, uid: string) =>
   roomRef(code).collection('private').doc(uid);
 /** The whole of a finished game, for everyone who played it to look back
  *  on (roles, every card, what the Lady showed, the computers' reasons). */
-const reviewRef = (code: string, gen: number) =>
-  roomRef(code).collection('reviews').doc(String(gen));
+const reviewRef = (code: string, room: Room) =>
+  roomRef(code).collection('reviews').doc(gameDocId(room));
 
 /** Finished games of a room with computers, for them to remember (server
  *  only: every role and card, as at the end). */
-const pastRef = (code: string, gen: number) =>
-  roomRef(code).collection('pastGames').doc(String(gen));
+const pastRef = (code: string, room: Room) =>
+  roomRef(code).collection('pastGames').doc(gameDocId(room));
+
+/**
+ * A finished game's id under its room: the room's own id with the deal
+ * number. A code is used again once its room is gone, while what was kept
+ * of the old room's games lasts a while longer (TTL), and deals count from
+ * the start in every room: by number alone, a new room's first game would
+ * write over the old room's.
+ */
+const gameDocId = (room: Room) => `${room.voiceRoomId}-${room.gen}`;
 /** How many finished games the computers are told about. */
 const PAST_GAMES = 5;
 
@@ -548,8 +557,9 @@ function saveState(
     const players = room.players.map((p) =>
       ({ uid: p.uid, name: p.name, bot: p.bot === true, persona: p.persona ?? null }));
     // the game, as it ended, for the players to look back on
-    tx.set(reviewRef(code, room.gen), {
+    tx.set(reviewRef(code, room), {
       gen: room.gen,
+      roomId: room.voiceRoomId,
       players,
       // who may read it: the people who played it, not whoever is in the
       // room later
@@ -562,8 +572,9 @@ function saveState(
     });
     // and for the computers to remember
     if (hasBots(room)) {
-      tx.set(pastRef(code, room.gen), {
-        gen: room.gen, players, state, talk: room.talk ?? [], expireAt: expiry(),
+      tx.set(pastRef(code, room), {
+        gen: room.gen, roomId: room.voiceRoomId, players, state, talk: room.talk ?? [],
+        expireAt: expiry(),
       });
     }
   }
@@ -750,14 +761,19 @@ type BotAnswer = { say: any[]; moves: any[]; needPast: boolean };
 
 /** The room's games before deal [gen], newest first, for the computers'
  *  memory (in [tx] when given). */
-async function pastGames(code: string, gen: number, tx?: Transaction) {
-  const query = roomRef(code).collection('pastGames')
-    .where('gen', '<', gen).orderBy('gen', 'desc').limit(PAST_GAMES);
+async function pastGames(code: string, roomId: string, gen: number, tx?: Transaction) {
+  // this room's own games (not those of an earlier room with the same
+  // code), and none past their time
+  const query = roomRef(code).collection('pastGames').where('roomId', '==', roomId);
   const kept = tx ? await tx.get(query) : await query.get();
-  return kept.docs.map((d) => {
-    const { expireAt: _, ...game } = d.data();
-    return game;
-  });
+  const now = Date.now();
+  return kept.docs
+    .map((d) => d.data())
+    .filter((g) => typeof g.gen === 'number' && g.gen < gen &&
+      !(g.expireAt instanceof Timestamp && g.expireAt.toMillis() <= now))
+    .sort((a, b) => b.gen - a.gen)
+    .slice(0, PAST_GAMES)
+    .map(({ expireAt: _, roomId: __, ...game }) => game);
 }
 
 async function askBots(body: unknown): Promise<BotAnswer | null> {
@@ -876,20 +892,37 @@ async function welcomeBackThoseHere(tx: Transaction, code: string, room: Room) {
 
 /** The plain stand-in (proxy.ts) for the players marked away, if the game
  *  is still where it was ([step]). Returns how many moves it made. */
+/**
+ * How long a game may stand still on a computer seat, with the computers'
+ * server out of reach, before the plain stand-in moves for it (a passing
+ * blip is waited out; a server that is down does not stop the game).
+ */
+const BOT_FALLBACK_MS = 20 * 1000;
+
 async function standInPlainly(tx: Transaction, code: string, step: number): Promise<number> {
   const snap = await tx.get(roomRef(code));
   const room = snap.data() as Room | undefined;
   if (!room || room.step !== step || room.status !== 'playing' || !room.game ||
-      !room.away?.length || roomHasExpired(room.expireAt)) {
+      roomHasExpired(room.expireAt)) {
     return 0;
   }
+  const now = Date.now();
+  const sinceChange = room.updatedAt instanceof Timestamp ? now - room.updatedAt.toMillis() : Infinity;
+  const bots = sinceChange >= BOT_FALLBACK_MS
+    ? room.playerUids.map((_, seat) => seat).filter((seat) => isBot(room, seat))
+    : [];
+  if (!room.away?.length && bots.length === 0) return 0;
   const state = await loadState(tx, code, room);
   const revealed = state.reveals.length;
   const returned = await welcomeBackThoseHere(tx, code, room);
-  const now = Date.now();
-  const sinceChange = room.updatedAt instanceof Timestamp ? now - room.updatedAt.toMillis() : Infinity;
+  const seats = [...(room.away ?? []), ...bots];
+  const botMoved = bots.some((seat) => proxy.pending(state, seat));
   const moves = proxy.standIn(
-    state, room.away ?? [], rng, room.players.map((p) => p.name), now, sinceChange);
+    state, seats, rng, room.players.map((p) => p.name), now, sinceChange);
+  if (moves > 0 && botMoved) {
+    room.notice = '電腦玩家的伺服器暫時連不上，電腦先用簡易方式出手';
+    room.noticeStep = room.step + 1;
+  }
   if (moves > 0 || returned) saveState(tx, code, room, state, revealed);
   return moves;
 }
@@ -1097,11 +1130,6 @@ export const nudge = onCall((req) =>
       if ((away.length > 0 || bots.length > 0) && room.game.phase !== 'finished') {
         state = await loadState(tx, code, room);
         revealed = state.reveals.length;
-        // earlier games are for the computers' memory, which they take in
-        // as a game begins: only read while the first quest is on
-        if (served && bots.length > 0 && state.history.length === 0) {
-          past = await pastGames(code, room.gen, tx);
-        }
         if (!served) {
           const sinceChange = room.updatedAt instanceof Timestamp
             ? now - room.updatedAt.toMillis() : Infinity;
@@ -1112,10 +1140,18 @@ export const nudge = onCall((req) =>
       // the game now waits for a seat the server plays: it is asked once
       // this transaction is through (never from inside it)
       const asked = served ? [...bots, ...away] : bots;
-      const ask = state && asked.some((seat) => proxy.pending(state!, seat))
+      const needed = state != null && asked.some((seat) => proxy.pending(state!, seat));
+      // earlier games are for the computers' memory, which they take in as
+      // a game begins: only read when they are asked during the first quest
+      // (and again only if their server has lost them: needPast)
+      if (needed && served && bots.length > 0 && state!.history.length === 0) {
+        past = await pastGames(code, room.voiceRoomId, room.gen, tx);
+      }
+      const ask = needed
         ? {
           step: room.step + (written ? 1 : 0),
-          body: botRequest(code, room, state, served ? away : [], past),
+          roomId: room.voiceRoomId,
+          body: botRequest(code, room, state!, served ? away : [], past),
         }
         : null;
       if (!written) return { moves: 0, ask };
@@ -1133,16 +1169,16 @@ export const nudge = onCall((req) =>
       return { moves, ask };
     });
     if (!first.ask) return { moves: first.moves };
-    const { step, body } = first.ask;
+    const { step, body, roomId } = first.ask;
     let answer = await askBots(body);
     // the computers' server was restarted (or another instance answered)
     // after the first quest: it wants the earlier games again
     if (answer?.needPast && !('past' in body)) {
-      answer = await askBots({ ...body, past: await pastGames(code, body.gen) });
+      answer = await askBots({ ...body, past: await pastGames(code, roomId, body.gen) });
     }
     if (!answer) {
       // the server cannot be reached: nobody is left waiting for a player
-      // who is away (the computer seats wait for the server to come back)
+      // who is away, nor long for a computer seat (BOT_FALLBACK_MS)
       const stood = await db.runTransaction((tx) => standInPlainly(tx, code, step));
       return { moves: first.moves + stood };
     }

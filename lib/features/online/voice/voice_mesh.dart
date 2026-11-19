@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'voice_cleanup.dart';
 import 'dart:async';
 import 'dart:math';
@@ -87,6 +88,13 @@ class VoiceMesh {
   final _attempts = <String, int>{};
   final _pendingSignals = <String, VoiceSignal>{};
   final _seen = <String>{};
+
+  /// Signals held back (their sender not yet seen) and signals remembered
+  /// as handled; for tests.
+  @visibleForTesting
+  int get waitingSignals => _pendingSignals.length;
+  @visibleForTesting
+  int get rememberedSignals => _seen.length;
   final _earlyCandidates = <String, List<Map<String, dynamic>>>{};
   final _queues = <String, Future<void>>{};
   final _subs = <StreamSubscription<Object?>>[];
@@ -229,6 +237,13 @@ class VoiceMesh {
     for (final signal in signals) {
       if (_seen.add(signal.id)) _pendingSignals[signal.id] = signal;
     }
+    // The inbox is given whole each time. What has left it (consumed,
+    // expired, its sender gone) is no longer waited on, and need not be
+    // remembered either: a signal still in it stays known, so is never
+    // handled twice, and both sets stay as small as the inbox.
+    final current = {for (final signal in signals) signal.id};
+    _pendingSignals.removeWhere((id, _) => !current.contains(id));
+    _seen.retainAll(current);
     _drainInbox();
   }
 
