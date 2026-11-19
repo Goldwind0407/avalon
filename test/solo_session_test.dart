@@ -75,6 +75,16 @@ class ClockedSoloSession extends SoloGameSession {
 }
 
 void main() {
+  test('against computers there is no free-talk minute to wait out', () {
+    final room = soloRoom(5, const ExpansionSettings())
+      ..discussion = const DiscussionSettings(
+          enabled: true, speechSeconds: 45, selectionFree: true, freeSeconds: 60);
+    final s = SoloGameSession(room, random: Random(1));
+    expect(s.discussionSettings.freeSeconds, 0);
+    expect(s.discussionSettings.enabled, isTrue);
+    s.dispose();
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   final visited = <GamePhase>{};

@@ -375,17 +375,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
     }
     final speaker = game.speaker, line = game.currentStatement;
-    if (game.phase != GamePhase.discussion || speaker == null || line == null) {
-      if (_spokenKey != null &&
-          game.phase != GamePhase.discussion &&
-          game.phase != GamePhase.vote) {
+    final turn = '${game.generation}/${game.speechVersion}';
+    if (game.phase != GamePhase.discussion ||
+        speaker == null ||
+        line == null ||
+        !game.isComputer(speaker)) {
+      // the turn has moved on (to a person, to the vote, anywhere): a
+      // computer's line still being read out is cut off with it
+      if (_spokenKey != null && !_spokenKey!.startsWith('$turn/')) {
         _spokenKey = null;
         unawaited(BotVoices.instance.stop());
       }
       return;
     }
-    final key = '${game.generation}/${game.speechVersion}/$line';
-    if (key == _spokenKey || !game.isComputer(speaker)) return;
+    final key = '$turn/$line';
+    if (key == _spokenKey) return;
     _spokenKey = key;
     unawaited(BotVoices.instance.speak(game.voiceOf(speaker), line));
   }
@@ -675,13 +679,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 height: 230,
                 child: game.statements.isEmpty
                     ? const Text('尚無發言紀錄。')
+                    // newest first: this proposal, and any change of
+                    // mind, at the top
                     : ListView(children: [
-                        for (final line in game.statements)
+                        for (final line in game.statements.reversed)
                           if (!line.continues)
                             Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text(
-                                    '第 ${line.quest} 次遠征・${player(line.speaker)}\n${line.text}'))
+                                    '第 ${line.quest} 次遠征・第 ${line.attempt} 次提案・${player(line.speaker)}'
+                                    '${line.intent == 'reassess' ? '（改口）' : ''}\n${line.text}',
+                                    style: line.quest == game.questNumber &&
+                                            line.attempt == game.rejections + 1
+                                        ? const TextStyle(color: Colors.white)
+                                        : const TextStyle(
+                                            color: AvalonTheme.muted)))
                       ])),
             actions: [
               if (kDebugMode && game is SoloGameSession)
@@ -855,7 +867,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) => TableHold(
+      run: _paused,
+      child: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) {
           if (!didPop) leave();
@@ -967,7 +981,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 )),
         ),
-      );
+      ));
 
   // ───────────────────────── table ─────────────────────────
 
@@ -1756,7 +1770,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       List<(bool, String, String, bool)> options,
       String confirm,
       CardDeck deck,
-      VoidCallback onConfirm) {
+      VoidCallback onConfirm,
+      {Widget? note}) {
     final cardW = min((c.maxHeight - 200 * s) * cardAspect, 150 * s);
     // scaleDown keeps it on screen even on unusually short displays
     return FittedBox(
@@ -1775,6 +1790,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     maxLines: 2,
                     style: _t(12.5, s)),
               ),
+              if (note != null) note,
             ]),
           ),
           SizedBox(height: 14 * s),
@@ -1838,8 +1854,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       s,
       c,
       '${player(seat)}　投下組隊票',
-      '提案隊伍：${game.team.map(player).join('、')}'
-          '${revised.isEmpty ? '' : '\n${revised.length} 位電腦玩家已更正立場，原因可查看討論紀錄。'}',
+      '提案隊伍：${game.team.map(player).join('、')}',
       [
         (true, Assets.voteApprove, '贊成', true),
         (false, Assets.voteReject, '反對', true),
@@ -1855,6 +1870,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             _voteLanding.remove(seat);
             _bumps[seat]++;
           }),
+      // on its own line, so a long team cannot push it out of sight; opens
+      // the record, newest first
+      note: revised.isEmpty
+          ? null
+          : TextButton.icon(
+              key: const ValueKey('revisedNote'),
+              onPressed: () => _openStatements(),
+              icon: Icon(Icons.forum_outlined, size: 16 * s),
+              label: Text('${revised.length} 位電腦玩家改口了，點這裡看原因',
+                  style: _t(12.5, s, color: AvalonTheme.gold)))
     );
   }
 

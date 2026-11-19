@@ -85,4 +85,62 @@ void main() {
     expect(game.said.last.target, 3);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'typing holds the table in its own count: the app going to the '
+      'background and back does not let the clock go on', (tester) async {
+    tester.view.physicalSize = const Size(667, 320);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final game = SpeakingSession();
+    var depth = 0;
+    final depths = <int>[];
+    Future<T> hold<T>(Future<T> Function() work) async {
+      depth++;
+      depths.add(depth);
+      try {
+        return await work();
+      } finally {
+        depth--;
+        depths.add(depth);
+      }
+    }
+
+    await tester.pumpWidget(MaterialApp(
+        theme: AvalonTheme.dark,
+        home: TableHold(
+            run: hold,
+            child: Scaffold(
+                body: Center(
+                    child: ListenableBuilder(
+                        listenable: game,
+                        builder: (_, __) => PlayerSpeechBar(game: game)))))));
+    await tester.tap(find.byKey(const ValueKey('speechType')));
+    await tester.pumpAndSettle();
+    expect(depth, 1);
+    // away and back while typing: still held
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await tester.pump();
+    }
+    await tester.pump(const Duration(minutes: 2));
+    expect(depth, 1);
+    await tester.enterText(
+        find.byKey(const ValueKey('speechText')), '我覺得電腦2很可疑');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('speechText')), findsNothing,
+        reason: 'the page is closed');
+    expect(game.said.single.target, 2);
+    expect(depths, [1, 0]);
+    // the table's count did it all: the session was not paused around it
+    expect(game.pauses, isEmpty);
+  });
 }

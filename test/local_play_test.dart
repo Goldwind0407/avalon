@@ -55,4 +55,27 @@ void main() {
     expect(start().onPressed, isNotNull);
     expect(find.text('邪惡角色超過本局邪惡陣營名額'), findsNothing);
   });
+
+  testWidgets('tapping the player count already chosen keeps the roles set',
+      (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+        MaterialApp(theme: AvalonTheme.dark, home: const LocalPlayScreen()));
+    // roles changed by hand (too many evil ones for five, on purpose: it
+    // shows on screen)
+    await tester.tap(find.byKey(const ValueKey('role莫德雷德')));
+    await tester.tap(find.byKey(const ValueKey('role奧伯倫')));
+    await tester.pumpAndSettle();
+    expect(find.text('邪惡角色超過本局邪惡陣營名額'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('playerCount5')));
+    await tester.pumpAndSettle();
+    expect(find.text('邪惡角色超過本局邪惡陣營名額'), findsOneWidget,
+        reason: 'the same count again: nothing is reset');
+    // another count still brings its own roles
+    await tester.tap(find.byKey(const ValueKey('playerCount6')));
+    await tester.pumpAndSettle();
+    expect(find.text('邪惡角色超過本局邪惡陣營名額'), findsNothing);
+  });
 }
