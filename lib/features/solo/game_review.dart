@@ -234,6 +234,18 @@ class GameReview {
     return null;
   }
 
+  /// Whether [team] could have failed quest [quest]: evil enough on it for
+  /// the Fails the quest needs. At seven or more the fourth quest needs two,
+  /// so a single evil member cannot sink it, and backing that team was not
+  /// a mistake for good; unless Excalibur is in play, whose holder may turn
+  /// a second card (whoever holds it, the team is then judged as before).
+  bool canFail(List<int> team, int quest) {
+    final evilOnTeam = team.where((s) => evilIn(s, quest)).length;
+    final needed = players.length >= 7 && quest == 4 ? 2 : 1;
+    if (evilOnTeam >= needed) return true;
+    return evilOnTeam > 0 && expansions.excalibur;
+  }
+
   /// How the player did, from their own side's point of view.
   List<ReviewScore> get scores {
     // every score depends on which side the player was on when
@@ -248,7 +260,7 @@ class GameReview {
       final mine = evilIn(me, q.number);
       for (final round in q.proposals) {
         final p = round.record;
-        final dirty = p.team.any((s) => evilIn(s, q.number));
+        final dirty = canFail(p.team, q.number);
         if (p.attempt < 5) {
           votes++;
           if (p.votes[me] == (mine ? dirty : !dirty)) helpful++;
@@ -291,18 +303,18 @@ class GameReview {
           switchedSides
               ? '$votes 次投票中，$helpful 次符合你當時陣營的利益（換邊前後各照當時的陣營算）。第五次提案不計。'
               : mine
-                  ? '$votes 次投票中，$helpful 次對邪惡有利（贊成有壞人的隊、反對乾淨的隊）。'
-                  : '$votes 次投票中，$helpful 次判斷正確（贊成乾淨的隊、反對有壞人的隊）。第五次提案不計。'),
+                  ? '$votes 次投票中，$helpful 次對邪惡有利（贊成會失敗的隊、反對不會失敗的隊）。'
+                  : '$votes 次投票中，$helpful 次判斷正確（贊成不會失敗的隊、反對會失敗的隊）。第五次提案不計。'),
       ReviewScore(
           '當隊長',
           led == 0 ? '—' : '$ledClean／$led',
           led == 0
               ? '這局你沒有當過隊長。'
               : switchedSides
-                  ? '你帶的 $led 支隊伍中，$ledClean 支符合你當時陣營的目標（當好人時沒有壞人、當壞人時有壞人上隊）。'
+                  ? '你帶的 $led 支隊伍中，$ledClean 支符合你當時陣營的目標（當好人時不會失敗、當壞人時能讓任務失敗）。'
                   : mine
-                      ? '你帶的 $led 支隊伍中，$ledClean 支有壞人上隊。'
-                      : '你帶的 $led 支隊伍中，$ledClean 支完全沒有壞人。'),
+                      ? '你帶的 $led 支隊伍中，$ledClean 支能讓任務失敗。'
+                      : '你帶的 $led 支隊伍中，$ledClean 支不會失敗（沒有足夠的壞人能讓任務失敗）。'),
       ReviewScore(
           '點名',
           pct(rightCalls, calls),

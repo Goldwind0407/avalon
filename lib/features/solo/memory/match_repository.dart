@@ -48,6 +48,44 @@ class MatchRepository {
   final int limit;
   static const _indexKey = 'avalon.solo.matches.v1';
   static String _matchKey(String id) => 'avalon.solo.match.v1/$id';
+
+  /// Records that may be left over: about to be written (not yet in the
+  /// index) or to be removed (already out of it). Kept apart from the index
+  /// so that a removal or save that fails half way is finished later
+  /// instead of leaving a record nobody can find.
+  static const _pendingKey = 'avalon.solo.matches.pending.v1';
+
+  Future<Set<String>> _pending() async {
+    try {
+      final text = await _storage.read(_pendingKey);
+      return text == null ? {} : {for (final id in jsonDecode(text) as List) '$id'};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _setPending(Set<String> ids) => ids.isEmpty
+      ? _storage.remove(_pendingKey)
+      : _storage.write(_pendingKey, jsonEncode(ids.toList()));
+
+  /// Removes the records on the pending list that the index does not name
+  /// (a save that never reached the index, a removal that failed); those it
+  /// names stay. What cannot be removed now stays listed for next time.
+  Future<void> _tidy(_Index index) async {
+    final pending = await _pending();
+    if (pending.isEmpty) return;
+    final named = {for (final s in index.summaries) s.id};
+    final left = <String>{};
+    for (final id in pending) {
+      if (named.contains(id)) continue;
+      try {
+        await _storage.remove(_matchKey(id));
+      } catch (_) {
+        left.add(id);
+      }
+    }
+    await _setPending(left);
+  }
   Future<void> _queue = Future.value();
 
   /// One write at a time, so two saves cannot overwrite each other's index.
@@ -153,19 +191,19 @@ class MatchRepository {
         try {
           final index = await _read();
           if (index == null) return;
+          await _tidy(index);
           final list = index.summaries;
           if (list.any((s) => s.id == match.id)) return;
+          // listed before it is written: if the index is never updated,
+          // the record is cleared away next time instead of lingering
+          final dropped = [for (final old in list.skip(limit - 1)) old.id];
+          await _setPending({...await _pending(), match.id, ...dropped});
           await _storage.write(_matchKey(match.id), jsonEncode(match.toMap()));
           list.insert(0, match.summary);
           // The list first: if it cannot be written, the old games it
-          // still names must still be there. A record left behind by a
-          // failed removal only takes up room.
+          // still names must still be there.
           await _write(_Index(list.take(limit).toList(), index.unreadable));
-          for (final old in list.skip(limit)) {
-            try {
-              await _storage.remove(_matchKey(old.id));
-            } catch (_) {}
-          }
+          await _tidy(_Index(list.take(limit).toList(), index.unreadable));
         } catch (_) {}
       });
 
@@ -184,11 +222,13 @@ class MatchRepository {
         try {
           final index = await _read();
           if (index == null) return;
-          await _write(_Index([
+          await _setPending({...await _pending(), id});
+          final kept = _Index([
             for (final s in index.summaries)
               if (s.id != id) s
-          ], index.unreadable));
-          await _storage.remove(_matchKey(id));
+          ], index.unreadable);
+          await _write(kept);
+          await _tidy(kept);
         } catch (_) {}
       });
 
@@ -196,12 +236,12 @@ class MatchRepository {
         try {
           final index = await _read();
           if (index == null) return;
+          // every record goes on the pending list before the index goes,
+          // so a removal that fails is tried again by the next save or clear
+          await _setPending(
+              {...await _pending(), for (final s in index.summaries) s.id});
           await _storage.remove(_indexKey);
-          for (final s in index.summaries) {
-            try {
-              await _storage.remove(_matchKey(s.id));
-            } catch (_) {}
-          }
+          await _tidy(_Index([], []));
         } catch (_) {}
       });
 }

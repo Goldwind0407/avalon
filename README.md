@@ -258,17 +258,22 @@ npm run test:emulator   # 完整多人對局、權限撤銷、到期與孤兒文
 npm run test:cloud      # 同樣的測試，直接打已部署的正式環境；正式環境要求 Google 登入後，匿名測試帳號會被擋，要暫時拿掉 REQUIRE_GOOGLE 再部署才能跑
 ```
 
-「電腦加入多人房」的整合測試需要電腦玩家伺服器在本機跑著，並匯出 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`，否則會自動略過；CI 目前沒有跑這一項。
+「電腦加入多人房」的整合測試需要電腦玩家伺服器在本機跑著，並匯出 `BOT_SERVER_URL`、`BOT_SERVER_SECRET`，否則會自動略過；CI 目前沒有跑這一項。「電腦伺服器連不上」的測試則是把 `BOT_SERVER_URL` 指到不存在的位址並設 `BOT_SERVER_DOWN=1`（約 20 秒後，電腦座位改由簡易代理出手）。
 
 單人 BOT 的目前策略見 [中文決策規則](docs/solo_bot_rules.md)，資料欄位、資訊權限與 V2 已啟用範圍見 [實作契約](docs/solo_bot_data_contract.md)。修改 JSON 台詞後，先執行 `python tool/prepare_bot_dialogue.py` 更新正式資料庫；未知條件不會自動執行。
 
 ### GitHub Actions
 
-每次分支 push、PR 更新會執行 [Avalon CI](.github/workflows/ci.yml)。在 GitHub 的 Actions 頁面查看三項檢查：
+每次分支 push、PR 更新會執行 [Avalon CI](.github/workflows/ci.yml)。在 GitHub 的 Actions 頁面查看四項檢查：
 
 - **Flutter tests and Web build**：靜態檢查、完整 Flutter 測試與覆蓋率、Web release 編譯。
 - **Server rules and Firebase integration**：後端規則測試，以及 Auth／Firestore／Functions 模擬器的多人對局、權限與語音信令測試。
 - **Android debug build**：Android APK 編譯。成功後可從該次執行的 Artifacts 下載 `avalon-android-debug`；Web 產物為 `avalon-web`，保留 7 天。
+- **iOS build (no signing)**：在 macOS 上完整編譯 iOS release（不簽章），確認 iOS 能建置；簽章、麥克風、Google 登入回跳與背景恢復仍要用真機驗證。
+
+### 正式簽章（上架前）
+
+Android release 會讀取 `android/key.properties`（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`，不進 git），或建置機的環境變數 `ANDROID_KEYSTORE`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。兩者都沒有時，release 會改用 debug 金鑰並顯示警告，商店不接受這種檔案。上架前還要把 `applicationId`（目前是 `com.example.avalon_shadow_council`，商店不接受 `com.example`）改成自己的，並在 Firebase 重新登記 Android App 與新簽章的 SHA。
 
 CI 固定使用 Flutter 3.50.0、Node 22、Java 21 與 Firebase CLI 15.30.0。模擬器測試使用 `demo-avalon-ci`，不需 Firebase 金鑰、不執行正式環境測試或部署。同一分支有新提交時會取消尚未結束的舊執行。
 

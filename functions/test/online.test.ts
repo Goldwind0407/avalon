@@ -574,11 +574,11 @@ describe('a player whose phone has gone quiet', () => {
 
 // Needs the computer players' server running (bot_server/) and the
 // functions told where it is: BOT_SERVER_URL and BOT_SERVER_SECRET.
-describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => {
+describe('computers at the table', { skip: !process.env.BOT_SERVER_URL || process.env.BOT_SERVER_DOWN === '1' }, () => {
   const phones: Phone[] = [];
   let outsider: Phone;
   let code = '';
-  let finishedGen = 0;
+  let finishedReview = '';
   const v5 = (p: Phone, name: string, data: Record<string, unknown>) =>
     p.call(name, { protocolVersion: 5, ...data });
   const mine = async (p: Phone) =>
@@ -701,16 +701,20 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
     // a computer has no card anyone could read
     await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'private', 'bot:chen')));
     // the game is kept for the computers to remember, out of everyone's reach
-    await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'pastGames', String(r.gen))));
+    await denied(getDocFromServer(doc(phones[0].db, 'rooms', code, 'pastGames', `${r.voiceRoomId}-${r.gen}`)));
     // the review: the whole game for those who played it, nobody else
-    const review = (await getDocFromServer(doc(phones[1].db, 'rooms', code, 'reviews', String(r.gen)))).data() as any;
+    // kept under the room's own id with the deal number: a later room with
+    // the same code cannot write over it
+    const reviewId = `${r.voiceRoomId}-${r.gen}`;
+    const review = (await getDocFromServer(doc(phones[1].db, 'rooms', code, 'reviews', reviewId))).data() as any;
+    assert.equal(review.roomId, r.voiceRoomId);
     assert.equal(review.state.phase, 'finished');
     assert.equal(review.state.roles.length, 5);
     assert.ok(Object.keys(review.state.cardLog).length > 0, 'every card');
     assert.ok(Object.keys(review.state.botReasons).length > 0, "the computers' reasons");
     assert.ok(Object.keys(review.state.botReasons).every((k: string) => ['2', '3', '4'].includes(k.split('/')[1])));
-    await denied(getDocFromServer(doc(outsider.db, 'rooms', code, 'reviews', String(r.gen))));
-    finishedGen = r.gen;
+    await denied(getDocFromServer(doc(outsider.db, 'rooms', code, 'reviews', reviewId)));
+    finishedReview = reviewId;
     // the next deal: the computers are asked with that game in mind
     await v5(phones[0], 'startGame', { code });
     for (const p of phones) await v5(p, 'move', { code, move: 'confirmIdentity' });
@@ -722,7 +726,7 @@ describe('computers at the table', { skip: !process.env.BOT_SERVER_URL }, () => 
   test('a review is for those who played it, not whoever joins later', async () => {
     await v5(phones[0], 'backToLobby', { code });
     await v5(outsider, 'joinRoom', { code, name: '後來的人' });
-    const path = ['rooms', code, 'reviews', String(finishedGen)] as const;
+    const path = ['rooms', code, 'reviews', finishedReview] as const;
     await denied(getDocFromServer(doc(outsider.db, ...path)));
     assert.equal((await getDocFromServer(doc(phones[1].db, ...path))).exists(), true);
     await outsider.call('leaveRoom', { code });
@@ -811,6 +815,33 @@ describe('limits on guessing and opening rooms', () => {
       await refused(host.call('joinRoom', { code: '399999', name: '再猜' }), /太多次/);
     } finally {
       for (const code of codes) await host.call('leaveRoom', { code }).catch(() => {});
+      await deleteApp(host.app);
+    }
+  });
+});
+
+// Run with BOT_SERVER_URL pointing at nothing and BOT_SERVER_DOWN=1: the
+// computers' server is set up but cannot be reached.
+describe('computers whose server cannot be reached', { skip: process.env.BOT_SERVER_DOWN !== '1' }, () => {
+  test('after a short wait the plain stand-in plays for the computer seats', async () => {
+    const host = await phone();
+    const v5 = (name: string, data: Record<string, unknown>) =>
+      host.call(name, { protocolVersion: 5, ...data });
+    const { code } = await v5('createRoom', { name: '亞瑟' });
+    try {
+      for (const [persona, name] of [['chen', '老陳'], ['yu', '小魚'], ['zhe', '阿哲'], ['mia', '米亞']]) {
+        await v5('setBot', { code, persona, name, seated: true });
+      }
+      await v5('startGame', { code });
+      await v5('move', { code, move: 'confirmIdentity' });
+      // at once: the server may only be slow, nothing is played for it yet
+      assert.equal((await v5('nudge', { code })).moves, 0);
+      await new Promise((done) => setTimeout(done, 21000));
+      assert.ok((await v5('nudge', { code })).moves > 0, 'the game goes on');
+      const r = await room(host, code);
+      assert.match(r.notice, /伺服器暫時連不上/);
+    } finally {
+      await host.call('leaveRoom', { code }).catch(() => {});
       await deleteApp(host.app);
     }
   });

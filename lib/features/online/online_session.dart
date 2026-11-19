@@ -127,7 +127,7 @@ class OnlineGameSession extends GameSession {
     required Stream<Map<String, dynamic>?> mine,
     required ServerCall call,
     Future<void> Function(int now)? beat,
-    Future<Map<String, dynamic>?> Function(int gen)? loadReview,
+    Future<Map<String, dynamic>?> Function(int gen, String? roomId)? loadReview,
     super.notebook,
   })  : _call = call,
         _beat = beat,
@@ -399,7 +399,8 @@ class OnlineGameSession extends GameSession {
 
   // ───────────── the review, once the game is over ─────────────
 
-  final Future<Map<String, dynamic>?> Function(int gen)? _loadReview;
+  final Future<Map<String, dynamic>?> Function(int gen, String? roomId)?
+      _loadReview;
   int? _reviewGen;
   GameReview? _review;
 
@@ -433,7 +434,7 @@ class OnlineGameSession extends GameSession {
     unawaited(() async {
       for (var attempt = 0; attempt < 3; attempt++) {
         try {
-          final game = await load(gen);
+          final game = await load(gen, room?.voiceRoomId);
           if (_disposed || _reviewGen != gen) return;
           if (game != null) {
             _review = finishedGameReview(game)?.call(seat);
@@ -525,7 +526,7 @@ class OnlineGameSession extends GameSession {
       mine: service.mine(code, uid),
       call: service.call,
       beat: (now) => service.beat(code, uid, now),
-      loadReview: (gen) => service.review(code, gen),
+      loadReview: (gen, roomId) => service.review(code, roomId, gen),
     );
   }
 

@@ -180,6 +180,32 @@ void main() {
     }
   });
 
+  test('a signal from someone gone before they showed up is let go', () async {
+    final a = mesh('a');
+    await a.start();
+    await flush();
+    // an offer from b arrives, but b's presence never does (b left at once)
+    bus.messages['early'] = VoiceSignal(
+        id: 'early',
+        from: 'b',
+        fromSession: 'old',
+        to: 'a',
+        toSession: a.session,
+        attempt: 1,
+        kind: 'offer',
+        data: {});
+    bus.emit();
+    await flush();
+    expect(a.waitingSignals, 1, reason: 'held until b shows up');
+    expect(a.rememberedSignals, 1);
+    // its time runs out on the server: nothing of it is kept here either
+    bus.messages.remove('early');
+    bus.emit();
+    await flush();
+    expect(a.waitingSignals, 0);
+    expect(a.rememberedSignals, 0);
+  });
+
   test('leaving closes both ends; rejoining replaces the old session',
       () async {
     final a = mesh('a'), b = mesh('b');

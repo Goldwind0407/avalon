@@ -79,6 +79,7 @@ List<String> ids(String? index) =>
     [for (final e in jsonDecode(index!) as List) (e as Map)['id'] as String];
 
 void main() {
+  leftoverTests();
   test('a failed read of the list of games never writes over it', () async {
     final storage = FlakyStorage();
     final repository = MatchRepository(storage: storage);
@@ -177,5 +178,49 @@ void main() {
     final again = {for (final s in await repository.summaries()) s.id: s};
     expect(again['b']!.version, MatchSummary.currentVersion);
     expect(again['b']!.traits!['gc'], 1);
+  });
+}
+
+/// Storage whose removals of some keys fail while [failing] says so.
+class FailingRemovals extends MemoryMatchStorage {
+  final failing = <String>{};
+  @override
+  Future<void> remove(String key) async {
+    if (failing.contains(key)) throw StateError('storage busy');
+    return super.remove(key);
+  }
+}
+
+void leftoverTests() {
+  test('a record that could not be removed is cleared away later', () async {
+    final storage = FailingRemovals();
+    final repo = MatchRepository(storage: storage);
+    await repo.save(game('a'));
+    await repo.save(game('b', minute: 1));
+    storage.failing.add(matchKey('a'));
+    await repo.clear();
+    expect(storage.values.containsKey(matchKey('b')), isFalse);
+    expect(storage.values.containsKey(matchKey('a')), isTrue,
+        reason: 'its removal failed');
+    expect(await repo.summaries(), isEmpty);
+    // a later save (a new run of the app) finishes the job
+    storage.failing.clear();
+    await MatchRepository(storage: storage).save(game('c', minute: 2));
+    expect(storage.values.containsKey(matchKey('a')), isFalse);
+    expect(storage.values.containsKey(matchKey('c')), isTrue);
+  });
+
+  test('a record whose index was never written does not linger', () async {
+    final storage = FailingWrites();
+    final repo = MatchRepository(storage: storage);
+    await repo.save(game('a'));
+    storage.failing.add(indexKey);
+    await repo.save(game('b', minute: 1));
+    expect([for (final s in await repo.summaries()) s.id], ['a']);
+    storage.failing.clear();
+    await repo.save(game('c', minute: 2));
+    expect(storage.values.containsKey(matchKey('b')), isFalse,
+        reason: 'written, never listed: cleared away');
+    expect([for (final s in await repo.summaries()) s.id], ['c', 'a']);
   });
 }

@@ -128,9 +128,19 @@ class BotVoices extends ChangeNotifier with WidgetsBindingObserver {
   static String _silence(int ms) =>
       'assets/voice/pause${ms >= 300 ? 350 : 180}.mp3';
 
+  Completer<void> _lineChanged = Completer<void>();
+
+  /// A new line (or silence) from now on: whatever waited on the last one
+  /// lets go.
+  int _nextLine() {
+    if (!_lineChanged.isCompleted) _lineChanged.complete();
+    _lineChanged = Completer<void>();
+    return ++_line;
+  }
+
   /// Says [line] in [persona]'s voice, cutting off whatever was being said.
   Future<void> speak(String? persona, String line) async {
-    final turn = ++_line;
+    final turn = _nextLine();
     if (persona == null || !enabled || volume == 0 || !_foreground) return;
     final assets = await recordingsFor(persona, line);
     if (assets == null || turn != _line || _disposed) return;
@@ -148,15 +158,24 @@ class BotVoices extends ChangeNotifier with WidgetsBindingObserver {
         ]
       ]);
       if (turn != _line || _disposed) return;
+      // play() also returns when the line is cut off (paused or stopped for
+      // the next one): then this line is done with the shared player, and
+      // must not wait on, or stop, whatever plays next
+      final cutOff = _lineChanged.future;
       await player.play();
-      await player.processingStateStream
-          .firstWhere((s) => s == ProcessingState.completed);
+      if (turn != _line || _disposed) return;
+      await Future.any([
+        player.processingStateStream
+            .firstWhere((s) => s == ProcessingState.completed),
+        cutOff,
+      ]);
+      if (turn != _line || _disposed) return;
       await player.stop();
     } catch (_) {/* A voice that cannot play must never hold up the game. */}
   }
 
   Future<void> stop() async {
-    ++_line;
+    _nextLine();
     try {
       await _player?.stop();
     } catch (_) {}

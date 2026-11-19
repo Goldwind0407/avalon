@@ -73,6 +73,7 @@ GameReview played(int seed, {int count = 7, ExpansionSettings? e}) {
 }
 
 void main() {
+  canFailTests();
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -194,5 +195,25 @@ void main() {
     expect(copied, contains('阿瓦隆 單人模式 復盤'));
     expect(copied, contains('== 第1次遠征'));
     expect(find.text('已複製整局復盤文字'), findsOneWidget);
+  });
+}
+
+void canFailTests() {
+  test('a team with one evil member cannot sink the two-Fail fourth quest',
+      () {
+    for (final (count, sword) in [(7, false), (7, true), (5, false)]) {
+      final r = played(3,
+          count: count, e: ExpansionSettings(excalibur: sword));
+      final evil = [for (var s = 0; s < count; s++) if (r.evilIn(s, 4)) s];
+      final good = [for (var s = 0; s < count; s++) if (!r.evilIn(s, 4)) s];
+      final one = [evil.first, good[0], good[1]];
+      final two = [evil[0], evil[1], good[0]];
+      // two Fails needed at seven: one evil member is not enough, unless
+      // Excalibur can turn a second card; at five every quest needs one
+      expect(r.canFail(one, 4), count < 7 || sword, reason: '$count $sword');
+      expect(r.canFail(two, 4), isTrue);
+      expect(r.canFail(one, 3), isTrue);
+      expect(r.canFail([good[0], good[1]], 4), isFalse);
+    }
   });
 }
