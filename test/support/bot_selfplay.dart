@@ -107,7 +107,8 @@ SelfPlayStats selfPlay(int n, int games,
           final l = game.leader;
           final team =
               brains[l].chooseTeam(see(l, GamePhase.team), game.requiredTeam);
-          if (isEvil(l)) {
+          // (where two Fails are needed, two of them on it is the point)
+          if (isEvil(l) && game.failsRequired == 1) {
             stats.evilLeads++;
             if (team.where(isEvil).length >= 2) stats.evilLeadsStacked++;
           }
@@ -156,8 +157,14 @@ SelfPlayStats selfPlay(int n, int games,
           if (first) stats.firstProposals++;
           if (game.rejections == 4) {
             stats.hammers++;
-            if ([for (var s = 0; s < n; s++) s]
-                .any((s) => isEvil(s) && !votes[s])) {
+            // turning down a clean team that would win good its third
+            // quest is the one fifth-proposal "no" evil means to cast
+            final matchPoint =
+                game.history.where((q) => q.succeeded).length == 2 &&
+                    !game.team.any(isEvil);
+            if (!matchPoint &&
+                [for (var s = 0; s < n; s++) s]
+                    .any((s) => isEvil(s) && !votes[s])) {
               stats.hammerEvilRejects++;
             }
           } else {

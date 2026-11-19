@@ -60,10 +60,14 @@ extension BotVoiceClaims on BotVoice {
     bool sayable(int? morgana) =>
         morgana == null || !(approve && o.team.contains(morgana));
     String why(int seat) {
-      final failed = _failedWith(o, seat);
+      final failed = _failedWith(o, seat), backed = _backedFailures(o, seat);
+      // only what the record bears out: a claim that cites a vote anyone
+      // can check, and gets it wrong, gives itself away
       return failed.isNotEmpty
           ? '${_quests(failed)}出失敗牌時他在隊上'
-          : '他的投票跟出失敗牌的隊對得上';
+          : backed.isNotEmpty
+              ? '${_quests(backed)}出失敗牌的隊他不在隊上卻投了贊成'
+              : '他就是我開局看到的人';
     }
 
     final accusers = [
@@ -234,9 +238,12 @@ extension BotVoiceClaims on BotVoice {
         return say('${_n(c.speaker)}，你認錯人了，我不是莫甘娜。請把我的出牌和投票再對一次。',
             isClaim: false, replyTo: indexOf(c));
       }
+      // "Percival does not see me" is true of anyone but Merlin and
+      // Morgana; Merlin saying it would be a slip anyone could catch
       return say(
           _pick([
-            '${_n(c.speaker)}說我是莫甘娜？我不是。派西維爾看到的兩個人裡不會有我，所以說謊的是他。',
+            if (o.role != Role.merlin)
+              '${_n(c.speaker)}說我是莫甘娜？我不是。派西維爾看到的兩個人裡不會有我，所以說謊的是他。',
             '我不是莫甘娜。${_n(c.speaker)}這樣指我，只代表他不是真的派西維爾。',
           ]),
           isClaim: false,
