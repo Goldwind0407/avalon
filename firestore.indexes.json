@@ -1,5 +1,14 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "pastGames",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "roomId", "order": "ASCENDING" },
+        { "fieldPath": "gen", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": [
     { "collectionGroup": "rooms", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "private", "fieldPath": "expireAt", "ttl": true, "indexes": [] },

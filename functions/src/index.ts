@@ -763,15 +763,18 @@ type BotAnswer = { say: any[]; moves: any[]; needPast: boolean };
  *  memory (in [tx] when given). */
 async function pastGames(code: string, roomId: string, gen: number, tx?: Transaction) {
   // this room's own games (not those of an earlier room with the same
-  // code), and none past their time
-  const query = roomRef(code).collection('pastGames').where('roomId', '==', roomId);
+  // code), newest first, sorted and cut short by the database (index in
+  // firestore.indexes.json): a room that played many games reads only a
+  // few. A few more than needed, for any past their time but not yet
+  // cleared away (TTL is not immediate).
+  const query = roomRef(code).collection('pastGames')
+    .where('roomId', '==', roomId).where('gen', '<', gen)
+    .orderBy('gen', 'desc').limit(PAST_GAMES + 3);
   const kept = tx ? await tx.get(query) : await query.get();
   const now = Date.now();
   return kept.docs
     .map((d) => d.data())
-    .filter((g) => typeof g.gen === 'number' && g.gen < gen &&
-      !(g.expireAt instanceof Timestamp && g.expireAt.toMillis() <= now))
-    .sort((a, b) => b.gen - a.gen)
+    .filter((g) => !(g.expireAt instanceof Timestamp && g.expireAt.toMillis() <= now))
     .slice(0, PAST_GAMES)
     .map(({ expireAt: _, roomId: __, ...game }) => game);
 }

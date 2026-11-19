@@ -64,6 +64,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
   /// A new player count brings its recommended roles; everything can still
   /// be changed by hand afterwards.
   void _setPlayers(int count) {
+    // the count already chosen, tapped again: the roles as set by hand stay
+    if (count == playerCount) return;
     playerCount = count;
     // Lancelot cannot be played with fewer than 7
     if (count < lancelotMinPlayers) {
@@ -273,7 +275,8 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                           highlight: discussion.enabled,
                           onTap: () async {
                             final value =
-                                await editDiscussion(context, discussion);
+                                await editDiscussion(context, discussion,
+                                    freeTalk: !widget.solo);
                             if (mounted && value != null) {
                               setState(() => discussion = value);
                             }

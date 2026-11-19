@@ -72,6 +72,11 @@ android {
         release {
             signingConfig = if (releaseKey != null) {
                 signingConfigs.getByName("release")
+            } else if (System.getenv("REQUIRE_RELEASE_KEY") == "true") {
+                // a build meant for the stores: no debug-signed file by mistake
+                throw GradleException(
+                    "REQUIRE_RELEASE_KEY is set but no release key was found " +
+                        "(android/key.properties or ANDROID_KEYSTORE...)")
             } else {
                 logger.warn("No release key (android/key.properties): release build signed with the debug key")
                 signingConfigs.getByName("debug")

@@ -273,7 +273,7 @@ npm run test:cloud      # 同樣的測試，直接打已部署的正式環境；
 
 ### 正式簽章（上架前）
 
-Android release 會讀取 `android/key.properties`（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`，不進 git），或建置機的環境變數 `ANDROID_KEYSTORE`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。兩者都沒有時，release 會改用 debug 金鑰並顯示警告，商店不接受這種檔案。上架前還要把 `applicationId`（目前是 `com.example.avalon_shadow_council`，商店不接受 `com.example`）改成自己的，並在 Firebase 重新登記 Android App 與新簽章的 SHA。
+Android release 會讀取 `android/key.properties`（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`，不進 git），或建置機的環境變數 `ANDROID_KEYSTORE`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。兩者都沒有時，release 會改用 debug 金鑰並顯示警告，商店不接受這種檔案；要給商店的建置請設 `REQUIRE_RELEASE_KEY=true`，找不到正式金鑰就直接建置失敗。上架前還要把 `applicationId`（目前是 `com.example.avalon_shadow_council`，商店不接受 `com.example`）改成自己的，並在 Firebase 重新登記 Android App 與新簽章的 SHA。
 
 CI 固定使用 Flutter 3.50.0、Node 22、Java 21 與 Firebase CLI 15.30.0。模擬器測試使用 `demo-avalon-ci`，不需 Firebase 金鑰、不執行正式環境測試或部署。同一分支有新提交時會取消尚未結束的舊執行。
 

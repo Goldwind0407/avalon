@@ -26,6 +26,20 @@ import 'persona/bot_persona.dart';
 /// Result screens wait for the human so animations and public evidence can be
 /// read before any more decisions are made.
 class SoloGameSession extends GameSession {
+  /// Against computers there is no time for everyone to talk at once (the
+  /// computers speak in turn only): a free-talk minute before the vote would
+  /// only be waited out, so it is left out whatever the settings say.
+  static Room _withoutFreeTalk(Room room) {
+    final d = room.discussion;
+    if (d.freeSeconds > 0) {
+      room.discussion = DiscussionSettings(
+          enabled: d.enabled,
+          speechSeconds: d.speechSeconds,
+          selectionFree: d.selectionFree);
+    }
+    return room;
+  }
+
   SoloGameSession(Room room,
       {Random? random,
       this.difficulty = BotDifficulty.normal,
@@ -41,7 +55,7 @@ class SoloGameSession extends GameSession {
       : _random = random ?? Random.secure(),
         _now = now ?? DateTime.now,
         personas = personas == null ? null : List.unmodifiable(personas),
-        _local = LocalGameSession(room, random: random) {
+        _local = LocalGameSession(_withoutFreeTalk(room), random: random) {
     if (personas != null && personas.length != room.players.length - 1) {
       throw ArgumentError('One persona for each computer seat');
     }

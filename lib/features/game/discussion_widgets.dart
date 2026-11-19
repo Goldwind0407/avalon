@@ -9,14 +9,19 @@ import 'game_session.dart';
 import 'player_speech.dart';
 import '../../core/toast.dart';
 
+/// [freeTalk]: whether the free-talk minute before the vote is offered
+/// (not against computers, who only speak in turn).
 Future<DiscussionSettings?> editDiscussion(
-        BuildContext context, DiscussionSettings initial) =>
+        BuildContext context, DiscussionSettings initial,
+        {bool freeTalk = true}) =>
     showDialog<DiscussionSettings>(
-        context: context, builder: (_) => _DiscussionSettingsDialog(initial));
+        context: context,
+        builder: (_) => _DiscussionSettingsDialog(initial, freeTalk: freeTalk));
 
 class _DiscussionSettingsDialog extends StatefulWidget {
-  const _DiscussionSettingsDialog(this.initial);
+  const _DiscussionSettingsDialog(this.initial, {this.freeTalk = true});
   final DiscussionSettings initial;
+  final bool freeTalk;
   @override
   State<_DiscussionSettingsDialog> createState() =>
       _DiscussionSettingsDialogState();
@@ -25,7 +30,7 @@ class _DiscussionSettingsDialog extends StatefulWidget {
 class _DiscussionSettingsDialogState extends State<_DiscussionSettingsDialog> {
   late bool enabled = widget.initial.enabled;
   late bool selectionFree = widget.initial.selectionFree;
-  late bool free = widget.initial.freeSeconds > 0;
+  late bool free = widget.freeTalk && widget.initial.freeSeconds > 0;
   late double seconds = widget.initial.speechSeconds.toDouble();
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -55,7 +60,8 @@ class _DiscussionSettingsDialogState extends State<_DiscussionSettingsDialog> {
                     onChanged: enabled
                         ? (v) => setState(() => selectionFree = v)
                         : null),
-                SwitchListTile(
+                if (widget.freeTalk)
+                  SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('投票前自由討論 60 秒'),
                     value: free,
@@ -195,11 +201,13 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                         Wrap(spacing: 8, children: [
                           ActionChip(
                               key: const ValueKey('soloSupport'),
-                              label: const Text('我支持這隊'),
+                              // says the side and passes the turn on; the
+                              // vote on the team is still its own step
+                              label: const Text('支持並過麥'),
                               onPressed: () => _express(true)),
                           ActionChip(
                               key: const ValueKey('soloOppose'),
-                              label: const Text('我想換人'),
+                              label: const Text('想換人並過麥'),
                               onPressed: () => _express(false)),
                         ]),
                       ],
@@ -213,6 +221,21 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                           style: const TextStyle(color: AvalonTheme.muted)),
                     ])))));
   }
+}
+
+/// What holds the table's clock and computers while something is open over
+/// it: one count for every dialog, page and the app being in the background.
+class TableHold extends InheritedWidget {
+  const TableHold({super.key, required this.run, required super.child});
+  final Future<T> Function<T>(Future<T> Function() work) run;
+
+  /// Runs [work] with the table held, or null outside a table.
+  static Future<T> Function<T>(Future<T> Function() work)? of(
+          BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<TableHold>()?.run;
+
+  @override
+  bool updateShouldNotify(TableHold old) => old.run != run;
 }
 
 /// Solo: what the player can say on their turn before taking a side.
@@ -232,16 +255,25 @@ class PlayerSpeechBar extends StatelessWidget {
   }
 
   Future<void> _type(BuildContext context) async {
-    // typing takes a while: hold the clock and the computers meanwhile
-    game.pauseAutomation(true);
+    // typing takes a while: hold the clock and the computers meanwhile, in
+    // the table's own count of what holds them (so coming back from the
+    // background, or another dialog closing, does not let them go on while
+    // this is still open)
+    Future<String?> open() => showDialog<String>(
+        context: context,
+        builder: (_) => _SpeechPage(game: game),
+        useSafeArea: false);
+    final hold = TableHold.of(context);
     final String? text;
-    try {
-      text = await showDialog<String>(
-          context: context,
-          builder: (_) => _SpeechPage(game: game),
-          useSafeArea: false);
-    } finally {
-      game.pauseAutomation(false);
+    if (hold != null) {
+      text = await hold(open);
+    } else {
+      game.pauseAutomation(true);
+      try {
+        text = await open();
+      } finally {
+        game.pauseAutomation(false);
+      }
     }
     if (text == null || text.trim().isEmpty || !context.mounted) return;
     await _say(
@@ -287,7 +319,7 @@ String speechReading(PlayerSpeech speech, List<String> players) {
     return switch (point.kind) {
       PlayerSpeechKind.suspect => '你懷疑 $who',
       PlayerSpeechKind.trust => '你相信 $who 是好人',
-      PlayerSpeechKind.ask => '你在問 $who，對方會回答',
+      PlayerSpeechKind.ask => '你在問 $who（他這輪還沒發言的話，輪到他時會回答）',
       PlayerSpeechKind.challengeVote => '你在問 $who 的投票理由',
       PlayerSpeechKind.claimGood => '你說自己是好人',
       PlayerSpeechKind.claimPercival => point.target == null
