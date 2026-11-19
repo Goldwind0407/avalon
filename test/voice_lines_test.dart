@@ -1,9 +1,13 @@
+import 'dart:io';
+import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
+import 'package:avalon_shadow_council/features/solo/memory/social_memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/features/solo/voice_lines.dart';
 
 List<String> said(String line) => [for (final p in voicePieces(line)) '$p'];
 
 void main() {
+  scriptCoverage();
   test('a line is cut at punctuation and numbers; numbers keep their unit', () {
     expect(
         said('3號第1次出失敗時在隊上，這次我反對。'), ['3號', '第1次', '出失敗時在隊上|180', '這次我反對|350']);
@@ -29,5 +33,29 @@ void main() {
     expect(voicePieceId(''), 'v811c9dc5');
     expect(voiceAsset('chen', const VoicePiece('3號')),
         'assets/voice/chen/${voicePieceId('3號')}.mp3');
+  });
+}
+
+void scriptCoverage() {
+  test('every line about an earlier game can be said from the script', () {
+    final script = File('tool/voice/script.csv')
+        .readAsLinesSync()
+        .skip(1)
+        .map((l) => l.split(',').first)
+        .toSet();
+    final missing = <String>{};
+    for (final kind in EpisodeKind.values) {
+      for (final ago in [0, 1]) {
+        for (final who in ['1號', '6號']) {
+          for (final line in memoryLines(kind, memoryWhen(ago), who)) {
+            for (final piece in voicePieces(line)) {
+              if (!script.contains(piece.id)) missing.add(piece.text);
+            }
+          }
+        }
+      }
+    }
+    expect(missing, isEmpty,
+        reason: 'rerun test/voice_script_test.dart and record the new pieces');
   });
 }

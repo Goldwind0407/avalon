@@ -8,8 +8,8 @@
 // Pieces come from three places: games played out with talk on (the
 // computers keep their memory from one game to the next, so the lines
 // about earlier games come up too); every line of the dialogue catalogue
-// with each kind of value in its blanks; and every number in each form it
-// is said. tool/voice/make_voices.py turns the script into recordings.
+// with each kind of value in its blanks; every line about an earlier game;
+// and every number in each form it is said. tool/voice/make_voices.py turns the script into recordings.
 import 'dart:io';
 import 'dart:math';
 import 'package:fake_async/fake_async.dart';
@@ -20,7 +20,9 @@ import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/dialogue/bot_catalog.dart';
+import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_repository.dart';
+import 'package:avalon_shadow_council/features/solo/memory/social_memory.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 import 'package:avalon_shadow_council/features/solo/voice_lines.dart';
@@ -81,6 +83,16 @@ void main() {
           // the one swapped out is never the one swapped in
           if (line.contains('我換成我') || line.contains('你自己換成你自己')) continue;
           add(line, 'catalog');
+        }
+      }
+    }
+
+    // every way a computer brings up an earlier game (the player is named
+    // by seat: the number is a piece of its own)
+    for (final kind in EpisodeKind.values) {
+      for (final when in [memoryWhen(0), memoryWhen(1)]) {
+        for (final line in memoryLines(kind, when, '1號')) {
+          add(line, 'memory');
         }
       }
     }
