@@ -18,6 +18,9 @@ part 'bot_voice_points.dart';
 /// what every player saw (quests, votes, statements); private knowledge only
 /// decides whom a bot would rather point at, never what it says it saw.
 class BotVoice {
+  /// Below this suspicion a good bot treats a player as cleared (and above
+  /// one minus it, as caught).
+  static const clearedBelow = .1;
   BotVoice(this.random, this.style, this.difficulty);
   final Random random;
   final BotStyle style;

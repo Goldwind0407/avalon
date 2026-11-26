@@ -160,8 +160,6 @@ extension BotVoicePoints on BotVoice {
         intent: 'explainTeam', stance: true, weight: 4, quests: cited.toList());
   }
 
-  /// Below this suspicion a good bot treats a player as cleared.
-  static const clearedBelow = .1;
 
   /// Everything this bot could say right now, best first is decided later.
   List<_Point> _points(BotObservation o, bool approve, Set<int> allies,
@@ -172,7 +170,7 @@ extension BotVoicePoints on BotVoice {
     bool mine(int s) =>
         s == me ||
         allies.contains(s) ||
-        (!o.evil && belief != null && belief[s] < clearedBelow);
+        (!o.evil && belief != null && belief[s] < BotVoice.clearedBelow);
     final others = [
       for (final s in team)
         if (s != me) s
@@ -524,7 +522,7 @@ extension BotVoicePoints on BotVoice {
         }
       }
     }
-    points.addAll(_ladyPoints(o, approve, allies));
+    points.addAll(_ladyPoints(o, approve, allies, belief));
     points.addAll(_claimPoints(o, approve, allies, belief));
     return points;
   }
@@ -547,7 +545,7 @@ extension BotVoicePoints on BotVoice {
       final who = _n(c.speaker), key = 'claim/${c.speaker}/$m';
       // a good player who has cleared the one named (his own Lady check,
       // the cards) does not take up the claim against him
-      final cleared = !o.evil && belief != null && belief[m] < clearedBelow;
+      final cleared = !o.evil && belief != null && belief[m] < BotVoice.clearedBelow;
       if (o.team.contains(m) && !approve && !cleared) {
         points.add(_Point(
             key,
@@ -647,7 +645,8 @@ extension BotVoicePoints on BotVoice {
 
   /// What the Lady of the Lake was said to show, as announced at the table.
   /// The holder may be lying, so it is quoted as their word, not as fact.
-  List<_Point> _ladyPoints(BotObservation o, bool approve, Set<int> allies) {
+  List<_Point> _ladyPoints(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     final me = o.seat;
     final points = <_Point>[];
     final claims = [
@@ -679,6 +678,14 @@ extension BotVoicePoints on BotVoice {
       }
       // an evil player never repeats a check that exposes an ally
       if (allies.contains(t) && c.claimedEvil!) continue;
+      // a good player who has cleared the one named does not repeat the
+      // accusation against him (the holder is lying, or a Lancelot moved)
+      if (c.claimedEvil! &&
+          !o.evil &&
+          belief != null &&
+          belief[t] < BotVoice.clearedBelow) {
+        continue;
+      }
       final onTeam = o.team.contains(t);
       if (c.claimedEvil! && onTeam && !approve) {
         points.add(_Point(

@@ -55,9 +55,14 @@ class BotDialoguePlanner {
         : null;
   }
 
+  /// [cleared] and [condemned]: seats this (good) speaker is all but sure
+  /// are good, or evil. He does not point at the first nor speak up for the
+  /// second, whatever line would otherwise fit.
   DiscussionStatement speak(
       BotObservation o, bool approve, double Function(List<int>) risk,
-      {int? chosenTarget}) {
+      {int? chosenTarget,
+      Set<int> cleared = const {},
+      Set<int> condemned = const {}}) {
     final role = BotDialogueRole.forPlayer(o.role, o.evil);
     // What others already said about this proposal: never repeat a line,
     // and prefer a different kind of remark.
@@ -111,6 +116,16 @@ class BotDialoguePlanner {
               ? rule.intent == BotSpeechIntent.accuse ||
                   ['G04', 'RME02', 'RLS02', 'ROB05'].contains(rule.id)
               : rule.intent == BotSpeechIntent.defendOther)) {
+        continue;
+      }
+      final aimed = context.target;
+      if (aimed != null &&
+          aimed != o.seat &&
+          ((cleared.contains(aimed) &&
+                  (rule.intent == BotSpeechIntent.accuse ||
+                      ['G04', 'RME02', 'RLS02', 'ROB05'].contains(rule.id))) ||
+              (condemned.contains(aimed) &&
+                  rule.intent == BotSpeechIntent.defendOther))) {
         continue;
       }
       // Private facts can only be expressed as claims with a matching public

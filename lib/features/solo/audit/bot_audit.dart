@@ -13,7 +13,7 @@ import '../game_review.dart';
 ///    to sink the quest;
 ///  * H2 a good leader puts such a team together;
 ///  * H3 a good player turns down the fifth proposal (evil wins outright);
-///  * H4 an evil player on a quest that would win the game plays Success;
+///  * H4 an evil player whose one Fail would win the game plays Success;
 ///  * H5 a good player speaks up for someone it can prove evil, or
 ///    accuses someone it can prove good;
 ///  * H6 a good player reports its Lady check the wrong way round;
@@ -24,12 +24,14 @@ import '../game_review.dart';
 ///  * S1 a good player backs a team with enough evil on it to sink it in
 ///    most deals that fit what it knows, where a team of that size with
 ///    itself on it would be clean in most;
-///  * S2 an evil player lets through the good side's third success.
+///  * S2 an evil player lets through the good side's third success;
+///  * S3 one of two Fails needed to win the game, held back.
 ///
 /// Merlin plays a servant on purpose: he is judged on what a servant in his
 /// seat could prove (his own Lady checks included). Novices' deliberate
-/// slips are left alone. Games with the Lancelots are skipped: their change
-/// of sides needs its own reasoning.
+/// slips are left alone. With the Lancelots, every side is the one played
+/// at that point of the game, and the deals include who the two Lancelots
+/// are (only games whose switch timeline was kept are judged).
 class BotAudit {
   BotAudit(this.review)
       : n = review.players.length,
@@ -37,7 +39,7 @@ class BotAudit {
   final GameReview review;
   final int n, evils;
 
-  bool get supported => review.expansions.lancelot == 0;
+  bool get supported => review.sidesKnown;
 
   List<AuditFinding> findings() {
     if (!supported) return const [];
@@ -50,7 +52,7 @@ class BotAudit {
       for (final round in quest.proposals) {
         final p = round.record;
         for (var s = 0; s < n; s++) {
-          if (roles[s].isEvil) continue;
+          if (review.evilIn(s, q)) continue;
           final reason = round.decisions[s]?.reason;
           if (reason == 'noviceSlip') continue;
           final view = DealView.of(review, s, q,
@@ -110,10 +112,17 @@ class BotAudit {
       if (result.excaliburTarget == null && result.fails < needed) {
         final lifeline = result.fails + 1 >= needed;
         for (final s in result.team) {
-          if (!roles[s].isEvil || quest.cards[s] != true || !lifeline) continue;
+          if (!review.evilIn(s, q) || quest.cards[s] != true || !lifeline) {
+            continue;
+          }
           if (failures == 2) {
-            out.add(AuditFinding('H4', s, AuditPlace(q, null),
-                '再一次失敗邪惡就贏，卻出了成功', null));
+            // provable only where his one Fail was enough: on a two-Fail
+            // quest he cannot be sure another ally plays the second
+            out.add(needed == 1
+                ? AuditFinding('H4', s, AuditPlace(q, null),
+                    '再一次失敗邪惡就贏，卻出了成功', null)
+                : AuditFinding('S3', s, AuditPlace(q, null),
+                    '要兩張失敗的任務，他一張失敗就能湊齊（邪惡就贏）卻出了成功', null));
           } else if (successes == 2) {
             out.add(AuditFinding('S2', s, AuditPlace(q, null),
                 '出成功讓正義拿下第三次成功', null));
@@ -140,22 +149,24 @@ class BotAudit {
   AuditFinding? _speech(DiscussionStatement s, int quest,
       {required AuditPlace where}) {
     final speaker = s.speaker, target = s.target;
-    if (target == null ||
-        target == speaker ||
-        s.quotedFrom != null ||
-        review.roles[speaker].isEvil) {
+    if (target == null || target == speaker || s.quotedFrom != null) {
       return null;
     }
-    // a Lady check reported the wrong way round
+    // A Lady check reported the wrong way round. What it showed is the side
+    // then (the latest check counts); only a player who was good when he
+    // made it must tell it as it was: a Lancelot who checked on the evil
+    // side may go on lying about it after switching.
+    final checks = review.ladyChecks.where(
+        (c) => c.holder == speaker && c.target == target && c.quest < quest);
     if (s.claimedEvil != null &&
-        review.ladyChecks.any((c) =>
-            c.holder == speaker && c.target == target && c.quest < quest) &&
-        s.claimedEvil != review.roles[target].isEvil) {
+        checks.isNotEmpty &&
+        !review.evilIn(speaker, checks.last.quest) &&
+        s.claimedEvil != review.evilIn(target, checks.last.quest)) {
       return AuditFinding('H6', speaker, where,
           '把湖中女神的結果說反了（${target + 1}號）：${s.text}', null);
     }
     final position = s.position;
-    if (position == null) return null;
+    if (position == null || review.evilIn(speaker, quest)) return null;
     final view = DealView.of(review, speaker, quest,
         publicOnly: review.roles[speaker] == Role.merlin);
     if (view == null) return null;
@@ -207,73 +218,117 @@ class AuditFinding {
 }
 
 /// Every way the evil seats could have been dealt that fits what one player
-/// knows for certain before a quest's proposals.
+/// knows for certain before a quest's proposals, as the sides stand then.
+/// With the Lancelots, a deal also says which evil seat is the evil
+/// Lancelot and which good seat the good one: sides switch between them.
 class DealView {
   DealView._(this.deals, this.n);
-  final List<int> deals; // bit masks of evil seats
+  final List<int> deals; // bit masks of the seats evil now
   final int n;
 
   /// What [seat] knows before the proposals of [quest] (1-based): its own
-  /// side, what its role showed it (unless [publicOnly]), the Fail cards of
+  /// card, what its role showed it (unless [publicOnly]), the Fail cards of
   /// earlier quests (sword flips aside; its own Fail taken out) and its own
   /// Lady checks. Null when nothing fits (the facts contradict).
   static DealView? of(GameReview r, int seat, int quest,
       {bool publicOnly = false}) {
     final roles = r.roles, n = roles.length;
     final evils = roles.where((x) => x.isEvil).length;
-    final must = <int, bool>{seat: roles[seat].isEvil};
-    int? exactlyOne; // Percival's pair: one of the two is Morgana
+    final lancelots = r.expansions.lancelot > 0;
+    bool switchedIn(int q) =>
+        lancelots && q >= 1 && q <= r.switchedDuring.length
+            ? r.switchedDuring[q - 1]
+            : false;
+    final role = roles[seat];
+    // what the deal must hold, about the sides as dealt
+    final dealt = <int, bool>{seat: role.isEvil};
+    int? evilOne = role == Role.lancelotEvil ? seat : null;
+    int? goodOne = role == Role.lancelotGood ? seat : null;
+    // seats known not to be a Lancelot
+    final plain = <int>{if (!role.isLancelot) seat};
     List<int>? pair;
     if (!publicOnly) {
       final seen = visibleSeats(roles, seat);
-      final role = roles[seat];
       if (role == Role.merlin ||
           (role.isEvil && role != Role.oberon && role != Role.lancelotEvil)) {
         for (final v in seen) {
-          must[v] = true;
+          dealt[v] = true;
+        }
+        evilOne ??= knownLancelot(roles, seat);
+        if (role.isEvil && evilOne != null) {
+          // the allies he sees are no Lancelot, but for the one he knows
+          plain.addAll(seen.where((v) => v != evilOne));
         }
       } else if (role == Role.percival) {
+        plain.addAll(seen);
         if (seen.length == 1) {
-          must[seen.single] = false;
+          dealt[seen.single] = false;
         } else if (seen.length == 2) {
           pair = seen;
-          exactlyOne = 1;
         }
       }
     }
-    for (final c in r.ladyChecks) {
-      if (c.holder == seat && c.quest < quest) {
-        must[c.target] = roles[c.target].isEvil;
-      }
-    }
-    final quests = <(List<int>, int)>[];
+    // (seat, quest whose sides it shows, evil then)
+    final sides = [
+      for (final c in r.ladyChecks)
+        if (c.holder == seat && c.quest < quest)
+          (c.target, c.quest, r.evilIn(c.target, c.quest))
+    ];
+    // (other members, Fails they played, sides switched)
+    final quests = <(List<int>, int, bool)>[];
     for (final done in r.quests) {
       final result = done.result;
       if (done.number >= quest || result == null) continue;
       if (result.excaliburTarget != null) continue;
       var fails = result.fails;
       if (done.cards[seat] == false) fails--;
-      if (fails > 0) {
-        quests.add(([
-          for (final m in result.team)
-            if (m != seat) m
-        ], fails));
-      }
+      quests.add(([
+        for (final m in result.team)
+          if (m != seat) m
+      ], fails, switchedIn(done.number)));
     }
+    final now = switchedIn(quest);
     final deals = <int>[];
+    void judge(int mask, int evilLancelot, int goodLancelot) {
+      int sideMask(bool switched) => !switched || evilLancelot < 0
+          ? mask
+          : (mask & ~(1 << evilLancelot)) | (1 << goodLancelot);
+      for (final (target, q, evil) in sides) {
+        if ((sideMask(switchedIn(q)) >> target & 1 == 1) != evil) return;
+      }
+      for (final (team, fails, switched) in quests) {
+        final evilThen = sideMask(switched);
+        if (team.where((s) => evilThen >> s & 1 == 1).length < fails) return;
+        // variant 2: a Lancelot on the evil side can only play Fail
+        if (r.expansions.lancelot == 2 && evilLancelot >= 0) {
+          final forced = switched ? goodLancelot : evilLancelot;
+          if (team.contains(forced) && fails < 1) return;
+        }
+      }
+      deals.add(sideMask(now));
+    }
+
     void walk(int from, int mask, int count) {
       if (count == evils) {
-        for (final e in must.entries) {
+        for (final e in dealt.entries) {
           if ((mask >> e.key & 1 == 1) != e.value) return;
         }
-        if (pair != null &&
-            pair.where((s) => mask >> s & 1 == 1).length != exactlyOne) {
+        if (pair != null && pair.where((s) => mask >> s & 1 == 1).length != 1) {
           return;
         }
-        for (final (team, fails) in quests) {
-          if (team.where((s) => mask >> s & 1 == 1).length < fails) return;
+        if (!lancelots) {
+          judge(mask, -1, -1);
+          return;
         }
-        deals.add(mask);
+        for (var e = 0; e < n; e++) {
+          if (mask >> e & 1 == 0 || plain.contains(e)) continue;
+          if (evilOne != null && e != evilOne) continue;
+          for (var g = 0; g < n; g++) {
+            if (mask >> g & 1 == 1 || plain.contains(g)) continue;
+            if (goodOne != null && g != goodOne) continue;
+            judge(mask, e, g);
+          }
+        }
         return;
       }
       for (var s = from; s <= n - (evils - count); s++) {

@@ -158,6 +158,30 @@ void main() {
     });
   });
 
+  // The guard: the same 200 all-computer games every run, and no provable
+  // mistake in them (Merlin's talk aside: he speaks against the good on
+  // purpose, as cover). A change to the bots that breaks their logic fails
+  // here, with the moves listed.
+  test('the computers make no provable mistake', () {
+    final r = Random(2026);
+    final found = <String>[];
+    for (var g = 0; g < 200; g++) {
+      final setup = randomSetup(r);
+      final seed = r.nextInt(1 << 30);
+      play(setup, seed, true, (s) {
+        final review = s.review!;
+        for (final f in BotAudit(review).findings()) {
+          if (!f.proven || !guarded.contains(f.rule)) continue;
+          if (f.rule == 'H5' && review.roles[f.seat] == Role.merlin) continue;
+          found.add('第$g局（${_label(setup)}，種子$seed）${f.where} '
+              '${f.seat + 1}號${review.roles[f.seat].label} ${f.rule}：${f.what}'
+              '${f.reason == null ? '' : '［${f.reason}］'}');
+        }
+      });
+    }
+    expect(found, isEmpty, reason: found.join('\n'));
+  }, timeout: const Timeout(Duration(minutes: 10)));
+
   // AUDIT_GAMES=1000 [AUDIT_SEED=1] [AUDIT_OUT=build/llm/audit.txt]
   //   flutter test test/bot_audit_test.dart
   // Plays all-computer games (with talk) and lists what the referee found.
@@ -217,3 +241,6 @@ void main() {
 }
 
 String _label(Setup s) => '${s.count}人 ${s.label}';
+
+/// The provable mistakes the bots are held to (see [BotAudit]).
+const guarded = {'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'H7', 'H8'};

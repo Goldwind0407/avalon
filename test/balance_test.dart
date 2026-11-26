@@ -363,6 +363,11 @@ void main() {
     if (Platform.environment['BALANCE_HARDLINE'] == 'off') {
       BotBrain.hardlineChance = 0;
     }
+    // BALANCE_LINKED=off: team risk seat by seat, as before deals were
+    // weighed together
+    if (Platform.environment['BALANCE_LINKED'] == 'off') {
+      BotBrain.linkedRisk = false;
+    }
     // BALANCE_CLAIMS=off: nobody claims a role
     if (Platform.environment['BALANCE_CLAIMS'] == 'off') {
       BotVoice.percivalClaimChance =

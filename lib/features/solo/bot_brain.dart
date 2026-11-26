@@ -343,6 +343,12 @@ class BotBrain {
         p[target] += sure * ((evil ? 1.0 : 0.0) - p[target]);
       }
     }
+    // What the cards and this seat's own sight prove stands, whatever was
+    // said: a claim (taken up by Percival above) never overturns a proof.
+    for (final entry in {...certain, ...privateBeliefs}.entries) {
+      p[entry.key] = entry.value;
+    }
+    p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
   }
 
@@ -854,6 +860,121 @@ class BotBrain {
 
   double _risk(BotObservation o, List<double> p, List<int> team,
       {int? flipped}) {
+    if (linkedRisk && difficulty.linkedRisk && o.expansions.lancelot == 0) {
+      final deals = _dealsFor(o, p);
+      if (deals != null) return _linkedRisk(o, deals, team, flipped);
+    }
+    return _riskApart(o, p, team, flipped: flipped);
+  }
+
+  /// Switched off only to measure it (BALANCE_LINKED=off).
+  static bool linkedRisk = true;
+
+  /// Fail chance of a single evil card holder on a team.
+  static const _evilFails = .85;
+
+  /// The deals of the evil seats that fit what [p] holds certain and the
+  /// Fail cards, each weighed by how likely [p] makes its seats look (as in
+  /// [_reconcile]). Null when none fits. Remembered for the last [o] and
+  /// [p]: a leader weighs hundreds of teams against the same view.
+  List<(int, double)>? _dealsFor(BotObservation o, List<double> p) {
+    final view = _dealsView;
+    if (identical(o, _dealsObservation) &&
+        view != null &&
+        view.length == p.length &&
+        [for (var i = 0; i < p.length; i++) view[i] == p[i]].every((x) => x)) {
+      return _deals;
+    }
+    final n = o.count, evils = Room.evilCount(n);
+    final quests = <(int, int)>[]; // (other members as bits, Fails)
+    for (var q = 0; q < o.history.length; q++) {
+      final fails = _unexplained(o, q);
+      if (fails == null || fails == 0 || o.history[q].excaliburTarget != null) {
+        continue;
+      }
+      var members = 0;
+      for (final s in o.history[q].team) {
+        if (s != o.seat) members |= 1 << s;
+      }
+      quests.add((members, fails));
+    }
+    // Percival's two: one Merlin, one Morgana
+    final pair = o.role == Role.percival && !o.evil && o.visible.length == 2
+        ? (1 << o.visible[0]) | (1 << o.visible[1])
+        : 0;
+    double clip(double v) => v.clamp(.01, .99);
+    final deals = <(int, double)>[];
+    void walk(int from, int mask, int count) {
+      if (count == evils) {
+        if (pair != 0 && _bits(mask & pair) != 1) return;
+        for (final (members, fails) in quests) {
+          if (_bits(mask & members) < fails) return;
+        }
+        var w = 1.0;
+        for (var s = 0; s < n; s++) {
+          final evil = mask >> s & 1 == 1;
+          if (p[s] == 0 || p[s] == 1) {
+            if ((p[s] == 1) != evil) return;
+          } else if (s != o.seat) {
+            w *= evil ? clip(p[s]) : 1 - clip(p[s]);
+          }
+        }
+        deals.add((mask, w));
+        return;
+      }
+      for (var s = from; s <= n - (evils - count); s++) {
+        walk(s + 1, mask | 1 << s, count + 1);
+      }
+    }
+
+    walk(0, 0, 0);
+    _dealsObservation = o;
+    _dealsView = List.of(p);
+    return _deals = deals.isEmpty ? null : deals;
+  }
+
+  BotObservation? _dealsObservation;
+  List<double>? _dealsView;
+  List<(int, double)>? _deals;
+
+  static int _bits(int v) {
+    var c = 0;
+    for (; v != 0; v &= v - 1) {
+      c++;
+    }
+    return c;
+  }
+
+  /// [_riskApart] over the [deals]: in each deal the evil members are
+  /// known, each plays Fail at [_evilFails] (this seat by its own card).
+  double _linkedRisk(BotObservation o, List<(int, double)> deals,
+      List<int> team, int? flipped) {
+    var total = 0.0, failing = 0.0;
+    for (final (mask, w) in deals) {
+      final counts = List.filled(team.length + 1, 0.0)..[0] = 1;
+      var size = 0;
+      for (final seat in team) {
+        var fail = mask >> seat & 1 == 1 ? _evilFails : 0.0;
+        if (seat == o.seat && o.mustFail) fail = 1;
+        if (seat == o.seat && o.ownCards.containsKey(o.quest)) {
+          fail = o.ownCards[o.quest]! ? 0 : 1;
+        }
+        if (seat == flipped) fail = 1 - fail;
+        for (var k = ++size; k >= 0; k--) {
+          counts[k] =
+              counts[k] * (1 - fail) + (k > 0 ? counts[k - 1] * fail : 0);
+        }
+      }
+      total += w;
+      failing += w * counts.skip(o.failsRequired).fold(0.0, (a, b) => a + b);
+    }
+    return total == 0 ? 0 : failing / total;
+  }
+
+  /// Seat by seat, each a separate chance (novices; Lancelot games, whose
+  /// sides move).
+  double _riskApart(BotObservation o, List<double> p, List<int> team,
+      {int? flipped}) {
     final counts = List.filled(team.length + 1, 0.0)..[0] = 1;
     var size = 0;
     // Percival's two are one Merlin and one Morgana: both on a team is one
@@ -873,7 +994,7 @@ class BotBrain {
     }
     for (final seat in team) {
       if (pair != null && pair.contains(seat)) continue;
-      var fail = p[seat] * .85;
+      var fail = p[seat] * _evilFails;
       if (seat == o.seat && o.mustFail) fail = 1;
       if (seat == o.seat && o.ownCards.containsKey(o.quest)) {
         fail = o.ownCards[o.quest]! ? 0 : 1;
@@ -975,6 +1096,15 @@ class BotBrain {
           team,
           -2.0 * team.where(accused.contains).length +
               (_percivalPair(o, team) ? -2.0 : 0) +
+              // A good leader never sends players he knows to be evil, as
+              // many as can sink the quest: no worry about getting a team
+              // past the table (blame, a team turned down before) is worth
+              // a quest lost for certain.
+              (!o.evil &&
+                      team.where((s) => s != o.seat && p[s] >= 1).length >=
+                          o.failsRequired
+                  ? -5.0
+                  : 0) +
               (o.evil && !pose ? 1 : -1) *
                   // one more failed quest loses the game: for a good leader
                   // a team that may fail weighs more than any other concern
@@ -1768,7 +1898,19 @@ class BotBrain {
         return cited;
       }
     }
-    final s = dialogue.speak(o, approve, (team) => teamRisk(o, team));
+    // what this good speaker is all but sure of (see BotVoice's points)
+    final sure = o.evil ? null : spoken;
+    final s = dialogue.speak(o, approve, (team) => teamRisk(o, team),
+        cleared: {
+          if (sure != null)
+            for (var i = 0; i < o.count; i++)
+              if (sure[i] < BotVoice.clearedBelow) i
+        },
+        condemned: {
+          if (sure != null)
+            for (var i = 0; i < o.count; i++)
+              if (sure[i] > 1 - BotVoice.clearedBelow) i
+        });
     lastSpeechSource = SpeechSource.catalog(dialogue.lastTrace?.ruleId);
     final text = voice.flavor(s.text);
     return text == s.text ? s : s.copyWithText(text);
