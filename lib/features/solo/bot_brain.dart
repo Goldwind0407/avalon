@@ -856,7 +856,23 @@ class BotBrain {
       {int? flipped}) {
     final counts = List.filled(team.length + 1, 0.0)..[0] = 1;
     var size = 0;
+    // Percival's two are one Merlin and one Morgana: both on a team is one
+    // evil player for certain, not two separate chances (taken apart, two
+    // halves made such a team look three times in four dirty, and Percival
+    // backed and led it). The pair counts as a single seat.
+    final pair = o.role == Role.percival &&
+            o.visible.length == 2 &&
+            o.visible.every(team.contains)
+        ? o.visible
+        : null;
+    if (pair != null) {
+      final fail = min(1.0, p[pair[0]] + p[pair[1]]) * .85;
+      size++;
+      counts[1] = fail;
+      counts[0] = 1 - fail;
+    }
     for (final seat in team) {
+      if (pair != null && pair.contains(seat)) continue;
       var fail = p[seat] * .85;
       if (seat == o.seat && o.mustFail) fail = 1;
       if (seat == o.seat && o.ownCards.containsKey(o.quest)) {
@@ -958,6 +974,7 @@ class BotBrain {
         (
           team,
           -2.0 * team.where(accused.contains).length +
+              (_percivalPair(o, team) ? -2.0 : 0) +
               (o.evil && !pose ? 1 : -1) *
                   // one more failed quest loses the game: for a good leader
                   // a team that may fail weighs more than any other concern
@@ -1265,6 +1282,7 @@ class BotBrain {
 
   bool _goodVote(BotObservation o, List<double> p, {int? as}) {
     final seat = as ?? o.seat;
+    if (as == null && _percivalPair(o, o.team)) return false;
     final risk = _risk(o, p, o.team);
     // Do not wave through a player this seat clearly doubts.
     if (o.failsRequired == 1 &&
@@ -1295,6 +1313,18 @@ class BotBrain {
     }
     return risk <= best + margin + style.trusting;
   }
+
+  /// Percival (playing for good) facing a team with both of the two he saw:
+  /// one of them is Morgana, so it carries an evil player for certain. Not
+  /// to be sent or backed where one Fail sinks the quest, while proposals
+  /// are left to spare (after three refusals the fourth team had better go).
+  bool _percivalPair(BotObservation o, List<int> team) =>
+      o.role == Role.percival &&
+      !o.evil &&
+      o.failsRequired == 1 &&
+      o.rejections < 3 &&
+      o.visible.length == 2 &&
+      o.visible.every(team.contains);
 
   /// Seats this (evil) player knows are on their side right now: the opening
   /// view while it still holds, plus their own Lady and sword findings.

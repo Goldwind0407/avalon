@@ -545,7 +545,10 @@ extension BotVoicePoints on BotVoice {
         return points;
       }
       final who = _n(c.speaker), key = 'claim/${c.speaker}/$m';
-      if (o.team.contains(m) && !approve) {
+      // a good player who has cleared the one named (his own Lady check,
+      // the cards) does not take up the claim against him
+      final cleared = !o.evil && belief != null && belief[m] < clearedBelow;
+      if (o.team.contains(m) && !approve && !cleared) {
         points.add(_Point(
             key,
             _pick([
