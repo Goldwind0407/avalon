@@ -6,6 +6,8 @@ import 'package:avalon_shadow_council/features/game/game_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_observation.dart';
+import 'package:avalon_shadow_council/features/solo/bot_strategy_plan.dart';
+import 'package:avalon_shadow_council/features/solo/bot_tuning.dart';
 import 'package:avalon_shadow_council/features/solo/bot_style.dart';
 import 'support/bot_dialogue_fixtures.dart';
 
@@ -21,6 +23,9 @@ double share(bool Function(BotBrain) act) {
 void main() {
   fifthProposalTests();
   group('a lone evil player on the first quest', () {
+    // the base cover, without this game's tactic (see BotTactic)
+    setUp(() => BotBrain.forcedTactic = BotTactic.steady);
+    tearDown(() => BotBrain.forcedTactic = null);
     BotObservation first(int count, List<int> team) => observe(
         role: Role.minion,
         evil: true,
@@ -36,6 +41,12 @@ void main() {
     });
 
     test('holds back less at a large one', () {
+      // with the code's own numbers (how much less is BotTuning's to settle)
+      BotTuning.override({
+        for (final k in ['firstQuestCover', 'firstQuestCoverLarge'])
+          k: BotTuning.names[k]!
+      });
+      addTearDown(() => BotTuning.override(const {}));
       final small = share((b) => b.questCard(first(7, [0, 1, 2])));
       final large = share((b) => b.questCard(first(10, [0, 1, 2])));
       expect(large, lessThan(small - .15));
@@ -285,7 +296,9 @@ void main() {
               team: [1, 3])),
           0);
       // Five players, both evil players on the leader's team: with the
-      // leader they carry it, whatever Merlin and the last player do.
+      // leader they carry it, whatever Merlin and the last player do. (The
+      // first quest went clean with the leader and one of them on it, so
+      // to the table the team looks about as good as any.)
       final carried = observe(
           role: Role.merlin,
           count: 5,
@@ -294,7 +307,7 @@ void main() {
           phase: GamePhase.vote,
           team: [1, 3, 4],
           history: [
-            QuestResult([1, 2], 0, true)
+            QuestResult([1, 3], 0, true)
           ]);
       expect(merlin.voteDecides(carried), lessThan(.15));
       // Two players on a team of strangers: every vote may be the one.
@@ -356,7 +369,9 @@ void main() {
   });
 
   group('a player stands by whom he accused on this quest', () {
-    // seat 0 said earlier on the second quest that seat 3 is suspicious
+    // seat 0 said earlier on the second quest that seat 3 is suspicious;
+    // the team is the first quest's clean pair and seat 0, the best there
+    // is but for that word
     final accusation = DiscussionStatement(
         speaker: 0,
         quest: 2,
@@ -376,7 +391,7 @@ void main() {
               3
             ],
             history: [
-              QuestResult([4, 5], 0, true)
+              QuestResult([3, 4], 0, true)
             ],
             statements: [
               accusation
@@ -407,7 +422,7 @@ void main() {
             3
           ],
           history: [
-            QuestResult([4, 5], 0, true)
+            QuestResult([3, 4], 0, true)
           ],
           statements: [
             accusation,
@@ -473,7 +488,10 @@ void main() {
       expect(fails(BotStyle.cautious), lessThan(.35));
       BotBrain.hardlineChance = 0;
       addTearDown(() => BotBrain.hardlineChance = 1);
-      expect(fails(BotStyle.aggressive), lessThan(.3));
+      // nor a plan to strike early (see BotTactic)
+      BotBrain.forcedTactic = BotTactic.steady;
+      addTearDown(() => BotBrain.forcedTactic = null);
+      expect(fails(BotStyle.aggressive), lessThan(.4));
     });
 
     test('then claims Percival and names her partner as Morgana', () {

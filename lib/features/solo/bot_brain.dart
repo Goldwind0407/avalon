@@ -4,9 +4,12 @@ import '../game/discussion_model.dart';
 import '../lobby/room_model.dart';
 import 'bot_difficulty.dart';
 import 'bot_observation.dart';
+import 'bot_strategy_plan.dart';
 import 'bot_style.dart';
+import 'bot_tuning.dart';
 import 'bot_voice.dart';
 import 'memory/player_model.dart';
+import 'persona/persona_lines.dart';
 import 'bot_vote_plan.dart';
 import 'dialogue/bot_dialogue_planner.dart';
 
@@ -16,9 +19,15 @@ class BotBrain {
   BotBrain(this.random,
       {Random? dialogueRandom,
       this.style = BotStyle.balanced,
-      this.difficulty = BotDifficulty.normal})
-      : dialogue = BotDialoguePlanner(dialogueRandom ?? Random(0));
+      this.difficulty = BotDifficulty.normal,
+      String? persona})
+      : persona = PersonaLines.of(persona),
+        dialogue = BotDialoguePlanner(dialogueRandom ?? Random(0),
+            persona: PersonaLines.of(persona));
   final Random random;
+
+  /// The regular's own wordings (only how things are said).
+  final PersonaLines? persona;
   final BotStyle style;
   final BotDifficulty difficulty;
 
@@ -190,8 +199,9 @@ class BotBrain {
       final result = o.history[q];
       final switchedThen =
           o.loyalty.take(q + 1).where((v) => v == true).length.isOdd;
-      final ageWeight =
-          o.expansions.lancelot > 0 && switchedThen != o.switched ? .4 : 1.0;
+      final ageWeight = o.expansions.lancelot > 0 && switchedThen != o.switched
+          ? _tune('switchAge', .4, o)
+          : 1.0;
       // A public flip may have manufactured a Fail. Never attribute it as
       // proof of an evil player, including on successful two-Fail quests.
       var unexplained =
@@ -256,9 +266,10 @@ class BotBrain {
       if (!difficulty.insight) continue;
       final agreement = (claim.claimedEvil! ? 1 : -1) *
           (credibility[claim.target!] - Room.evilCount(o.count) / o.count);
-      p[claim.speaker] -= (agreement * ladyCorroboration)
-              .clamp(-ladyCorroborationCap, ladyCorroborationCap) *
-          difficulty.claimTrust;
+      p[claim.speaker] -=
+          (agreement * _tune('ladyCorroboration', ladyCorroboration, o))
+                  .clamp(-ladyCorroborationCap, ladyCorroborationCap) *
+              difficulty.claimTrust;
     }
     // Who doubts or vouches for whom: weak, weighted by how far this seat
     // trusts the speaker. Framing a good player works on the gullible.
@@ -351,6 +362,16 @@ class BotBrain {
     p[o.seat] = o.evil ? 1 : 0;
     return [for (final value in p) value.clamp(0.0, 1.0)];
   }
+
+  /// A balance number for this table (see [BotTuning]).
+  static double _tune(String name, double fallback, BotObservation o) =>
+      BotTuning.of(name, fallback, o.count,
+          lancelot: o.expansions.lancelot > 0);
+
+  /// How often a lone evil player plays Success on the first quest.
+  static double _firstQuestCover(BotObservation o) => o.count <= 7
+      ? _tune('firstQuestCover', firstQuestCover, o)
+      : _tune('firstQuestCoverLarge', firstQuestCoverLarge, o);
 
   /// The latest "I am Percival" of every other player this game.
   Map<int, DiscussionStatement> _percivalClaims(BotObservation o) => {
@@ -564,7 +585,8 @@ class BotBrain {
     if (difficulty.voteEvidence == 0) return;
     // An evil player who reads votes at all reads them as the table does:
     // he needs to know who it doubts. The level's weight is for the good.
-    final weight = o.evil ? 1.0 : difficulty.voteEvidence;
+    final weight =
+        o.evil ? 1.0 : difficulty.voteEvidence * _tune('voteEvidence', 1, o);
     final odds = List.filled(o.count, 0.0); // log odds of being evil
     for (final proposal in o.proposals) {
       if (proposal.attempt >= 5) continue;
@@ -634,9 +656,7 @@ class BotBrain {
         ],
         fails,
         // evil players hide more often on the first quest
-        q == 0
-            ? 1 - (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
-            : .8
+        q == 0 ? 1 - _firstQuestCover(o) : .8
       ));
     }
     // Percival: exactly one of his two candidates is Morgana.
@@ -719,9 +739,7 @@ class BotBrain {
             if (s != me) s
         ],
         _unexplained(o, q, anyState: true)!,
-        q == 0
-            ? 1 - (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
-            : .8,
+        q == 0 ? 1 - _firstQuestCover(o) : .8,
         _switchedAt(o, q),
         n >= 7 && q == 3 ? 2 : 1
       ));
@@ -776,7 +794,8 @@ class BotBrain {
           // Too few of them to fail a two-Fail quest: a Fail would only
           // show without sinking it, so evil mostly holds back there, and
           // a clean result says little about who was on it.
-          likelihood *= pow(1 - (k < needed ? lonelyFail : f), k);
+          likelihood *=
+              pow(1 - (k < needed ? _tune('lonelyFail', lonelyFail, o) : f), k);
         }
       }
       fits++;
@@ -1037,7 +1056,8 @@ class BotBrain {
                 .85,
                 style.disguise *
                     difficulty.rolePlay *
-                    (safe ? merlinLeadCoverSafe : merlinLeadCover));
+                    (safe ? merlinLeadCoverSafe : merlinLeadCover) *
+                    _merlinCoverScale(o));
     final allies = o.evil ? _knownAllies(o) : const <int>{};
     // Morgana poses as Merlin: early on she may lead a team that looks
     // spotless, herself and players nobody doubts, and keep her allies off.
@@ -1095,7 +1115,8 @@ class BotBrain {
         (
           team,
           -2.0 * team.where(accused.contains).length +
-              (_percivalPair(o, team) ? -2.0 : 0) +
+              // one of the two is Morgana: as sure a loss as known evil
+              (_percivalPair(o, team) ? -5.0 : 0) +
               // A good leader never sends players he knows to be evil, as
               // many as can sink the quest: no worry about getting a team
               // past the table (blame, a team turned down before) is worth
@@ -1108,7 +1129,9 @@ class BotBrain {
               (o.evil && !pose ? 1 : -1) *
                   // one more failed quest loses the game: for a good leader
                   // a team that may fail weighs more than any other concern
-                  (!o.evil && o.failures == 2 ? lastChanceRisk : 1) *
+                  (!o.evil && o.failures == 2
+                      ? _tune('lastChanceRisk', lastChanceRisk, o)
+                      : 1) *
                   _risk(o, p, team) +
               (team.contains(o.seat) ? selfBias : 0) +
               // An evil leader brings just enough saboteurs: every extra
@@ -1117,7 +1140,7 @@ class BotBrain {
                   max(0, team.where(allies.contains).length - o.failsRequired) +
               (looks == null
                   ? 0
-                  : -evilLeaderCover *
+                  : -_tune('evilLeaderCover', evilLeaderCover, o) *
                       difficulty.rolePlay.clamp(0, 1.2) *
                       _risk(o, looks, team)) +
               random.nextDouble() * style.noise * difficulty.noise +
@@ -1128,11 +1151,111 @@ class BotBrain {
                       team.where(o.visible.contains).length >= o.failsRequired
                   ? 1
                   : 0) -
-              tableDoubtWeight * team.fold(0.0, (sum, s) => sum + tableDoubt[s])
+              _tune('tableDoubtWeight', tableDoubtWeight, o) *
+                  team.fold(0.0, (sum, s) => sum + tableDoubt[s])
         )
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return scored.first.$1;
   }
+
+  /// How readily an evil player sets out to lie low this game, or to strike
+  /// early; and Merlin to stay hidden, or to steer openly (by style; the
+  /// rest play [BotTactic.steady]).
+  static const _lieLowByStyle = {
+    BotStyle.balanced: .4,
+    BotStyle.cautious: .6,
+    BotStyle.impulsive: .25,
+    BotStyle.follower: .4,
+    BotStyle.logical: .45,
+    BotStyle.actor: .55,
+    BotStyle.aggressive: .2,
+  };
+  static const _earlyByStyle = {
+    BotStyle.balanced: .15,
+    BotStyle.cautious: .05,
+    BotStyle.impulsive: .3,
+    BotStyle.follower: .1,
+    BotStyle.logical: .1,
+    BotStyle.actor: .05,
+    BotStyle.aggressive: .4,
+  };
+  static const _hiddenByStyle = {
+    BotStyle.balanced: .35,
+    BotStyle.cautious: .5,
+    BotStyle.impulsive: .2,
+    BotStyle.follower: .35,
+    BotStyle.logical: .3,
+    BotStyle.actor: .55,
+    BotStyle.aggressive: .15,
+  };
+  static const _guideByStyle = {
+    BotStyle.balanced: .2,
+    BotStyle.cautious: .1,
+    BotStyle.impulsive: .35,
+    BotStyle.follower: .15,
+    BotStyle.logical: .25,
+    BotStyle.actor: .05,
+    BotStyle.aggressive: .45,
+  };
+
+  /// Tests: every seat plays this tactic (null: chosen by style).
+  static BotTactic? forcedTactic;
+  BotTactic? _tactic;
+  int? _tacticGeneration;
+  late final int _tacticSeed = random.nextInt(1 << 30);
+
+  /// How this seat means to play this game, chosen once (see [BotTactic]).
+  BotTactic tactic(BotObservation o) {
+    if (_tacticGeneration == o.generation) return _tactic!;
+    _tacticGeneration = o.generation;
+    var chosen = BotTactic.steady;
+    final evil = o.evil, merlin = o.role == Role.merlin;
+    if (forcedTactic != null) {
+      chosen = forcedTactic!;
+    } else if (difficulty.rolePlay > 0 && (evil || merlin)) {
+      final roll = Random(_tacticSeed + o.generation).nextDouble();
+      final (first, second) = evil
+          ? (
+              _lieLowByStyle[style]! * _tune('lieLowShare', 1, o),
+              _earlyByStyle[style]! * _tune('earlyShare', 1, o)
+            )
+          : (
+              _hiddenByStyle[style]! * _tune('hiddenShare', 1, o),
+              _guideByStyle[style]! * _tune('guideShare', 1, o)
+            );
+      if (roll < min(.95, first)) {
+        chosen = evil ? BotTactic.lieLow : BotTactic.hidden;
+      } else if (roll < min(.95, first + second)) {
+        chosen = evil ? BotTactic.early : BotTactic.guide;
+      }
+    }
+    _tactic = chosen;
+    // a hidden Merlin says less about people, a steering one says more
+    voice.boldness = switch (chosen) {
+      BotTactic.hidden => .7,
+      BotTactic.guide => 1.25,
+      _ => 1.0,
+    };
+    return chosen;
+  }
+
+  /// What this seat set out to do this game, in words, for the end of the
+  /// game (null: nothing in particular).
+  String? get planLabel {
+    final parts = [
+      if (_tactic?.label case final label?) label,
+      if (_hardline == true) '硬推',
+      if (voice.bussing) '倒鉤',
+    ];
+    return parts.isEmpty ? null : parts.join('、');
+  }
+
+  /// How Merlin's tactic scales his servant-style cover.
+  double _merlinCoverScale(BotObservation o) => switch (tactic(o)) {
+        BotTactic.hidden => _tune('hiddenCover', 1.5, o),
+        BotTactic.guide => _tune('guideCover', .5, o),
+        _ => 1.0,
+      };
 
   /// How readily Morgana plays the hard push, by style (beginners never):
   /// fail the first quest on a small team, then claim Percival at once and
@@ -1174,8 +1297,10 @@ class BotBrain {
     }
     if (_hardlineGeneration != o.generation) {
       _hardlineGeneration = o.generation;
-      _hardline = random.nextDouble() <
-          (_hardlineByStyle[style] ?? .2) * hardlineChance;
+      // not one who means to lie low
+      _hardline = tactic(o) != BotTactic.lieLow &&
+          random.nextDouble() <
+              (_hardlineByStyle[style] ?? .2) * hardlineChance;
       voice.hardline = _hardline!;
     }
     return _hardline!;
@@ -1231,9 +1356,10 @@ class BotBrain {
         if (_goodVote(o, view)) return decide(true, 'sabotageOpportunity');
         final push = o.failures == 2
             ? evilPushDecisive
-            : o.team.contains(o.seat)
-                ? evilPushOwnTeam
-                : evilPush[min(o.rejections, evilPush.length - 1)];
+            : _tune('evilPush', 1, o) *
+                (o.team.contains(o.seat)
+                    ? evilPushOwnTeam
+                    : evilPush[min(o.rejections, evilPush.length - 1)]);
         // Hold back less by temperament, never more than the level allows.
         final nerve = (push / (style.blend * difficulty.blend).clamp(.6, 1.4))
             .clamp(0.0, 1.0);
@@ -1276,7 +1402,10 @@ class BotBrain {
     }
     // Merlin who always votes by what he sees is found by the Assassin, so
     // he often votes as a servant who knows nothing would.
-    final disguise = style.disguise * difficulty.rolePlay * merlinCover;
+    final disguise = style.disguise *
+        difficulty.rolePlay *
+        _tune('merlinCover', merlinCover, o) *
+        (o.role == Role.merlin ? _merlinCoverScale(o) : 1);
     if (o.role == Role.merlin && (disguise > 0 || o.history.isEmpty)) {
       final public = suspicion(o, asServant: true);
       final cover = _goodVote(o, public);
@@ -1416,7 +1545,8 @@ class BotBrain {
     final risk = _risk(o, p, o.team);
     // Do not wave through a player this seat clearly doubts.
     if (o.failsRequired == 1 &&
-        o.team.any((s) => s != seat && p[s] >= difficulty.doubt)) {
+        o.team.any((s) =>
+            s != seat && p[s] >= difficulty.doubt + _tune('doubt', 0, o))) {
       return false;
     }
     // "Is this about as safe as the team I would send?" rather than a fixed
@@ -1497,7 +1627,16 @@ class BotBrain {
     if (allies.length >= max(2, o.failsRequired)) {
       // A shared seat-order convention needs no secret communication. Every
       // designated saboteur commits; surplus allies conceal themselves.
-      return !allies.take(o.failsRequired).contains(o.seat);
+      final designated = allies.take(o.failsRequired).contains(o.seat);
+      // ...unless the one whose turn it is lies low on the first quest
+      if (designated &&
+          o.quest == 1 &&
+          o.failsRequired == 1 &&
+          tactic(o) == BotTactic.lieLow &&
+          random.nextDouble() < _tune('lieLowPair', .8, o)) {
+        return true;
+      }
+      return !designated;
     }
     if (o.failsRequired == 2) {
       // One Fail alone changes nothing and gives this seat away. Only play
@@ -1518,10 +1657,16 @@ class BotBrain {
     // a clean first quest buys trust for the rest of the game, and a Fail
     // on a team of two or three points straight at him. At large tables
     // there is more cover and less to gain from waiting.
-    var conceal = (o.quest == 1
-            ? (o.count <= 7 ? firstQuestCover : firstQuestCoverLarge)
-            : .16) +
-        style.conceal;
+    var conceal =
+        (o.quest == 1 ? _firstQuestCover(o) : _tune('questConceal', .16, o)) +
+            style.conceal;
+    // this game's plan: lie low on the first quests, or strike at once
+    conceal += switch (tactic(o)) {
+      BotTactic.lieLow when o.quest == 1 => _tune('lieLowQ1', .3, o),
+      BotTactic.lieLow when o.quest == 2 => _tune('lieLowQ2', .15, o),
+      BotTactic.early when o.quest <= 2 => -_tune('earlyCut', .35, o),
+      _ => 0.0,
+    };
     if (o.role == Role.morgana && o.quest <= 2) {
       conceal += .15 * difficulty.rolePlay;
     }
@@ -1536,7 +1681,7 @@ class BotBrain {
     if (o.role == Role.lancelotEvil &&
         o.expansions.lancelot == 1 &&
         o.quest <= 2) {
-      conceal += .6;
+      conceal += _tune('lancelotConceal', .6, o);
     }
     final holder = o.excaliburHolder;
     if (holder != null && holder != o.seat && p[holder] <= .15) conceal += .2;
@@ -1678,7 +1823,10 @@ class BotBrain {
         };
         score += (dirty * ifDirty + (1 - dirty) * ifClean) * (leads ? tell : 1);
       }
-      return score + random.nextDouble() * difficulty.assassinNoise;
+      return score +
+          random.nextDouble() *
+              difficulty.assassinNoise *
+              _tune('assassinNoise', 1, o);
     }
 
     // What a Percival claim gives away. A claimant who names another of
@@ -1705,6 +1853,7 @@ class BotBrain {
     // someone who called out the evil players the record did not yet
     // point at, and never a good one, may know too.
     final calls = List.filled(o.count, 0.0);
+    final call = _tune('callWeight', callWeight, o);
     if (difficulty != BotDifficulty.novice) {
       final public = suspicion(o, asServant: true);
       final seen = <String>{};
@@ -1731,12 +1880,12 @@ class BotBrain {
           if (atEvil) {
             // an evil player the table did not already doubt says more
             calls[by] +=
-                seenByMerlin * callWeight * (1.5 - public[at].clamp(0.0, 1.0));
+                seenByMerlin * call * (1.5 - public[at].clamp(0.0, 1.0));
           } else {
-            calls[by] -= callWeight * .5;
+            calls[by] -= call * .5;
           }
         } else if (atEvil) {
-          calls[by] -= callWeight; // Merlin does not vouch for evil
+          calls[by] -= call; // Merlin does not vouch for evil
         }
       }
       for (var s = 0; s < o.count; s++) {
@@ -1751,7 +1900,7 @@ class BotBrain {
     return scored.first.$1;
   }
 
-  late final voice = BotVoice(dialogue.random, style, difficulty);
+  late final voice = BotVoice(dialogue.random, style, difficulty, persona);
 
   /// What this computer player has learned of the human's habits in past
   /// games, and where the human sits now. It only changes how much weight
@@ -1827,6 +1976,7 @@ class BotBrain {
 
   DiscussionStatement speech(BotObservation o, bool approve) {
     _decideBussing(o);
+    tactic(o);
     // A question put to this seat in this round is answered first (the
     // template catalogue knows how). Otherwise name names when the public
     // record gives a reason to, or fall back on a catalogue line.
@@ -1856,7 +2006,9 @@ class BotBrain {
     final spoken = o.role == Role.merlin
         ? [
             for (var s = 0; s < o.count; s++)
-              view[s] + (real[s] - view[s]) * merlinVoiceInsight
+              view[s] +
+                  (real[s] - view[s]) *
+                      _tune('merlinVoiceInsight', merlinVoiceInsight, o)
           ]
         : real;
     if (voice.claim(o, approve, view, real, allies) case final claimed?) {
@@ -1900,17 +2052,15 @@ class BotBrain {
     }
     // what this good speaker is all but sure of (see BotVoice's points)
     final sure = o.evil ? null : spoken;
-    final s = dialogue.speak(o, approve, (team) => teamRisk(o, team),
-        cleared: {
-          if (sure != null)
-            for (var i = 0; i < o.count; i++)
-              if (sure[i] < BotVoice.clearedBelow) i
-        },
-        condemned: {
-          if (sure != null)
-            for (var i = 0; i < o.count; i++)
-              if (sure[i] > 1 - BotVoice.clearedBelow) i
-        });
+    final s = dialogue.speak(o, approve, (team) => teamRisk(o, team), cleared: {
+      if (sure != null)
+        for (var i = 0; i < o.count; i++)
+          if (sure[i] < BotVoice.clearedBelow) i
+    }, condemned: {
+      if (sure != null)
+        for (var i = 0; i < o.count; i++)
+          if (sure[i] > 1 - BotVoice.clearedBelow) i
+    });
     lastSpeechSource = SpeechSource.catalog(dialogue.lastTrace?.ruleId);
     final text = voice.flavor(s.text);
     return text == s.text ? s : s.copyWithText(text);

@@ -22,6 +22,7 @@ import 'memory/match_repository.dart';
 import 'memory/player_model.dart';
 import 'memory/social_memory.dart';
 import 'persona/bot_persona.dart';
+import 'persona/persona_lines.dart';
 
 /// Local referee + one private human view. Bots receive only value snapshots.
 /// Result screens wait for the human so animations and public evidence can be
@@ -151,6 +152,7 @@ class SoloGameSession extends GameSession {
           : BotBrain(Random(seed),
               dialogueRandom: Random(seed ^ 0x5a17),
               style: styles[s],
+              persona: persona(s)?.id,
               difficulty: _rules.roles[s].isEvil
                   ? evilDifficulty ?? difficulty
                   : difficulty);
@@ -293,7 +295,14 @@ class SoloGameSession extends GameSession {
       '報一下查驗：$who$then是$side陣營。',
       '我查的是$who，看到的是$side，大家參考。',
     ];
-    return lines[(owner + target + quest) % lines.length];
+    final pick = owner + target + quest;
+    // a regular says it in his own words two times in three
+    final own = PersonaLines.of(persona(owner)?.id)?.lady;
+    if (own != null && own.isNotEmpty && pick % 3 != 0) {
+      return PersonaLines.fill(
+          own[pick % own.length], {'who': who, 'then': then, 'side': side});
+    }
+    return lines[pick % lines.length];
   }
 
   BotVotePlan _votePlan(int seat) => _plannedVotes.putIfAbsent(
@@ -792,9 +801,14 @@ class SoloGameSession extends GameSession {
 
   /// How each computer player liked to play; shown once the game is over.
   @override
-  String? seatStyle(int seat) => seat == mySeat || phase != GamePhase.finished
-      ? null
-      : _brains[seat]?.style.label;
+  String? seatStyle(int seat) {
+    if (seat == mySeat || phase != GamePhase.finished) return null;
+    final brain = _brains[seat];
+    if (brain == null) return null;
+    final plan = brain.planLabel;
+    return plan == null ? brain.style.label : '${brain.style.label}（本局：$plan）';
+  }
+
   @override
   int? get mySeat => 0;
   @override

@@ -1,6 +1,7 @@
 import 'dart:math';
 import '../../game/discussion_model.dart';
 import '../bot_observation.dart';
+import '../persona/persona_lines.dart';
 import 'bot_catalog.dart';
 import 'bot_contract.dart';
 import 'bot_dialogue_context.dart';
@@ -35,10 +36,18 @@ class BotSpeechMemory {
 /// No reflection/eval. Only registered predicates and finite placeholders can
 /// produce text. The returned public statement has no private strategy fields.
 class BotDialoguePlanner {
-  BotDialoguePlanner(this.random, {BotDialogueCatalog? catalog})
+  BotDialoguePlanner(this.random, {BotDialogueCatalog? catalog, this.persona})
       : catalog = catalog ?? BotDialogueCatalog.bundled;
   final Random random;
   final BotDialogueCatalog catalog;
+
+  /// The speaker's own wordings of some rules (see [PersonaLines]).
+  final PersonaLines? persona;
+
+  /// Every wording of [rule] anyone may use: what others said in their own
+  /// words is still this rule said.
+  static List<String> _wordings(BotSpeechRule rule) =>
+      [...rule.templates, ...PersonaLines.allFor(rule.id)];
   final memory = BotSpeechMemory();
   BotDialogueTrace? lastTrace;
 
@@ -147,10 +156,11 @@ class BotDialoguePlanner {
             if (!saidLines.any((said) => said.endsWith(text))) text
       ];
       if (lines.isEmpty) continue;
+      final wordings = _wordings(rule);
       // Someone already used this rule about this proposal: four people
       // saying the same thing in other words is still the same thing.
       final echoes = [
-        for (final template in rule.templates)
+        for (final template in wordings)
           if (render(template, context.bindings) case final String text)
             if (saidLines.any((said) => said.endsWith(text))) text
       ].length;
@@ -165,7 +175,7 @@ class BotDialoguePlanner {
               ? 0
               : 20 *
                   [
-                    for (final template in rule.templates)
+                    for (final template in wordings)
                       if (render(template, context.bindings)
                           case final String text)
                         if (heard.any((said) => said.endsWith(text))) text
@@ -215,11 +225,17 @@ class BotDialoguePlanner {
           intent: 'opinion');
     }
     final (rule, context, semanticKey, _) = candidates.first;
-    final lines = [
-      for (final t in rule.templates)
-        if (render(t, context.bindings) case final String text)
-          if (!saidLines.any((said) => said.endsWith(text))) (t, text)
-    ];
+    List<(String, String)> usable(List<String> templates) => [
+          for (final t in templates)
+            if (render(t, context.bindings) case final String text)
+              if (!saidLines.any((said) => said.endsWith(text))) (t, text)
+        ];
+    // most of the time in the speaker's own words, where he has them
+    final own = persona?.rules[rule.id];
+    final mine = own == null || random.nextDouble() >= PersonaLines.share
+        ? const <(String, String)>[]
+        : usable(own);
+    final lines = mine.isNotEmpty ? mine : usable(rule.templates);
     final fresh = lines.where((line) => !memory.recentlySaid(line.$2)).toList();
     final choices = fresh.isEmpty ? lines : fresh;
     final (template, text) = choices[random.nextInt(choices.length)];

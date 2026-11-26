@@ -24,6 +24,7 @@ import 'package:avalon_shadow_council/features/solo/memory/match_archive.dart';
 import 'package:avalon_shadow_council/features/solo/memory/match_repository.dart';
 import 'package:avalon_shadow_council/features/solo/memory/social_memory.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
+import 'package:avalon_shadow_council/features/solo/persona/persona_lines.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 import 'package:avalon_shadow_council/features/solo/voice_lines.dart';
 import 'balance_test.dart' show randomSetup;
@@ -35,10 +36,17 @@ void main() {
 
   test('voice script', () async {
     final count = <String, int>{}, from = <String, Set<String>>{};
-    void add(String line, String source) {
+    // pieces of one regular's own wordings, and pieces anyone may say
+    final own = <String, Set<String>>{}, everyone = <String>{};
+    void add(String line, String source, {String? persona}) {
       for (final piece in voicePieces(line)) {
         count[piece.text] = (count[piece.text] ?? 0) + 1;
         (from[piece.text] ??= {}).add(source);
+        if (persona != null) {
+          (own[piece.text] ??= {}).add(persona);
+        } else if (source != 'games') {
+          everyone.add(piece.text);
+        }
       }
     }
 
@@ -87,6 +95,51 @@ void main() {
       }
     }
 
+    // each regular's own wordings, blanks filled the same way
+    for (final p in BotPersona.cast) {
+      final lines = PersonaLines.of(p.id)!;
+      for (final line in [
+        lines.openers,
+        lines.approve,
+        lines.oppose,
+        lines.firstApprove,
+        lines.firstOppose,
+        lines.firstAgain,
+      ].expand((l) => l)) {
+        add(line, 'persona', persona: p.id);
+      }
+      for (final line in [...lines.join, ...lines.agree]) {
+        add(PersonaLines.fill(line, {'who': '3號'}), 'persona', persona: p.id);
+      }
+      for (final line in lines.lady) {
+        for (final then in ['', '當時']) {
+          for (final side in ['正義', '邪惡']) {
+            add(
+                PersonaLines.fill(
+                    line, {'who': '3號', 'then': then, 'side': side}),
+                'persona',
+                persona: p.id);
+          }
+        }
+      }
+      for (final template in lines.rules.values.expand((l) => l)) {
+        var filled = [template];
+        for (final name in {
+          for (final m in blank.allMatches(template)) m.group(1)!
+        }) {
+          filled = [
+            for (final line in filled)
+              for (final value in fills[name] ?? ['3號'])
+                line.replaceAll('{{$name}}', value)
+          ];
+        }
+        for (final line in filled) {
+          if (line.contains('我換成我') || line.contains('你自己換成你自己')) continue;
+          add(line, 'persona', persona: p.id);
+        }
+      }
+    }
+
     // every way a computer brings up an earlier game (the player is named
     // by seat: the number is a piece of its own)
     for (final kind in EpisodeKind.values) {
@@ -116,6 +169,7 @@ void main() {
         ..discussion = DiscussionSettings.recommended
         ..expansions = setup.expansions;
       final lines = <String>[];
+      final speakers = <String?>[];
       fakeAsync((time) {
         final s = SoloGameSession(room,
             random: Random(g),
@@ -136,15 +190,23 @@ void main() {
         time.elapse(const Duration(milliseconds: 50));
         time.flushMicrotasks();
         // seat 0 is the player's: their lines are their own to say
-        lines.addAll([
-          for (final st in s.statements)
-            if (st.speaker != 0 && !st.continues) st.text
-        ]);
+        for (final st in s.statements) {
+          if (st.speaker != 0 && !st.continues) {
+            lines.add(st.text);
+            speakers.add(s.persona(st.speaker)?.id);
+          }
+        }
         s.dispose();
         time.flushMicrotasks();
       });
-      for (final line in lines) {
+      for (final (i, line) in lines.indexed) {
         add(line, 'games');
+        // heard in a game from someone whose own wording it is not: anyone's
+        for (final piece in voicePieces(line)) {
+          if (!(own[piece.text]?.contains(speakers[i]) ?? false)) {
+            everyone.add(piece.text);
+          }
+        }
       }
     }
 
@@ -157,13 +219,17 @@ void main() {
       ..sort((a, b) => count[b]!.compareTo(count[a]!));
     String cell(String v) =>
         v.contains(RegExp(r'[",\n]')) ? '"${v.replaceAll('"', '""')}"' : v;
-    final csv = StringBuffer('id,text,uses,source\n');
+    // voices: who records the piece (empty: every regular)
+    final csv = StringBuffer('id,text,uses,source,voices\n');
     for (final text in rows) {
       csv.writeln([
         voicePieceId(text),
         cell(text),
         count[text],
         (from[text]!.toList()..sort()).join('+'),
+        everyone.contains(text) || !own.containsKey(text)
+            ? ''
+            : (own[text]!.toList()..sort()).join('+'),
       ].join(','));
     }
     File(out)

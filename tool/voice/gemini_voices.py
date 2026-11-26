@@ -230,7 +230,9 @@ def save_jobs(kept):
 
 def batch(args):
     with open(HERE / 'script.csv', encoding='utf-8') as f:
-        pieces = [(row['id'], row['text']) for row in csv.DictReader(f)]
+        # `voices` filled in: one regular's own wording, only they say it
+        pieces = [(row['id'], row['text'], row.get('voices') or '')
+                  for row in csv.DictReader(f)]
     made = designed()
     kept = jobs()
     for persona in args.only or PERSONAS:
@@ -241,7 +243,9 @@ def batch(args):
             continue
         folder = OUT / persona
         folder.mkdir(parents=True, exist_ok=True)
-        todo = [(i, t) for i, t in pieces if not (folder / f'{i}.wav').exists()]
+        todo = [(i, t) for i, t, v in pieces
+                if (not v or persona in v.split('+'))
+                and not (folder / f'{i}.wav').exists()]
         if args.limit:
             todo = todo[:args.limit]
         if not todo:

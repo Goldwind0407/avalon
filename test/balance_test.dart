@@ -10,6 +10,7 @@ import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
+import 'package:avalon_shadow_council/features/solo/bot_tuning.dart';
 import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
 import 'package:avalon_shadow_council/features/solo/review_export.dart';
@@ -319,7 +320,10 @@ void play(
       time.elapse(const Duration(milliseconds: 1));
       time.flushMicrotasks();
     }
-    expect(s.phase, GamePhase.finished, reason: '${setup.label} seed $seed');
+    // (a plain check: games are also played away from a test, in isolates)
+    if (s.phase != GamePhase.finished) {
+      throw StateError('unfinished game: ${setup.label} seed $seed');
+    }
     done(s);
     s.dispose();
     time.flushMicrotasks();
@@ -331,6 +335,14 @@ void main() {
   final games = int.tryParse(Platform.environment['BALANCE_GAMES'] ?? '');
 
   test('balance', () {
+    // BALANCE_UNTUNED=1: the code's own numbers, not BotTuning.tuned
+    if ((Platform.environment['BALANCE_UNTUNED'] ?? '').isNotEmpty) {
+      BotTuning.override({
+        for (final k in BotTuning.tuned.keys)
+          k: BotTuning.names[k.split('@').first]!,
+      });
+      addTearDown(() => BotTuning.override(const {}));
+    }
     final r = Random(int.parse(Platform.environment['BALANCE_SEED'] ?? '1'));
     final out = StringBuffer();
     // BALANCE_LOG=file: one line a game, to compare two runs game by game

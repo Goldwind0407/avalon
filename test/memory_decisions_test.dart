@@ -46,8 +46,9 @@ void main() {
   final wild = model({Trait.goodCalls: 5, Trait.goodCallsRight: 1});
 
   group("the player's calls", () {
+    // the player was on the clean first quest, so the table listens
     final o = observe(history: [
-      QuestResult([1, 2], 0, true)
+      QuestResult([1, 6], 0, true)
     ], statements: [
       accusation
     ]);

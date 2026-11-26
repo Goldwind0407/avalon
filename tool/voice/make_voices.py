@@ -45,9 +45,13 @@ VOICES = {
 }
 
 
-def pieces():
+def pieces(persona=None):
+    """The script's pieces, or only those [persona] says (a piece with
+    `voices` filled in is one regular's own wording)."""
     with open(SCRIPT, encoding='utf-8') as f:
-        return [(row['id'], row['text']) for row in csv.DictReader(f)]
+        return [(row['id'], row['text']) for row in csv.DictReader(f)
+                if persona is None or not row.get('voices')
+                or persona in row['voices'].split('+')]
 
 
 async def record(persona, items, jobs):
@@ -88,11 +92,11 @@ def main():
     parser.add_argument('--jobs', type=int, default=6)
     parser.add_argument('--missing', action='store_true')
     args = parser.parse_args()
-    items = pieces()
     personas = args.only.split(',') if args.only else list(VOICES)
     for persona in personas:
         if persona not in VOICES:
             sys.exit(f'unknown persona {persona}; one of {", ".join(VOICES)}')
+        items = pieces(persona)
         if args.missing:
             gone = [t for i, t in items if not (OUT / persona / f'{i}.mp3').exists()]
             print(f'{persona}: {len(gone)} of {len(items)} missing')
