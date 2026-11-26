@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:avalon_shadow_council/core/ambient_motion.dart';
@@ -58,7 +59,7 @@ void main() {
       ))),
     )));
     await advance(tester, 300);
-    expect(revealed, isFalse);
+    expect(revealed, kIsWeb ? isTrue : isFalse);
     await advance(tester, 1000);
     expect(revealed, isTrue);
     expect(find.text('front'), findsOneWidget);

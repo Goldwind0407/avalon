@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/web_page.dart';
 import '../game/game_screen.dart';
+import '../html_table/html_table_screen.dart';
 import '../game/discussion_model.dart';
 import '../game/discussion_widgets.dart';
 import '../game/game_model.dart';
@@ -392,13 +394,28 @@ class _LocalPlayScreenState extends State<LocalPlayScreen> {
                       ? () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => widget.solo
-                                  ? GameScreen.solo(
-                                      room: configuration,
-                                      difficulty: difficulty,
-                                      cast: cast.take(playerCount - 1).toList(),
-                                      archive: _archive)
-                                  : GameScreen(room: configuration)))
+                              builder: (_) => !widget.solo
+                                  ? GameScreen(room: configuration)
+                                  // in a browser, the page draws the table
+                                  // itself (the app's drawing stalls on an
+                                  // iPhone); avalon.flutterTable keeps the
+                                  // app's own
+                                  : HtmlTableScreen.available &&
+                                          !readFlag('avalon.flutterTable')
+                                      ? HtmlTableScreen(
+                                          room: configuration,
+                                          difficulty: difficulty,
+                                          cast: cast
+                                              .take(playerCount - 1)
+                                              .toList(),
+                                          archive: _archive)
+                                      : GameScreen.solo(
+                                          room: configuration,
+                                          difficulty: difficulty,
+                                          cast: cast
+                                              .take(playerCount - 1)
+                                              .toList(),
+                                          archive: _archive)))
                       : null,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('開始遊戲'))),

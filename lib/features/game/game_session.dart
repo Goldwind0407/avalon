@@ -40,6 +40,11 @@ abstract class GameSession extends ChangeNotifier {
   /// it. Computer players take it into account and may answer.
   Future<void> say(PlayerSpeech speech) async {}
   void pauseAutomation(bool paused) {}
+
+  /// The voice of the computer speaking in turn [speechVersion] has said
+  /// its whole line: it need not hold the floor for the time it takes to
+  /// read the line (solo; the online server keeps its own pace).
+  void lineHeard(int speechVersion) {}
   int? get speaker => null;
   int get speechVersion => 0;
   int? get speechDeadline => null;

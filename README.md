@@ -138,9 +138,8 @@ Firebase 專案：`avalon-shadow-council`（地區 `asia-east1`）。
   - 跨局記憶：有電腦的對局結束後，伺服器會保留這局（`rooms/{房號}/pastGames`，只有伺服器讀得到）。下一局電腦會記得同一個房間最近 5 局裡跟在座真人發生過的事（依帳號對人，不依座位），開場可能提起；和單人模式一樣只影響台詞。
   - 限制：伺服器重啟時，電腦會忘記「原本打算怎麼投」，但遊戲照常進行。
 - **電腦玩家語音**：電腦的台詞多半是當場組出來的（300 局就有 8 千多種不同的句子），所以不錄整句，而是錄「片段」：在標點和數字處切開（`lib/features/solo/voice_lines.dart`），數字連同單位另錄（「3號」「第1次」）。約 2,160 段就能唸出所有台詞，9 位電腦各一套聲音。播放時整句一次載入、無縫接起來，標點處插入短暫停頓。某句只要有一段沒錄到，那句就只顯示文字。單人和多人模式都會念；音效設定裡可以關掉、調音量、按「試聽電腦語音」。不搶語音通話的音訊。
-  - 目前的聲音是用 Gemini 語音設計做的（台灣口音，9 位各一個 AI 聲音，App 內有註明）。做法與另一條路（Google Colab + GPT-SoVITS）見 [tool/voice/README.md](tool/voice/README.md)。
+  - 目前的聲音是用 Gemini 語音設計做的（台灣口音，9 位各一個 AI 聲音，App 內有註明）。做法見 [tool/voice/README.md](tool/voice/README.md)。
   - 錄音清單：`VOICE_SCRIPT_OUT=tool/voice/script.csv VOICE_SCRIPT_GAMES=3000 flutter test test/voice_script_test.dart`（跑模擬局並展開台詞庫；修改台詞後要重跑，字沒變的片段不必重錄）。
-  - 參考聲音：`python tool/voice/make_references.py` 為每位電腦產生 `tool/voice/references/<人物>.wav` 與 `.txt`，給 GPT-SoVITS 模仿。
   - 剪靜音：語音引擎在每段頭尾留約 1.4 秒空白，`python tool/voice/trim_voices.py <資料夾>` 會剪掉並壓縮（需要 ffmpeg：`winget install Gyan.FFmpeg`），放進 `assets/voice/<人物>/<編號>.mp3`。
   - `python tool/voice/make_voices.py --missing` 列出每位電腦還缺幾段。`make_voices.py` 也能直接用 edge-tts 錄，但微軟會限速、會擋，不適合錄全部。
   - 錄好的 mp3 不放進 git（太大），要在建置 App 的電腦上產生。9 位全部錄完約 130 MB。
@@ -303,3 +302,38 @@ CI 固定使用 Flutter 3.50.0、Node 22、Java 21 與 Firebase CLI 15.30.0。�
 
 高手 NPC 本次診斷、投票重評與測試說明：[solo_expert_diagnosis.md](docs/solo_expert_diagnosis.md)。
 正式台詞可直接編輯 [bot_dialogue_natural.txt](docs/bot_dialogue_natural.txt)，每種情境四句，修改後執行 `python tool/prepare_bot_dialogue.py`。
+
+## iPhone PWA 與離線遊玩
+
+GitHub 儲存庫的 **Settings → Pages** 選用 **GitHub Actions**。讓 `Publish Avalon PWA` 工作流程出現在預設分支後，就能從 Actions 手動執行發布。工作流程依 Pages 的實際路徑建置，再上傳打包後的發布目錄。
+
+### 建置與上傳到 Cloudflare Pages（目前的發布方式）
+
+使用 Flutter 3.50.0。建置前先刪掉 `build/web`：這個版本在 Windows 上沒清空就重建，有時會漏掉 `manifest.json` 等檔案。
+
+```powershell
+Remove-Item -Recurse -Force build/web -ErrorAction SilentlyContinue
+flutter build web --wasm --release --base-href / --no-web-resources-cdn --pwa-strategy=none
+$pwaPath = python tool/prepare_pwa.py
+```
+
+把 `$pwaPath`（`build/pwa/<版本>/`）整個資料夾手動上傳到 Cloudflare Pages。在 Git Bash 執行時，要在指令前加 `MSYS_NO_PATHCONV=1`，否則 `--base-href /` 會被改成 Windows 路徑。
+
+- **WebAssembly 與效果**：`--wasm` 會同時產生 WebAssembly 版和 JavaScript 版，瀏覽器自動選擇。WebAssembly 版畫完整的動畫與特效；不支援的瀏覽器（例如 iOS 18.2 以前的 Safari）會拿到 JavaScript 版，改畫精簡效果（`lib/core/effects.dart`）。量測結果：在模擬手機速度（CPU 降速 4 倍、3 倍解析度）下，JavaScript 版效果全開約 41 fps、精簡效果約 53 fps，WebAssembly 版效果全開約 60 fps。
+- **`_headers`**：打包腳本會在發布目錄產生 Cloudflare Pages 的 `_headers`，讓遊戲頁啟用跨來源隔離（COOP／COEP），WebAssembly 渲染器才能用多執行緒；少了它，WebAssembly 版效果全開只有約 44 fps。GitHub Pages 不能設定這種標頭。
+- **登入頁**：隔離後 Google 的彈出式登入無法回報結果，所以網頁版的多機登入改走 `login/`（`web/login/index.html`，不隔離，與遊戲同網域共用登入狀態），登入後回到多機遊玩。新的網域要先加入 Firebase 主控台的 **Authentication → 設定 → 已授權網域**。
+- **量測**：網址加 `?perf` 會在左上角顯示每秒幀數、延遲幀數，以及目前是 Wasm／JS、多執行緒與否；加 `?demo&perf` 會自動對戰（7 位電腦、湖中女神），方便長時間觀察。
+
+本機預覽（不含 `_headers`，所以是單執行緒）：
+
+```powershell
+python -m http.server 8000 --directory $pwaPath
+```
+
+預覽網址是 `http://localhost:8000/`。準備腳本會下載固定版本的 Noto Sans TC，並掃描 `build/web/`。腳本輸出的 `build/pwa/<版本>/` 才是發布目錄。NPC 的原始 MP3 位元組會按角色打包，Service Worker 根據索引提供原本的音檔路徑。發布站台需用 HTTPS。
+
+在 iPhone 的 Safari 打開發布網址，選「加入主畫面」並開啟「以網頁 App 開啟」。連網遊玩時會按需儲存用到的圖片和音訊。按「下載遊戲素材」時才會下載完整的離線遊戲程式、渲染引擎、字型和素材。
+
+要在飛航模式開新局，從主畫面開啟 Avalon，在「離線遊玩」選「下載遊戲素材」並等到顯示「離線準備完成」。需要完整的電腦玩家錄音時，再選「下載電腦語音」。下載時請保持 App 開啟。一般遊玩自動快取的 NPC 錄音最多保留 2,000 個檔案，完整離線語音另外保存。多機遊玩需要網路。
+
+更新會在舊版本的頁面全數關閉後啟用。新版的遊戲核心會重新準備。從散裝 MP3 快取更新到語音包時，需要重新下載一次。之後只要語音包內容相同，切換遊戲版本仍會保留已下載的語音。若 iOS 清除了網站儲存空間，重新連網即可準備離線遊戲。

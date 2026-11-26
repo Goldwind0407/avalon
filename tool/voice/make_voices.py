@@ -10,7 +10,7 @@ records into tool/voice/raw/<persona>/<id>.mp3 and trims each into
 assets/voice/<persona>/<id>.mp3 (trim_voices.py, needs ffmpeg), skipping
 what is already there, so it can be stopped and run again. The service
 turns away a quick run of requests: it is slow, and better for a few
-pieces than for every voice (see README.md for GPT-SoVITS on Colab). The app speaks a line only when every
+pieces than for every voice. The app speaks a line only when every
 piece of it is recorded in that computer's voice.
 
 This uses edge-tts (Microsoft's online voices, free but not an official

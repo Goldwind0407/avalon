@@ -184,6 +184,21 @@ class _DiscussionPanelState extends State<DiscussionPanel> {
                             color: remaining <= 5
                                 ? Colors.redAccent
                                 : AvalonTheme.gold),
+                      // what is being talked about (the shields at the
+                      // seats are small on a phone)
+                      if (game.team.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                              '提案隊伍：${[
+                                for (final s in game.team)
+                                  playerLabel(s, game.players[s])
+                              ].join('、')}',
+                              key: const ValueKey('teamOnTrial'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 13, color: AvalonTheme.muted)),
+                        ),
                       const SizedBox(height: 10),
                       if (game.currentStatement != null) ...[
                         Text(game.currentStatement!,

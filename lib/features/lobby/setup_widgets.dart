@@ -173,8 +173,12 @@ class SetupRole extends StatelessWidget {
                   border: Border.all(color: sideColor.withValues(alpha: .8))),
               child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: Image.asset(Assets.role(role, 0),
-                      fit: BoxFit.cover, alignment: const Alignment(0, -.55))),
+                  child: Image.asset(Assets.portrait(role),
+                      scale: 1,
+                      cacheWidth:
+                          (34 * MediaQuery.devicePixelRatioOf(context)).ceil(),
+                      fit: BoxFit.cover,
+                      alignment: const Alignment(0, -.55))),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -228,22 +232,28 @@ class SetupTally extends StatelessWidget {
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _side(Assets.logoGood, '正義', good, setupGoodColor),
+        _side(context, Assets.logoGood, '正義', good, setupGoodColor),
         const SizedBox(width: 8),
-        _side(Assets.logoEvil, '邪惡', evil, setupEvilColor),
+        _side(context, Assets.logoEvil, '邪惡', evil, setupEvilColor),
         const SizedBox(width: 10),
         Text(note,
             style: const TextStyle(fontSize: 11.5, color: AvalonTheme.muted)),
       ]));
 
-  Widget _side(String crest, String side, int count, Color color) => Container(
+  Widget _side(BuildContext context, String crest, String side, int count,
+          Color color) =>
+      Container(
         padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
         decoration: ShapeDecoration(
             color: color.withValues(alpha: .12),
             shape: StadiumBorder(
                 side: BorderSide(color: color.withValues(alpha: .4)))),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Image.asset(crest, width: 22, height: 22),
+          Image.asset(crest,
+              width: 22,
+              height: 22,
+              scale: 1,
+              cacheWidth: (22 * MediaQuery.devicePixelRatioOf(context)).ceil()),
           const SizedBox(width: 4),
           Text('$side $count 人', style: TextStyle(fontSize: 12, color: color)),
         ]),

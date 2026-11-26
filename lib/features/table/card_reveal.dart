@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:material_ui/material_ui.dart';
 import 'components.dart';
 import 'effects.dart';
+import '../../core/effects.dart';
 
 /// One face-down card to be turned over in a [CardReveal].
 class RevealItem {
@@ -104,8 +105,14 @@ class _CardRevealState extends State<CardReveal>
     _verdictAt = t + 380;
     _controlsAt = _verdictAt + 650;
     _total = _controlsAt + 500;
+    // The cards are gathered, shuffled and turned one by one with the light
+    // table too: moving and turning a few cards costs little, and showing
+    // the result at once (as the light table first did) let it be seen
+    // before the shuffle was heard. Only the glow and shadows are left out.
     _c = AnimationController(
-        vsync: this, duration: Duration(milliseconds: _total.round()))
+      vsync: this,
+      duration: Duration(milliseconds: _total.round()),
+    )
       ..addListener(_tick)
       ..forward();
   }
@@ -218,13 +225,15 @@ class _CardRevealState extends State<CardReveal>
                               fontWeight: FontWeight.bold,
                               letterSpacing: 4 * s,
                               color: widget.verdictColor,
-                              shadows: [
-                                Shadow(
-                                    color: widget.verdictColor
-                                        .withValues(alpha: .8),
-                                    blurRadius: 22 * s),
-                                const Shadow(blurRadius: 4),
-                              ])),
+                              shadows: lightEffects
+                                  ? null
+                                  : [
+                                      Shadow(
+                                          color: widget.verdictColor
+                                              .withValues(alpha: .8),
+                                          blurRadius: 22 * s),
+                                      const Shadow(blurRadius: 4),
+                                    ])),
                     ),
                   ),
                   Opacity(
@@ -299,7 +308,7 @@ class _CardRevealState extends State<CardReveal>
                   DecoratedBox(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(w * .06),
-                      boxShadow: post <= 0
+                      boxShadow: lightEffects || post <= 0
                           ? null
                           : [
                               BoxShadow(
@@ -309,6 +318,8 @@ class _CardRevealState extends State<CardReveal>
                                   spreadRadius: 2 * s)
                             ],
                     ),
+                    // turned over with the light table too (a flip is
+                    // cheap): the face is not shown before its turn
                     child: flipFace(
                         angle: pi * Curves.easeInOutCubic.transform(f),
                         front: item.front(w),

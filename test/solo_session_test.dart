@@ -75,6 +75,42 @@ class ClockedSoloSession extends SoloGameSession {
 }
 
 void main() {
+  test('a computer whose line has been heard hands the turn on soon', () {
+    fakeAsync((time) {
+      final s = SoloGameSession(soloRoom(5, const ExpansionSettings()),
+          random: Random(4),
+          autopilot: true,
+          botDelay: const Duration(milliseconds: 50),
+          speechDuration: const Duration(seconds: 7));
+      var steps = 0;
+      while (s.phase != GamePhase.discussion && steps++ < 400) {
+        time.elapse(const Duration(milliseconds: 50));
+      }
+      expect(s.phase, GamePhase.discussion);
+      // shown only: it is given the time to read it
+      final first = s.speechVersion;
+      time.elapse(const Duration(seconds: 3));
+      expect(s.speechVersion, first);
+      time.elapse(const Duration(seconds: 5));
+      expect(s.speechVersion, greaterThan(first));
+      // heard to the end: on to the next after a breath
+      final heard = s.speechVersion;
+      time.elapse(const Duration(milliseconds: 300));
+      s.lineHeard(heard);
+      time.elapse(SoloGameSession.heardPause - const Duration(milliseconds: 100));
+      expect(s.speechVersion, heard);
+      time.elapse(const Duration(milliseconds: 200));
+      expect(s.speechVersion, greaterThan(heard));
+      // an old turn's line changes nothing
+      final now = s.speechVersion;
+      s.lineHeard(heard);
+      time.elapse(const Duration(seconds: 2));
+      expect(s.speechVersion, now);
+      s.dispose();
+      time.flushMicrotasks();
+    });
+  });
+
   test('against computers there is no free-talk minute to wait out', () {
     final room = soloRoom(5, const ExpansionSettings())
       ..discussion = const DiscussionSettings(

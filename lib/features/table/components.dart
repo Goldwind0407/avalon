@@ -6,6 +6,7 @@ import '../../core/assets.dart';
 import '../../core/ambient_motion.dart';
 import '../../core/theme.dart';
 import 'effects.dart';
+import '../../core/effects.dart';
 
 const cardAspect = 2 / 3;
 
@@ -21,11 +22,12 @@ int decodeWidth(BuildContext context, double logicalWidth) {
 Image artImage(BuildContext context, String asset,
         {required double width, double? height, BoxFit fit = BoxFit.contain}) =>
     Image.asset(asset,
+        scale: 1,
         width: width,
         height: height,
         fit: fit,
         cacheWidth: decodeWidth(context, width),
-        filterQuality: FilterQuality.medium,
+        filterQuality: lightEffects ? FilterQuality.low : FilterQuality.medium,
         gaplessPlayback: true);
 
 /// A face-up card image (all card art is 2:3 with rounded transparent corners).
@@ -93,6 +95,14 @@ class CardBack extends StatelessWidget {
 Widget flipFace(
     {required double angle, required Widget front, required Widget back}) {
   final lift = sin(angle.clamp(0.0, pi));
+  if (lightEffects) {
+    final scale = 1 + .1 * lift;
+    return Transform.scale(
+      scaleX: max(.002, cos(angle).abs()) * scale,
+      scaleY: scale,
+      child: angle > pi / 2 ? front : back,
+    );
+  }
   return Transform(
     alignment: Alignment.center,
     transform: Matrix4.identity()
@@ -140,7 +150,8 @@ class _FlipCardState extends State<FlipCard>
   late final AnimationController _c = AnimationController(
       vsync: this,
       duration: widget.duration,
-      reverseDuration: const Duration(milliseconds: 360),
+      reverseDuration:
+          lightEffects ? Duration.zero : const Duration(milliseconds: 360),
       value: widget.faceUp && !widget.flipOnMount ? 1 : 0);
   Timer? _timer;
 
@@ -161,12 +172,22 @@ class _FlipCardState extends State<FlipCard>
     _timer?.cancel();
     if (!up) {
       _c.reverse();
-    } else if (widget.delay == Duration.zero) {
-      _c.forward();
     } else {
-      _timer = Timer(widget.delay, () {
-        if (mounted) _c.forward();
-      });
+      void show() {
+        if (!mounted) return;
+        if (lightEffects) {
+          _c.value = 1;
+        } else {
+          _c.forward();
+        }
+      }
+
+      if (lightEffects || widget.delay != Duration.zero) {
+        // On mounting, reveal callbacks must run outside the parent build.
+        _timer = Timer(widget.delay, show);
+      } else {
+        show();
+      }
     }
   }
 
@@ -204,22 +225,24 @@ class Token extends StatelessWidget {
         width: size,
         height: size,
         child: Stack(clipBehavior: Clip.none, children: [
-          Positioned.fill(
-            left: elevation * .4,
-            top: elevation * .9,
-            right: -elevation * .4,
-            bottom: -elevation * .9,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                  sigmaX: elevation * .7, sigmaY: elevation * .7),
-              child: Image.asset(asset,
-                  fit: BoxFit.contain,
-                  cacheWidth: decodeWidth(context, size),
-                  gaplessPlayback: true,
-                  color: Colors.black.withValues(alpha: .7),
-                  colorBlendMode: BlendMode.srcIn),
+          if (!lightEffects)
+            Positioned.fill(
+              left: elevation * .4,
+              top: elevation * .9,
+              right: -elevation * .4,
+              bottom: -elevation * .9,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                    sigmaX: elevation * .7, sigmaY: elevation * .7),
+                child: Image.asset(asset,
+                    scale: 1,
+                    fit: BoxFit.contain,
+                    cacheWidth: decodeWidth(context, size),
+                    gaplessPlayback: true,
+                    color: Colors.black.withValues(alpha: .7),
+                    colorBlendMode: BlendMode.srcIn),
+              ),
             ),
-          ),
           Positioned.fill(
               child: artImage(context, asset, width: size, height: size)),
         ]),
@@ -391,18 +414,20 @@ class Bump extends StatelessWidget {
   final int count;
   final Widget child;
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-        // a new end value restarts the animation; 0 means "never bumped"
-        tween: Tween(begin: count.toDouble(), end: count.toDouble()),
-        duration: const Duration(milliseconds: 320),
-        child: child,
-        builder: (context, v, child) {
-          final t = v - v.floorToDouble();
-          return Transform.scale(
-              scale: 1 + .09 * sin(pi * Curves.easeOut.transform(t)),
-              child: child);
-        },
-      );
+  Widget build(BuildContext context) => lightEffects
+      ? child
+      : TweenAnimationBuilder<double>(
+          // a new end value restarts the animation; 0 means "never bumped"
+          tween: Tween(begin: count.toDouble(), end: count.toDouble()),
+          duration: const Duration(milliseconds: 320),
+          child: child,
+          builder: (context, v, child) {
+            final t = v - v.floorToDouble();
+            return Transform.scale(
+                scale: 1 + .09 * sin(pi * Curves.easeOut.transform(t)),
+                child: child);
+          },
+        );
 }
 
 enum SeatVote { none, hidden, approve, reject }
@@ -524,20 +549,21 @@ class SeatPlate extends StatelessWidget {
       height: 39 * s,
       child: vote == SeatVote.none
           ? null
-          : FlipCard(
+          : RepaintBoundary(
+              child: FlipCard(
               faceUp: vote == SeatVote.approve || vote == SeatVote.reject,
               flipOnMount: true,
               delay: voteDelay,
               duration: const Duration(milliseconds: 420),
               onRevealed: onVoteRevealed,
-              back: CardBack(width: 26 * s, elevation: 3, deck: CardDeck.vote),
+              back: GameCard(Assets.seatVoteBack, width: 26 * s, elevation: 3),
               front: GameCard(
                   vote == SeatVote.reject
-                      ? Assets.voteReject
-                      : Assets.voteApprove,
+                      ? Assets.seatVoteReject
+                      : Assets.seatVoteApprove,
                   width: 26 * s,
                   elevation: 3),
-            ),
+            )),
     );
     final gap = SizedBox(width: 3 * s);
     final pieces = SizedBox(

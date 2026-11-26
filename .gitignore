@@ -59,3 +59,7 @@ tool/voice/raw/
 tool/voice/out/
 tool/voice/gemini/
 tool/voice/samples/
+
+# OAuth client secrets downloaded from Google Cloud: never committed
+google*.json
+client_secret*.json

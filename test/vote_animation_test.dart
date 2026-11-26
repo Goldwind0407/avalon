@@ -6,6 +6,7 @@ import 'package:avalon_shadow_council/features/game/game_screen.dart';
 import 'package:avalon_shadow_council/features/game/game_session.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/table/effects.dart';
+import 'package:avalon_shadow_council/features/table/quest_board.dart';
 
 Future<void> advance(WidgetTester tester, int ms) async {
   // Step through timers and flights rather than jumping over their callbacks.
@@ -75,6 +76,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('submitLocalVotes')));
       await tester.pump();
       expect(game.phase, GamePhase.voteResult);
+      final board = tester.widget<QuestBoard>(find.byType(QuestBoard));
 
       // After two seconds the verdict used to start appearing even though
       // the last card's flight + stagger + flip was still in progress.
@@ -86,6 +88,9 @@ void main() {
 
       await advance(tester, 80);
       expect(find.text('否決'), findsOneWidget);
+      expect(tester.widget<QuestBoard>(find.byType(QuestBoard)), same(board),
+          reason: 'Revealing seat ballots and stamping the verdict should '
+              'only update those parts of the table.');
       expect(find.text('邪惡獲勝・查看結算'), findsOneWidget);
       await advance(tester, 900);
       await tester.tap(find.text('邪惡獲勝・查看結算'));

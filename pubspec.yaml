@@ -30,6 +30,7 @@ flutter:
   assets:
     - assets/audio/
     - assets/images/roles/
+    - assets/images/portraits/
     - assets/images/cards/
     - assets/images/tokens/
     - assets/images/logos/

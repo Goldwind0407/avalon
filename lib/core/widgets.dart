@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:material_ui/material_ui.dart';
 import 'theme.dart';
+import 'effects.dart';
 
 /// The night sky every menu screen sits on: a deep gradient, two soft
 /// glows, a scatter of faint stars and a vignette at the edges.
@@ -15,29 +16,36 @@ class FantasyBackground extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: [Color(0xFF1A2548), Color(0xFF11102A), AvalonTheme.bg]),
         ),
-        child: Stack(children: [
-          const Positioned.fill(child: CustomPaint(painter: _Stars())),
-          Positioned(
-              top: -120,
-              right: -130,
-              child: _Glow(
-                  size: 340, color: AvalonTheme.violet.withValues(alpha: .2))),
-          Positioned(
-              bottom: -180,
-              left: -140,
-              child: _Glow(
-                  size: 380, color: AvalonTheme.gold.withValues(alpha: .08))),
-          // darker toward the edges, so the middle reads first
-          const Positioned.fill(
-              child: IgnorePointer(
-                  child: DecoratedBox(
-                      decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                              radius: 1.1,
-                              colors: [Colors.transparent, Color(0x66050814)],
-                              stops: [.55, 1]))))),
-          child,
-        ]),
+        child: lightEffects
+            ? child
+            : Stack(children: [
+                const Positioned.fill(child: CustomPaint(painter: _Stars())),
+                Positioned(
+                    top: -120,
+                    right: -130,
+                    child: _Glow(
+                        size: 340,
+                        color: AvalonTheme.violet.withValues(alpha: .2))),
+                Positioned(
+                    bottom: -180,
+                    left: -140,
+                    child: _Glow(
+                        size: 380,
+                        color: AvalonTheme.gold.withValues(alpha: .08))),
+                // darker toward the edges, so the middle reads first
+                const Positioned.fill(
+                    child: IgnorePointer(
+                        child: DecoratedBox(
+                            decoration: BoxDecoration(
+                                gradient: RadialGradient(radius: 1.1, colors: [
+                  Colors.transparent,
+                  Color(0x66050814)
+                ], stops: [
+                  .55,
+                  1
+                ]))))),
+                child,
+              ]),
       );
 }
 

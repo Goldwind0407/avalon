@@ -22,6 +22,9 @@ class Assets {
       };
 
   // ── expansions ──
+  static String portrait(Role playerRole) =>
+      role(playerRole, 0).replaceFirst('/roles/', '/portraits/');
+
   static const ladyOfTheLake = '$_roles/lady_of_the_lake.webp';
   static const loyaltySwitch = '$_cards/lancelot_switch.webp';
   static const loyaltyNoSwitch = '$_cards/lancelot_no_switch.webp';
@@ -34,6 +37,9 @@ class Assets {
   static const questFail = '$_cards/quest_fail.webp';
   static const voteApprove = '$_cards/vote_approve.webp';
   static const voteReject = '$_cards/vote_reject.webp';
+  static const seatVoteApprove = '$_cards/vote_approve_seat.webp';
+  static const seatVoteReject = '$_cards/vote_reject_seat.webp';
+  static const seatVoteBack = '$_cards/card_back_vote_seat.webp';
   static const cardBackRole = '$_cards/card_back_role.webp';
   static const cardBackQuest = '$_cards/card_back_quest.webp';
   static const cardBackVote = '$_cards/card_back_vote.webp';

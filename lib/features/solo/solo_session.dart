@@ -9,6 +9,7 @@ import '../game/player_speech.dart';
 import '../game/speech_statements.dart';
 export '../game/speech_statements.dart' show switchStates;
 import '../lobby/room_model.dart';
+import '../../core/perf_stage.dart';
 import 'bot_brain.dart';
 import 'bot_difficulty.dart';
 import 'bot_observation.dart';
@@ -365,7 +366,23 @@ class SoloGameSession extends GameSession {
     }
   }
 
+  /// Notes how long the computers' thinking held the screen, when long
+  /// enough to be seen (the web build reports it with any stop it caused).
+  void _timed(String what, Stopwatch watch) {
+    final ms = watch.elapsedMilliseconds;
+    if (ms >= 30) perfNote('ai:$what:$ms');
+  }
+
   void _changed() {
+    final watch = Stopwatch()..start();
+    try {
+      _react();
+    } finally {
+      _timed('react', watch);
+    }
+  }
+
+  void _react() {
     if (_disposed) return;
     _rememberReveal();
     _archive();
@@ -467,6 +484,25 @@ class SoloGameSession extends GameSession {
         _ => null,
       };
 
+  /// After a computer's line has been heard to the end, how long before
+  /// the next one speaks: a breath, not the time it takes to read it.
+  static const heardPause = Duration(milliseconds: 900);
+  int? _heardVersion;
+
+  @override
+  void lineHeard(int speechVersion) {
+    if (_disposed ||
+        phase != GamePhase.discussion ||
+        this.speechVersion != speechVersion ||
+        _heardVersion == speechVersion) {
+      return;
+    }
+    final s = speaker;
+    if (s == null || _human(s)) return;
+    _heardVersion = speechVersion;
+    _schedule();
+  }
+
   /// Long enough to read the speech: [speechDuration] at least, plus about a
   /// fifth of a second per character past 25, up to twice as long.
   Duration _readingTime(String? text) {
@@ -482,7 +518,10 @@ class SoloGameSession extends GameSession {
     if (actor == null || _human(actor)) return;
     final deal = generation, version = speechVersion, stage = phase;
     final delay = phase == GamePhase.discussion
-        ? _readingTime(_currentStatement)
+        // heard to the end: on to the next; shown only: time to read it
+        ? (_heardVersion == speechVersion
+            ? heardPause
+            : _readingTime(_currentStatement))
         : botDelay;
     _botTimer = Timer(delay, () async {
       if (_disposed ||
@@ -493,54 +532,62 @@ class SoloGameSession extends GameSession {
           _botActor != actor) {
         return;
       }
-      final view = _observe(actor), brain = _brains[actor]!;
-      switch (phase) {
-        case GamePhase.identity:
-          await _local.confirmIdentity(actor);
-        case GamePhase.team:
-          final picked = brain.chooseTeam(view, requiredTeam);
-          await _local.proposeTeam(picked,
-              excalibur: expansions.excalibur
-                  ? brain.swordHolder(view, picked)
-                  : null);
-        case GamePhase.discussion:
-          await _local.endSpeech(version);
-        case GamePhase.vote:
-          await _local.vote(actor, _plannedVote(actor));
-        case GamePhase.quest:
-          final card = _plannedCards[actor] ?? brain.questCard(view);
-          _ownCards[actor]![questNumber] = card;
-          await _local.playQuest(actor, card);
-        case GamePhase.lady:
-          await _local.useLady(brain.ladyTarget(view));
-        case GamePhase.ladyResult:
-          await _local.continueLady();
-        case GamePhase.excalibur:
-          await _local.useExcalibur(brain.swordTarget(view));
-        case GamePhase.excaliburResult:
-          await _local.continueExcalibur();
-        case GamePhase.assassination:
-          final target = brain.assassinate(view);
-          final announcement = brain.assassinationSpeech(view, target);
-          // the game ends inside this call; keep it until the Assassin's
-          // words are on the record too
-          _announcing = true;
-          try {
-            await _local.assassinate(target);
-          } finally {
-            _announcing = false;
-          }
-          if (!_disposed && generation == deal) {
-            _sources[_statements.length] =
-                SpeechSource.catalog(brain.dialogue.lastTrace?.ruleId);
-            _statements.add(announcement);
-            _archive();
-            notifyListeners();
-          }
-        default:
-          break;
+      final watch = Stopwatch()..start();
+      try {
+        await _move(actor, deal, version);
+      } finally {
+        _timed('move', watch);
       }
     });
+  }
+
+  Future<void> _move(int actor, int deal, int version) async {
+    final view = _observe(actor), brain = _brains[actor]!;
+    switch (phase) {
+      case GamePhase.identity:
+        await _local.confirmIdentity(actor);
+      case GamePhase.team:
+        final picked = brain.chooseTeam(view, requiredTeam);
+        await _local.proposeTeam(picked,
+            excalibur:
+                expansions.excalibur ? brain.swordHolder(view, picked) : null);
+      case GamePhase.discussion:
+        await _local.endSpeech(version);
+      case GamePhase.vote:
+        await _local.vote(actor, _plannedVote(actor));
+      case GamePhase.quest:
+        final card = _plannedCards[actor] ?? brain.questCard(view);
+        _ownCards[actor]![questNumber] = card;
+        await _local.playQuest(actor, card);
+      case GamePhase.lady:
+        await _local.useLady(brain.ladyTarget(view));
+      case GamePhase.ladyResult:
+        await _local.continueLady();
+      case GamePhase.excalibur:
+        await _local.useExcalibur(brain.swordTarget(view));
+      case GamePhase.excaliburResult:
+        await _local.continueExcalibur();
+      case GamePhase.assassination:
+        final target = brain.assassinate(view);
+        final announcement = brain.assassinationSpeech(view, target);
+        // the game ends inside this call; keep it until the Assassin's
+        // words are on the record too
+        _announcing = true;
+        try {
+          await _local.assassinate(target);
+        } finally {
+          _announcing = false;
+        }
+        if (!_disposed && generation == deal) {
+          _sources[_statements.length] =
+              SpeechSource.catalog(brain.dialogue.lastTrace?.ruleId);
+          _statements.add(announcement);
+          _archive();
+          notifyListeners();
+        }
+      default:
+        break;
+    }
   }
 
   void _requireHuman(GamePhase expected) {

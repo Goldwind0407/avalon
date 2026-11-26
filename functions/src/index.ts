@@ -22,7 +22,8 @@ import * as rules from './rules';
 import { GameError, GameState, RoleKey } from './rules';
 import * as limits from './limits';
 import * as proxy from './proxy';
-import { voiceIceServers } from './voice_ice';
+import { cloudflareIceServers, voiceIceServers } from './voice_ice';
+import { DAILY_REPORTS, REPORT_LIFETIME_MS, cleanPerfReport } from './perf_report';
 import { GAME_DOCS_LEAD_MS, gameDocsRenewalDue, roomHasExpired } from './room_lifecycle';
 
 initializeApp();
@@ -403,7 +404,7 @@ export const leaveRoom = onCall(async (req) => {
   });
 });
 
-/** Optional self-hosted TURN. No secret is needed for the default STUN mode. */
+/** Optional managed or self-hosted TURN for valid room members. */
 export const voiceIce = onCall(async (req) => {
   const uid = uidOf(req);
   const code = cleanCode(req.data?.code);
@@ -411,6 +412,15 @@ export const voiceIce = onCall(async (req) => {
     const room = await loadRoom(tx, code);
     seatOf(room, uid);
   });
+  const keyId = process.env.VOICE_CLOUDFLARE_TURN_KEY_ID?.trim();
+  const token = process.env.VOICE_CLOUDFLARE_TURN_TOKEN?.trim();
+  if (keyId && token) {
+    try {
+      return { iceServers: await cloudflareIceServers(keyId, token) };
+    } catch {
+      console.warn('Cloudflare TURN credentials unavailable; using the configured ICE fallback.');
+    }
+  }
   try {
     return { iceServers: voiceIceServers(uid, {
       urls: process.env.VOICE_TURN_URLS,
@@ -1190,6 +1200,29 @@ export const nudge = onCall((req) =>
     return { moves: first.moves + done };
   }),
 );
+
+/**
+ * How smoothly the web game draws on a device (lib/core/web_perf_web.dart).
+ * Needs no sign-in: it is sent from any page, even before signing in, and
+ * says nothing about who sent it. Kept 30 days, at most [DAILY_REPORTS] a day.
+ */
+export const perfReport = onCall({ maxInstances: 2 }, async (req) => {
+  const report = cleanPerfReport(req.data);
+  if (!report) return { ok: false };
+  const day = new Date().toISOString().slice(0, 10);
+  const counter = db.doc(`perfDays/${day}`);
+  const kept = await db.runTransaction(async (tx) => {
+    const seen = ((await tx.get(counter)).data()?.count as number) ?? 0;
+    if (seen >= DAILY_REPORTS) return false;
+    const expireAt = Timestamp.fromMillis(Date.now() + REPORT_LIFETIME_MS);
+    tx.set(counter, { count: seen + 1, expireAt });
+    tx.create(db.collection('perfReports').doc(), {
+      ...report, at: FieldValue.serverTimestamp(), expireAt,
+    });
+    return true;
+  });
+  return { ok: kept };
+});
 
 export const serverTime = onCall((req) => {
   uidOf(req);

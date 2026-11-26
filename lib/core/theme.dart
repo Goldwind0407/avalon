@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'effects.dart';
 
 class AvalonTheme {
   static const bg = Color(0xFF090F20);
@@ -8,11 +9,17 @@ class AvalonTheme {
   static const muted = Color(0xFFACB2CF);
   static const violet = Color(0xFF7766C9);
   static const green = Color(0xFF63C7A7);
+  static final _webTransitions = PageTransitionsTheme(builders: {
+    for (final platform in TargetPlatform.values)
+      platform: const _InstantPageTransition(),
+  });
 
   static ThemeData get dark => ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         scaffoldBackgroundColor: bg,
+        pageTransitionsTheme:
+            lightEffects ? _webTransitions : const PageTransitionsTheme(),
         colorScheme: const ColorScheme.dark(
           primary: gold,
           secondary: violet,
@@ -56,4 +63,23 @@ class AvalonTheme {
           ),
         ),
       );
+}
+
+class _InstantPageTransition extends PageTransitionsBuilder {
+  const _InstantPageTransition();
+
+  @override
+  Duration get transitionDuration => Duration.zero;
+
+  @override
+  Duration get reverseTransitionDuration => Duration.zero;
+
+  @override
+  Widget buildTransitions<T>(
+          PageRoute<T> route,
+          BuildContext context,
+          Animation<double> animation,
+          Animation<double> secondaryAnimation,
+          Widget child) =>
+      child;
 }
