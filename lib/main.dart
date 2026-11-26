@@ -11,6 +11,7 @@ import 'features/home/home_screen.dart';
 import 'features/online/online_play_screen.dart';
 import 'features/intro/intro_screen.dart';
 import 'core/web_audio.dart';
+import 'core/web_page.dart';
 import 'core/web_perf.dart';
 
 Future<void> main() async {
@@ -36,8 +37,15 @@ Future<void> main() async {
   await GameSounds.instance.initialize();
   await BotVoices.instance.initialize();
   runApp(AvalonApp(intro: !hasOfflineControls));
-  // web: too slow for every effect, the table goes light by itself
-  if (kIsWeb) watchFrameRate();
+  // web: the frame-rate watcher (reports to perfReport, lightens the table
+  // when too slow, offers a reload when the screen stops) is off since the
+  // stalls were found (sounds through audio elements); turned on for one
+  // device with ?perf in the address, or the flag avalon.perf
+  if (kIsWeb &&
+      (Uri.base.queryParameters.containsKey('perf') ||
+          readFlag('avalon.perf'))) {
+    watchFrameRate();
+  }
 }
 
 class AvalonApp extends StatelessWidget {

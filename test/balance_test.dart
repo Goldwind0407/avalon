@@ -12,6 +12,7 @@ import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
 import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
+import 'package:avalon_shadow_council/features/solo/review_export.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 
 /// Win balance over many random all-computer games: 5 to 10 players and a
@@ -337,6 +338,10 @@ void main() {
     final log = logPath == null ? null : StringBuffer();
     // BALANCE_DUMP=file: every game in full (JSON lines), for analysis
     final dumpPath = Platform.environment['BALANCE_DUMP'];
+    // BALANCE_REVIEW=file: every game as its review text (JSON lines), with
+    // each computer's reasons: what tool/llm/analyze_games.py reads
+    final reviewPath = Platform.environment['BALANCE_REVIEW'];
+    final reviews = reviewPath == null ? null : StringBuffer();
     final dump = dumpPath == null ? null : StringBuffer();
     // the same setups and seeds for both runs
     final setups = [for (var g = 0; g < games!; g++) randomSetup(r)];
@@ -375,6 +380,17 @@ void main() {
         play(setup, seeds[g], talk, (s) {
           log?.writeln(gameLine(g, setup, s));
           dump?.writeln(jsonEncode(gameDump(setup, s)));
+          final review = reviews == null ? null : s.review;
+          if (review != null) {
+            reviews!.writeln(jsonEncode({
+              'game': g,
+              'n': setup.count,
+              'exp': setup.label,
+              'talk': talk,
+              'winner': s.winner,
+              'text': reviewText(review, difficulty: s.difficulty.label),
+            }));
+          }
           all.add(s);
           byCount.putIfAbsent(setup.count, Tally.new).add(s);
           byExpansion.putIfAbsent(setup.label, Tally.new).add(s);
@@ -396,6 +412,7 @@ void main() {
     }
     if (logPath != null) File(logPath).writeAsStringSync('$log');
     if (dumpPath != null) File(dumpPath).writeAsStringSync('$dump');
+    if (reviewPath != null) File(reviewPath).writeAsStringSync('$reviews');
     final path = Platform.environment['BALANCE_OUT'];
     if (path != null) File(path).writeAsStringSync('$out');
     // ignore: avoid_print
