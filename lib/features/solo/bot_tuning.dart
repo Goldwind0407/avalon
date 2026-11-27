@@ -81,10 +81,11 @@ class BotTuning {
 
   /// [name]'s value at a table of [players] (default [fallback]).
   ///
-  /// At a table with Lancelot, `name@Lan` (if set) scales the value: those
-  /// games play differently enough to need their own balance.
+  /// At a table with Lancelot, the Lady of the Lake or Excalibur,
+  /// `name@Lan`, `name@Lady`, `name@Sword` (where set) scale the value:
+  /// those games play differently enough to need their own balance.
   static double of(String name, double fallback, int players,
-      {bool lancelot = false}) {
+      {bool lancelot = false, bool lady = false, bool excalibur = false}) {
     final size = players <= 6 ? 'small' : 'large';
     var value = fallback;
     for (final key in ['$name@$players', '$name@$size', name]) {
@@ -93,7 +94,11 @@ class BotTuning {
         break;
       }
     }
-    if (lancelot) value *= _override['$name@Lan'] ?? tuned['$name@Lan'] ?? 1;
+    double factor(String tag) =>
+        _override['$name@$tag'] ?? tuned['$name@$tag'] ?? 1;
+    if (lancelot) value *= factor('Lan');
+    if (lady) value *= factor('Lady');
+    if (excalibur) value *= factor('Sword');
     return value;
   }
 

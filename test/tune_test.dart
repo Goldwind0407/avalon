@@ -46,9 +46,10 @@ const split = [
 /// Of [split], those set for each large table size on its own (7–10).
 const perCount = ['voteEvidence', 'evilPush', 'merlinCover', 'assassinNoise'];
 
-/// Of [split], those with a factor of their own at tables with Lancelot
-/// (`name@Lan`, from 1).
-const withLancelot = [
+/// Of [split], those with a factor of their own at tables with Lancelot,
+/// the Lady or Excalibur (`name@Lan`, `@Lady`, `@Sword`, from 1).
+const tags = ['Lan', 'Lady', 'Sword'];
+const withExpansion = [
   'voteEvidence',
   'evilPush',
   'merlinCover',
@@ -96,7 +97,9 @@ const _unit = {
 };
 
 double _default(String key) =>
-    key.endsWith('@Lan') ? 1 : BotTuning.names[key.split('@').first]!;
+    _factor(key) ? 1 : BotTuning.names[key.split('@').first]!;
+
+bool _factor(String key) => tags.any((t) => key.endsWith('@$t'));
 
 /// One step of [key] from [value], up or down by [factor] (added, for
 /// [doubt], which starts at nothing).
@@ -110,7 +113,7 @@ double _step(String key, double value, double factor, bool up) {
     next = up ? value * factor : value / factor;
     if (value == 0) next = up ? .05 : 0;
   }
-  if (_unit.contains(name) && !key.endsWith('@Lan')) {
+  if (_unit.contains(name) && !_factor(key)) {
     next = next.clamp(0.0, 1.0);
   }
   return double.parse(next.toStringAsFixed(4));
@@ -132,15 +135,16 @@ class Tally {
   double get stab => (wins['stab'] ?? 0) / max(1, games['stab'] ?? 0);
 
   /// Distance from [target]: each group's squared miss, weighed by its
-  /// share of the games; expansion kinds, each size with and without
-  /// Lancelot, and games with and without talk count half.
+  /// share of the games; expansion kinds, each size with each kind, and
+  /// games with and without talk count half.
   double get miss {
     final all = games['all'] ?? 1;
     var sum = 0.0;
     sum += pow(firstFail - firstFailTarget, 2) + pow(stab - stabTarget, 2);
     for (final g in games.keys) {
       if (g == 'all' || g == 'stab') continue;
-      // n7: a size; c7Lan: a size with Lancelot; the rest: kinds, talk
+      // n7: a size; c7Lan, c7LS, c7B: a size with a kind; the rest: kinds,
+      // talk
       final w = (games[g]! / all) * (g.startsWith('n') ? 6 : 3);
       sum += w * pow(rate(g) - target, 2);
     }
@@ -185,12 +189,11 @@ Map<String, Object> evaluate(Map<String, double> params, int games, int seed) {
         ..add('n${setup.count}', good)
         ..add(talk ? 'talk' : 'quiet', good)
         ..add(_kind(setup.expansions), good);
-      // the sizes Lancelot may join, with him and without
-      if (setup.count >= lancelotMinPlayers) {
-        tally.add(
-            'c${setup.count}${setup.expansions.lancelot > 0 ? 'Lan' : ''}',
-            good);
-      }
+      // each size with each kind of rules (Lancelot's kinds together)
+      final e = setup.expansions;
+      tally.add(
+          'c${setup.count}${e.lancelot > 0 ? 'Lan' : e.lady || e.excalibur ? '${e.lady ? 'L' : ''}${e.excalibur ? 'S' : ''}' : 'B'}',
+          good);
       if (!session.history.first.succeeded) tally.firstFails++;
       if (session.history.where((q) => q.succeeded).length >= 3) {
         tally.add('stab', !good);
@@ -257,8 +260,8 @@ void main() {
           '$k@large': BotTuning.of(k, _default(k), 9),
       },
       for (final k in shared) k: BotTuning.of(k, _default(k), 9),
-      for (final k in withLancelot)
-        '$k@Lan': BotTuning.tuned['$k@Lan'] ?? 1.0,
+      for (final k in withExpansion)
+        for (final t in tags) '$k@$t': BotTuning.tuned['$k@$t'] ?? 1.0,
     };
     // TUNE_ONLY=@Lan|@7 steps only the numbers whose key matches
     final only = env['TUNE_ONLY'] == null ? null : RegExp(env['TUNE_ONLY']!);
@@ -331,8 +334,15 @@ void main() {
   test('check', () async {
     final tuned = (jsonDecode(File(check!).readAsStringSync()) as Map)
         .map((k, v) => MapEntry(k as String, (v as num).toDouble()));
-    // the code's own numbers (not BotTuning.tuned) against these
-    final original = {for (final k in tuned.keys) k: _default(k)};
+    // the code's own numbers (or TUNE_BASE's) against these
+    final base = env['TUNE_BASE'];
+    final original = base == null
+        ? {for (final k in tuned.keys) k: _default(k)}
+        : {
+            for (final k in tuned.keys) k: _default(k),
+            ...(jsonDecode(File(base).readAsStringSync()) as Map).map(
+                (k, v) => MapEntry(k as String, (v as num).toDouble())),
+          };
     final results =
         await _many([original, tuned], games, seed * 7919 + 13, workers);
     say('== 驗證（新牌局 $games 局）');

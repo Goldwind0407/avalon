@@ -366,7 +366,9 @@ class BotBrain {
   /// A balance number for this table (see [BotTuning]).
   static double _tune(String name, double fallback, BotObservation o) =>
       BotTuning.of(name, fallback, o.count,
-          lancelot: o.expansions.lancelot > 0);
+          lancelot: o.expansions.lancelot > 0,
+          lady: o.expansions.lady,
+          excalibur: o.expansions.excalibur);
 
   /// How often a lone evil player plays Success on the first quest.
   static double _firstQuestCover(BotObservation o) => o.count <= 7
