@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../../firebase_options.dart';
 import '../game/game_session.dart';
+import '../../core/web_page.dart';
 
 /// Talks to the Firebase project: sign-in, the game server's functions and
 /// the room documents.
@@ -164,6 +165,12 @@ class OnlineService {
       await (_starting ??= _start());
       final auth = FirebaseAuth.instance;
       final current = auth.currentUser;
+      if (kIsWeb && pageIsolated) {
+        // the game page cannot hear back from Google's window: the sign-in
+        // page does it, and the game opens again at online play
+        openSignInPage();
+        return null;
+      }
       if (kIsWeb) {
         final provider = GoogleAuthProvider();
         if (current != null && current.isAnonymous) {

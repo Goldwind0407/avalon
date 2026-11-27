@@ -512,9 +512,11 @@ void main() {
                 1,
                 2
               ],
+              // the same team either way (with candidate 1 on it, and a
+              // seat nothing is known of): only who leads it differs
               team: const [
                 0,
-                3,
+                1,
                 5
               ],
               history: [

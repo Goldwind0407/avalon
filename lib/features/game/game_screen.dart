@@ -31,6 +31,8 @@ import '../solo/bot_difficulty.dart';
 import '../solo/review_screen.dart';
 import '../solo/solo_session.dart';
 import '../../core/toast.dart';
+import '../../core/effects.dart';
+import '../../core/perf_stage.dart';
 
 Duration _ms(int v) => Duration(milliseconds: v);
 
@@ -131,6 +133,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _crownFlying = false;
   final _voteLanding = <int>{}, _shieldLanding = <int>{};
   final _revealedVotes = <int>{};
+  final _verdictVisible = ValueNotifier(false);
   int _pileLanding = 0;
   int _announceId = 0;
   (String, String, int)? _announcement;
@@ -168,7 +171,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _interlude = _crownFlying = _assassinShown = false;
     _committing = _hiding = false;
     _voteLanding.clear();
-    _revealedVotes.clear();
+    _resetVoteReveal();
     _shieldLanding.clear();
     _pileLanding = 0;
     _announcement = null;
@@ -186,7 +189,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _heard = game.statements.length;
     _invalidateAnimations();
     _resetStaging();
-    if (game.phase == GamePhase.identity && game.confirmedSeats.isEmpty) {
+    if (!lightEffects &&
+        game.phase == GamePhase.identity &&
+        game.confirmedSeats.isEmpty) {
       _deal();
     }
     if (game.phase == GamePhase.questResult) {
@@ -210,9 +215,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final scale = min((size.height - padding.vertical) / 390,
             (size.width - padding.horizontal) / 800)
         .clamp(.72, 2.2);
-    for (final asset in [Assets.voteApprove, Assets.voteReject]) {
+    for (final asset in [
+      Assets.seatVoteBack,
+      Assets.seatVoteApprove,
+      Assets.seatVoteReject
+    ]) {
       unawaited(precacheImage(
-          ResizeImage(AssetImage(asset),
+          ResizeImage(ExactAssetImage(asset),
               width: decodeWidth(context, 26 * scale)),
           context));
     }
@@ -220,11 +229,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    perfStage = 'menu';
     unawaited(GameSounds.instance.stop());
     unawaited(BotVoices.instance.stop());
     for (final t in _timers) {
       t.cancel();
     }
+    _verdictVisible.dispose();
     game.removeListener(_onSessionChanged);
     if (widget.session == null) game.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -233,11 +244,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _background = state != AppLifecycleState.resumed;
+    perfNote('life:${state.name}');
+    // A web page is 'inactive' whenever it loses the focus (a notification
+    // pulled down a little, a banner), and an iPhone does not always give
+    // it back: the computers then waited for good, mid-vote. In a browser
+    // the table is held only while it cannot be seen.
+    _background = kIsWeb
+        ? state == AppLifecycleState.hidden ||
+            state == AppLifecycleState.paused ||
+            state == AppLifecycleState.detached
+        : state != AppLifecycleState.resumed;
     game.pauseAutomation(_background || _pauseDepth > 0);
-    if (state != AppLifecycleState.resumed && mounted) {
-      setState(() => revealed = false);
-    }
+    if (_background && mounted) setState(() => revealed = false);
   }
 
   void _after(Duration delay, VoidCallback fn) {
@@ -308,6 +326,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> act(FutureOr<void> Function() move,
       {bool interlude = false, bool keepRevealed = false}) async {
     if (!game.tableAvailable) return;
+    final showInterlude = interlude && !lightEffects;
     HapticFeedback.mediumImpact();
     setState(() {
       if (!keepRevealed) revealed = false;
@@ -315,10 +334,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       choice = null;
       _committing = _hiding = false;
       _shieldLanding.clear();
-      if (interlude) _interlude = true;
+      if (showInterlude) _interlude = true;
       _waitingKey = _turnKey;
     });
-    if (interlude) {
+    if (showInterlude) {
       _after(_ms(1000), () => setState(() => _interlude = false));
     }
     try {
@@ -391,7 +410,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final key = '$turn/$line';
     if (key == _spokenKey) return;
     _spokenKey = key;
-    unawaited(BotVoices.instance.speak(game.voiceOf(speaker), line));
+    perfNote('line');
+    final version = game.speechVersion;
+    // heard to the end, the turn need not wait for the line to be read
+    unawaited(
+        BotVoices.instance.speak(game.voiceOf(speaker), line).then((heard) {
+      if (heard && mounted) game.lineHeard(version);
+    }));
   }
 
   /// Plays what changed on the table since the last update.
@@ -429,7 +454,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           _announcement = null;
         }
       }
-      if (now.phase != GamePhase.voteResult) _revealedVotes.clear();
+      if (now.phase != GamePhase.voteResult) _resetVoteReveal();
       if (now.phase == GamePhase.questResult &&
           old.phase != GamePhase.questResult) {
         questOrder = _orderOf(game.history.last);
@@ -518,6 +543,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       });
       return;
     }
+    if (lightEffects) {
+      setState(() => selected.add(i));
+      return;
+    }
     setState(() {
       selected.add(i);
       _shieldLanding.add(i);
@@ -568,6 +597,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     HapticFeedback.selectionClick();
     // remember the pick now: act() clears `choice` before the move is sent
     final picked = choice!;
+    if (lightEffects) {
+      unawaited(act(() => action(picked)));
+      return;
+    }
     final turn = _turnKey, epoch = _animationEpoch;
     final cardKey = _choiceKeys[picked]!;
     setState(() => _committing = true);
@@ -854,20 +887,34 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   // The last card mounts after its flight lands, so a fixed delay cannot
   // reliably tell us when every seat has finished flipping.
-  bool get _votesReady => _revealedVotes.length == game.players.length;
+  void _resetVoteReveal() {
+    _revealedVotes.clear();
+    _verdictVisible.value = false;
+  }
 
   void _voteRevealed(int seat) {
     if (!mounted ||
         game.phase != GamePhase.voteResult ||
-        _revealedVotes.contains(seat)) {
+        !_revealedVotes.add(seat)) {
       return;
     }
     GameSounds.instance.play(GameSound.flip);
-    setState(() => _revealedVotes.add(seat));
+    if (_revealedVotes.length == _plateKeys.length) {
+      _verdictVisible.value = true;
+    }
   }
 
   @override
-  Widget build(BuildContext context) => TableHold(
+  Widget build(BuildContext context) {
+    perfStage = _dealing
+        ? 'deal'
+        : _interlude
+            ? 'interlude'
+            : game.phase.name;
+    return _tableScreen(context);
+  }
+
+  Widget _tableScreen(BuildContext context) => TableHold(
       run: _paused,
       child: PopScope(
         canPop: false,
@@ -1122,7 +1169,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       highlight: _highlightSeat(i),
       vote: vote,
       // one after another around the table, once the last card has landed
-      voteDelay: _ms(180 + 55 * i),
+      voteDelay: _ms(lightEffects ? 35 * i : 180 + 55 * i),
       onVoteRevealed: () => _voteRevealed(i),
       bump: _bumps[i],
       plateKey: _plateKeys[i],
@@ -1198,36 +1245,44 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ]),
                 ),
               ),
-              if (game.phase == GamePhase.voteResult && _votesReady)
-                StampIn(
-                  key: ValueKey('v${game.history.length}.${game.rejections}'),
-                  angle: -.1,
-                  onLand: () {
-                    GameSounds.instance
-                        .play(approved ? GameSound.approve : GameSound.reject);
-                    HapticFeedback.heavyImpact();
-                    _shaker.currentState?.shake(approved ? 3 : 6);
-                  },
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                        horizontal: 20 * s, vertical: 4 * s),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: .5),
-                      borderRadius: BorderRadius.circular(8 * s),
-                      border: Border.all(color: stampColor, width: 3 * s),
-                      boxShadow: [
-                        BoxShadow(
-                            color: stampColor.withValues(alpha: .5),
-                            blurRadius: 18 * s)
-                      ],
-                    ),
-                    child: Text(approved ? '通過' : '否決',
-                        style: TextStyle(
-                            fontSize: 34 * s,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 10 * s,
-                            color: stampColor)),
-                  ),
+              if (game.phase == GamePhase.voteResult)
+                ValueListenableBuilder<bool>(
+                  valueListenable: _verdictVisible,
+                  builder: (context, visible, _) => !visible
+                      ? const SizedBox.shrink()
+                      : StampIn(
+                          key: ValueKey(
+                              'v${game.history.length}.${game.rejections}'),
+                          angle: -.1,
+                          onLand: () {
+                            GameSounds.instance.play(approved
+                                ? GameSound.approve
+                                : GameSound.reject);
+                            HapticFeedback.heavyImpact();
+                            _shaker.currentState?.shake(approved ? 3 : 6);
+                          },
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 20 * s, vertical: 4 * s),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: .5),
+                              borderRadius: BorderRadius.circular(8 * s),
+                              border:
+                                  Border.all(color: stampColor, width: 3 * s),
+                              boxShadow: [
+                                BoxShadow(
+                                    color: stampColor.withValues(alpha: .5),
+                                    blurRadius: 18 * s)
+                              ],
+                            ),
+                            child: Text(approved ? '通過' : '否決',
+                                style: TextStyle(
+                                    fontSize: 34 * s,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 10 * s,
+                                    color: stampColor)),
+                          ),
+                        ),
                 ),
             ]),
       ),
@@ -1271,11 +1326,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           child: Text('房號 $code',
               key: const ValueKey('tableRoomCode'),
               style: TextStyle(
-                  fontSize: 11 * s, letterSpacing: 1, color: AvalonTheme.muted)),
+                  fontSize: 11 * s,
+                  letterSpacing: 1,
+                  color: AvalonTheme.muted)),
         ),
       Expanded(
         child: AnimatedSwitcher(
-          duration: _ms(380),
+          duration: lightEffects ? Duration.zero : _ms(380),
           transitionBuilder: (child, a) => FadeTransition(
             opacity: a,
             child: SlideTransition(
@@ -1413,27 +1470,39 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   : null,
             ));
       case GamePhase.voteResult:
-        if (!_votesReady) return SizedBox(height: 36 * s);
         final yes = game.votes.where((v) => v).length;
         final finalRejection = !game.teamApproved && game.rejections == 4;
         // the count is only shown once every card has been turned over
-        return Appear(
-          key: ValueKey('vr${game.history.length}.${game.rejections}'),
-          delay: _ms(120),
-          child: bar(
-              '贊成 $yes · 反對 ${game.players.length - yes}　—　'
-              '${finalRejection ? '連續五次組隊遭否決，邪惡陣營獲勝' : game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
-              TableButton(
-                  !game.canAdvance
-                      ? '等待隊長繼續'
-                      : finalRejection
-                          ? '邪惡獲勝・查看結算'
-                          : game.teamApproved
-                              ? '開始秘密執行任務'
-                              : '繼續',
-                  scale: s,
-                  onPressed:
-                      game.canAdvance ? () => act(game.continueVote) : null)),
+        final scaler = MediaQuery.textScalerOf(context);
+        final height = max(20 * s + 2 + scaler.scale(15 * s) * 1.6,
+            scaler.scale(12.5 * s) * 2.8);
+        return ConstrainedBox(
+          constraints: BoxConstraints(minHeight: height),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _verdictVisible,
+            builder: (context, visible, _) => !visible
+                ? const SizedBox.shrink()
+                : Appear(
+                    key:
+                        ValueKey('vr${game.history.length}.${game.rejections}'),
+                    delay: _ms(120),
+                    child: bar(
+                        '贊成 $yes · 反對 ${game.players.length - yes}　—　'
+                        '${finalRejection ? '連續五次組隊遭否決，邪惡陣營獲勝' : game.teamApproved ? '組隊通過' : '組隊遭否決（需超過半數贊成）'}',
+                        TableButton(
+                            !game.canAdvance
+                                ? '等待隊長繼續'
+                                : finalRejection
+                                    ? '邪惡獲勝・查看結算'
+                                    : game.teamApproved
+                                        ? '開始秘密執行任務'
+                                        : '繼續',
+                            scale: s,
+                            onPressed: game.canAdvance
+                                ? () => act(game.continueVote)
+                                : null)),
+                  ),
+          ),
         );
       default:
         return SizedBox(height: 36 * s);
@@ -1472,7 +1541,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       alignment: Alignment.center,
       padding: EdgeInsets.all(16 * s),
       child: AnimatedSwitcher(
-        duration: _ms(380),
+        duration: lightEffects ? Duration.zero : _ms(380),
         switchInCurve: Curves.easeOut,
         transitionBuilder: (child, a) => FadeTransition(
           opacity: a,
@@ -1574,11 +1643,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final infoW = min(380 * s, max(1.0, c.maxWidth - cardW - 64 * s));
     final infoH = max(1.0, c.maxHeight - 32 * s);
     final color = role.isEvil ? _evil : _good;
-    const flipAt = 350, flipMs = 900, shown = flipAt + flipMs;
-    Widget line(int i, Widget child) => Appear(
-        delay: _ms(shown - 250 + 110 * i),
-        offset: Offset(20 * s, 0),
-        child: child);
+    final flipAt = lightEffects ? 0 : 350;
+    const flipMs = 900;
+    final shown = flipAt + flipMs;
+    Widget line(int i, Widget child) => lightEffects
+        ? child
+        : Appear(
+            delay: _ms(shown - 250 + 110 * i),
+            offset: Offset(20 * s, 0),
+            child: child);
     return Stack(alignment: Alignment.center, children: [
       Positioned.fill(
         child: Appear(
@@ -1851,36 +1924,35 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         .map((s) => s.speaker)
         .toSet();
     return _choiceRow(
-      s,
-      c,
-      '${player(seat)}　投下組隊票',
-      '提案隊伍：${game.team.map(player).join('、')}',
-      [
-        (true, Assets.voteApprove, '贊成', true),
-        (false, Assets.voteReject, '反對', true),
-      ],
-      '蓋牌投出',
-      CardDeck.vote,
-      // the card is laid face down in front of the voter's seat
-      () => _commit((picked) => game.vote(seat, picked),
-          deck: CardDeck.vote,
-          target: _voteKeys[seat],
-          onLaunch: () => _voteLanding.add(seat),
-          onLand: () {
-            _voteLanding.remove(seat);
-            _bumps[seat]++;
-          }),
-      // on its own line, so a long team cannot push it out of sight; opens
-      // the record, newest first
-      note: revised.isEmpty
-          ? null
-          : TextButton.icon(
-              key: const ValueKey('revisedNote'),
-              onPressed: () => _openStatements(),
-              icon: Icon(Icons.forum_outlined, size: 16 * s),
-              label: Text('${revised.length} 位電腦玩家改口了，點這裡看原因',
-                  style: _t(12.5, s, color: AvalonTheme.gold)))
-    );
+        s,
+        c,
+        '${player(seat)}　投下組隊票',
+        '提案隊伍：${game.team.map(player).join('、')}',
+        [
+          (true, Assets.voteApprove, '贊成', true),
+          (false, Assets.voteReject, '反對', true),
+        ],
+        '蓋牌投出',
+        CardDeck.vote,
+        // the card is laid face down in front of the voter's seat
+        () => _commit((picked) => game.vote(seat, picked),
+            deck: CardDeck.vote,
+            target: _voteKeys[seat],
+            onLaunch: () => _voteLanding.add(seat),
+            onLand: () {
+              _voteLanding.remove(seat);
+              _bumps[seat]++;
+            }),
+        // on its own line, so a long team cannot push it out of sight; opens
+        // the record, newest first
+        note: revised.isEmpty
+            ? null
+            : TextButton.icon(
+                key: const ValueKey('revisedNote'),
+                onPressed: () => _openStatements(),
+                icon: Icon(Icons.forum_outlined, size: 16 * s),
+                label: Text('${revised.length} 位電腦玩家改口了，點這裡看原因',
+                    style: _t(12.5, s, color: AvalonTheme.gold))));
   }
 
   Widget _secretQuest(int actor, double s, BoxConstraints c) {
@@ -2293,7 +2365,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         key: ValueKey('quest${game.history.length}'),
         cardWidth: cardW,
         scale: s,
-        caption: '第 ${game.history.length} 次任務　·　洗勻後逐張翻開',
+        caption: '第 ${game.history.length} 次任務　·　'
+            '洗勻後逐張翻開',
         items: [
           for (final success in questOrder)
             RevealItem(
@@ -2333,7 +2406,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final target = _assassinTarget;
     final showStrike = target != null && !_assassinShown;
     return AnimatedSwitcher(
-      duration: _ms(450),
+      duration: lightEffects ? Duration.zero : _ms(450),
       child: showStrike
           ? _assassinReveal(target, s, c)
           : KeyedSubtree(

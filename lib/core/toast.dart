@@ -144,6 +144,12 @@ class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
                           child: ClipRRect(
                               borderRadius: BorderRadius.circular(7 * s),
                               child: Image.asset(widget.image!,
+                                  scale: 1,
+                                  cacheWidth: (46 *
+                                          s *
+                                          MediaQuery.devicePixelRatioOf(
+                                              context))
+                                      .ceil(),
                                   fit: BoxFit.cover)),
                         ),
                         SizedBox(height: 10 * s),

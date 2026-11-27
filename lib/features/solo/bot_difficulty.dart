@@ -13,7 +13,8 @@ enum BotDifficulty {
       blend: .4,
       stacking: .15,
       assassinNoise: .7,
-      steadfast: .15),
+      steadfast: .15,
+      linkedRisk: false),
   normal('一般', '會推理、記票，也會演一點戲',
       reasoning: .65, voteEvidence: .6, doubt: .68, steadfast: .25),
   expert('高手', '推理嚴謹，偽裝和配合都更到位',
@@ -42,7 +43,8 @@ enum BotDifficulty {
       this.stacking = .5,
       this.assassinNoise = .45,
       this.insight = false,
-      this.steadfast = .35});
+      this.steadfast = .35,
+      this.linkedRisk = true});
   final String label, description;
 
   /// How far the worked-out share of possible deals replaces gut feeling
@@ -78,4 +80,9 @@ enum BotDifficulty {
   /// How clearly the doubt must turn before a bot that sided with one of
   /// two Percival claimants says it now believes the other.
   final double steadfast;
+
+  /// Whether a team's chance of failing is reckoned over every deal of the
+  /// evil seats that fits the cards (seats tied together: "one of these two
+  /// failed it") rather than seat by seat, as if each were a separate coin.
+  final bool linkedRisk;
 }

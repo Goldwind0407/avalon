@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import '../../core/ambient_motion.dart';
+import '../../core/effects.dart';
 
 /// Runs [builder] once with t going 0 → 1 over [duration], after [delay].
 /// Rebuilding the parent does not restart it.
@@ -296,23 +297,25 @@ class ShineSweep extends StatelessWidget {
   final double radius;
 
   @override
-  Widget build(BuildContext context) => Stack(children: [
-        child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(radius),
-              child: Delayed(
-                delay: delay,
-                duration: duration,
-                builder: (context, t, _) => t <= 0 || t >= 1
-                    ? const SizedBox.shrink()
-                    : CustomPaint(painter: _ShinePainter(t)),
+  Widget build(BuildContext context) => lightEffects
+      ? child
+      : Stack(children: [
+          child,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(radius),
+                child: Delayed(
+                  delay: delay,
+                  duration: duration,
+                  builder: (context, t, _) => t <= 0 || t >= 1
+                      ? const SizedBox.shrink()
+                      : CustomPaint(painter: _ShinePainter(t)),
+                ),
               ),
             ),
           ),
-        ),
-      ]);
+        ]);
 }
 
 class _ShinePainter extends CustomPainter {
@@ -405,21 +408,23 @@ class GlowBurst extends StatelessWidget {
   final Duration delay;
   final Duration duration;
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-        child: OverflowBox(
-          minWidth: size,
-          maxWidth: size,
-          minHeight: size,
-          maxHeight: size,
-          child: Delayed(
-            delay: delay,
-            duration: duration,
-            builder: (context, t, _) => t <= 0 || t >= 1
-                ? const SizedBox.shrink()
-                : CustomPaint(painter: BurstPainter(color, t)),
+  Widget build(BuildContext context) => lightEffects
+      ? const SizedBox.shrink()
+      : IgnorePointer(
+          child: OverflowBox(
+            minWidth: size,
+            maxWidth: size,
+            minHeight: size,
+            maxHeight: size,
+            child: Delayed(
+              delay: delay,
+              duration: duration,
+              builder: (context, t, _) => t <= 0 || t >= 1
+                  ? const SizedBox.shrink()
+                  : CustomPaint(painter: BurstPainter(color, t)),
+            ),
           ),
-        ),
-      );
+        );
 }
 
 enum ParticleKind {
@@ -490,14 +495,16 @@ class _ParticlesState extends State<Particles>
   }
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-        child: RepaintBoundary(
-          child: SizedBox.expand(
-            child:
-                CustomPaint(painter: _ParticlePainter(widget.kind, _ps, _time)),
+  Widget build(BuildContext context) => lightEffects
+      ? const SizedBox.expand()
+      : IgnorePointer(
+          child: RepaintBoundary(
+            child: SizedBox.expand(
+              child: CustomPaint(
+                  painter: _ParticlePainter(widget.kind, _ps, _time)),
+            ),
           ),
-        ),
-      );
+        );
 }
 
 class _ParticlePainter extends CustomPainter {
@@ -603,27 +610,38 @@ class BlurScrim extends StatelessWidget {
   final double dim;
 
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: visible ? 1 : 0),
-        duration: const Duration(milliseconds: 340),
-        curve: Curves.easeOut,
-        child: child,
-        builder: (context, v, child) {
-          if (v <= 0) return const SizedBox.shrink();
-          return IgnorePointer(
-            ignoring: !visible,
-            child: ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: sigma * v, sigmaY: sigma * v),
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: dim * v),
-                  child: child ?? const SizedBox.expand(),
-                ),
-              ),
+  Widget build(BuildContext context) {
+    if (lightEffects) {
+      return visible
+          ? ColoredBox(
+              color: Colors.black.withValues(alpha: dim),
+              child: child ?? const SizedBox.expand(),
+            )
+          : const SizedBox.shrink();
+    }
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: visible ? 1 : 0),
+      duration: const Duration(milliseconds: 340),
+      curve: Curves.easeOut,
+      child: child,
+      builder: (context, v, child) {
+        if (v <= 0) return const SizedBox.shrink();
+        final overlay = ColoredBox(
+          color: Colors.black.withValues(alpha: dim * v),
+          child: child ?? const SizedBox.expand(),
+        );
+        return IgnorePointer(
+          ignoring: !visible,
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: sigma * v, sigmaY: sigma * v),
+              child: overlay,
             ),
-          );
-        },
-      );
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// Banner that sweeps across the table to announce something, then leaves.
@@ -806,8 +824,10 @@ class FlightLayerState extends State<FlightLayer>
         child: Stack(children: [
           for (final a in _active)
             AnimatedBuilder(
+              key: ObjectKey(a),
               animation: a.controller,
-              builder: (context, _) {
+              child: a.flight.builder(a.from.width),
+              builder: (context, piece) {
                 final v = a.controller.value;
                 if (v < a.start) return const SizedBox.shrink();
                 final t = a.start >= 1 ? 1.0 : (v - a.start) / (1 - a.start);
@@ -826,7 +846,7 @@ class FlightLayerState extends State<FlightLayer>
                       // artwork is not re-decoded at every size on the way
                       child: Transform.scale(
                           scale: (1 + .14 * sin(pi * e)) * w / a.from.width,
-                          child: a.flight.builder(a.from.width)),
+                          child: piece),
                     ),
                   ),
                 );

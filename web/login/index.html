@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>登入 · 阿瓦隆</title>
+  <link rel="icon" type="image/png" href="../favicon.png">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      background: #252d45; color: #f1e8d5;
+      font: 16px/1.6 system-ui, -apple-system, "PingFang TC", sans-serif;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    main {
+      box-sizing: border-box; width: min(420px, calc(100vw - 32px));
+      padding: 24px; text-align: center;
+      background: #151b2f; border: 1px solid #b59455; border-radius: 16px;
+    }
+    h1 { margin: 0 0 6px; color: #ebc780; font-size: 21px; }
+    p { margin: 8px 0; color: #acb2cf; font-size: 14px; }
+    button {
+      margin-top: 14px; width: 100%; padding: 12px; font: inherit;
+      border: 1px solid #b59455; border-radius: 10px;
+      background: #ebc780; color: #171d30; cursor: pointer;
+    }
+    button.secondary { background: transparent; color: #ebc780; }
+    button:disabled { opacity: .55; }
+    [data-error] { color: #ffb38a; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>多機遊玩登入</h1>
+    <p>用 Google 帳號登入後，會回到多機遊玩。其他玩家只會看到你取的暱稱。</p>
+    <p data-status role="status"></p>
+    <button type="button" data-sign-in disabled>用 Google 登入</button>
+    <button type="button" class="secondary" data-back>返回遊戲</button>
+  </main>
+  <script type="module">
+    // The game page runs isolated from other sites (for its WebAssembly
+    // renderer), which keeps Google's sign-in window from reporting back.
+    // This page is not isolated (see _headers), shares the game's origin and
+    // so its saved sign-in, and does the same as the app's own web sign-in:
+    // an anonymous account here becomes the Google one; if that Google
+    // account is already in use, this device becomes it.
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js';
+    import {
+      getAuth, GoogleAuthProvider, linkWithPopup, signInWithPopup,
+      signInWithCredential,
+    } from 'https://www.gstatic.com/firebasejs/11.2.0/firebase-auth.js';
+
+    const app = initializeApp({
+      apiKey: 'AIzaSyBX59ZuswRIrIvmhqdvd__44xl5MPyLR8A',
+      appId: '1:1041864366616:web:01906d9135bce53515416d',
+      messagingSenderId: '1041864366616',
+      projectId: 'avalon-shadow-council',
+      authDomain: 'avalon-shadow-council.firebaseapp.com',
+      storageBucket: 'avalon-shadow-council.firebasestorage.app',
+    });
+    const auth = getAuth(app);
+    const status = document.querySelector('[data-status]');
+    const signIn = document.querySelector('[data-sign-in]');
+    const back = () => location.replace(new URL('../#/online', location.href));
+    document.querySelector('[data-back]').onclick =
+      () => location.replace(new URL('../', location.href));
+
+    await auth.authStateReady();
+    signIn.disabled = false;
+
+    signIn.onclick = async () => {
+      signIn.disabled = true;
+      status.removeAttribute('data-error');
+      status.textContent = '正在開啟 Google 登入…';
+      const provider = new GoogleAuthProvider();
+      try {
+        const current = auth.currentUser;
+        if (current && current.isAnonymous) {
+          try {
+            await linkWithPopup(current, provider);
+          } catch (error) {
+            const used = error?.code === 'auth/credential-already-in-use' ||
+              error?.code === 'auth/email-already-in-use';
+            if (!used) throw error;
+            const credential = GoogleAuthProvider.credentialFromError(error);
+            if (credential) await signInWithCredential(auth, credential);
+            else await signInWithPopup(auth, provider);
+          }
+        } else {
+          await signInWithPopup(auth, provider);
+        }
+        status.textContent = '登入完成，正在回到遊戲…';
+        back();
+      } catch (error) {
+        signIn.disabled = false;
+        if (error?.code === 'auth/popup-closed-by-user' ||
+            error?.code === 'auth/cancelled-popup-request') {
+          status.textContent = '';
+          return;
+        }
+        status.setAttribute('data-error', '');
+        status.textContent = `登入失敗：${error?.message ?? error}`;
+      }
+    };
+  </script>
+</body>
+</html>

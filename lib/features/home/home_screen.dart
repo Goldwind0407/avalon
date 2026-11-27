@@ -3,6 +3,7 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/sound_controls.dart';
 import '../../core/game_sounds.dart';
+import '../../core/pwa_controls.dart';
 import '../online/online_play_screen.dart';
 import 'local_play_screen.dart';
 import '../rules/rules_screen.dart';
@@ -54,7 +55,7 @@ class HomeScreen extends StatelessWidget {
                                 key: const ValueKey('openOnline'),
                                 icon: Icons.devices,
                                 title: '多機遊玩',
-                                subtitle: '每人一支手機，加入同一個房間',
+                                subtitle: '每人一支手機，加入同一個房間（需要網路）',
                                 onTap: () =>
                                     _open(context, const OnlinePlayScreen()),
                               ),
@@ -70,16 +71,30 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 8),
                               Center(
-                                child: TextButton.icon(
-                                  key: const ValueKey('openRules'),
-                                  onPressed: () {
-                                    GameSounds.instance.play(GameSound.tap);
-                                    RulesScreen.open(context);
-                                  },
-                                  icon: const Icon(Icons.menu_book_outlined,
-                                      size: 18),
-                                  label: const Text('遊戲規則・新手教學'),
-                                ),
+                                child: Wrap(
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      TextButton.icon(
+                                        key: const ValueKey('openRules'),
+                                        onPressed: () {
+                                          GameSounds.instance
+                                              .play(GameSound.tap);
+                                          RulesScreen.open(context);
+                                        },
+                                        icon: const Icon(
+                                            Icons.menu_book_outlined,
+                                            size: 18),
+                                        label: const Text('遊戲規則・新手教學'),
+                                      ),
+                                      if (hasOfflineControls)
+                                        TextButton.icon(
+                                          onPressed: openOfflineControls,
+                                          icon: const Icon(
+                                              Icons.download_outlined,
+                                              size: 18),
+                                          label: const Text('離線遊玩'),
+                                        )
+                                    ]),
                               ),
                             ]),
                       ),
@@ -120,6 +135,9 @@ class _Crest extends StatelessWidget {
               borderRadius: BorderRadius.circular(37),
               child: Image.asset(HomeScreen.emblem,
                   key: const ValueKey('homeEmblem'),
+                  scale: 1,
+                  cacheWidth:
+                      (210 * MediaQuery.devicePixelRatioOf(context)).ceil(),
                   fit: BoxFit.cover,
                   semanticLabel: 'AVALON 阿瓦隆')),
         ),

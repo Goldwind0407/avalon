@@ -1,6 +1,7 @@
 import 'dart:math';
 import '../../game/discussion_model.dart';
 import '../bot_observation.dart';
+import '../persona/persona_lines.dart';
 import 'bot_catalog.dart';
 import 'bot_contract.dart';
 import 'bot_dialogue_context.dart';
@@ -35,10 +36,18 @@ class BotSpeechMemory {
 /// No reflection/eval. Only registered predicates and finite placeholders can
 /// produce text. The returned public statement has no private strategy fields.
 class BotDialoguePlanner {
-  BotDialoguePlanner(this.random, {BotDialogueCatalog? catalog})
+  BotDialoguePlanner(this.random, {BotDialogueCatalog? catalog, this.persona})
       : catalog = catalog ?? BotDialogueCatalog.bundled;
   final Random random;
   final BotDialogueCatalog catalog;
+
+  /// The speaker's own wordings of some rules (see [PersonaLines]).
+  final PersonaLines? persona;
+
+  /// Every wording of [rule] anyone may use: what others said in their own
+  /// words is still this rule said.
+  static List<String> _wordings(BotSpeechRule rule) =>
+      [...rule.templates, ...PersonaLines.allFor(rule.id)];
   final memory = BotSpeechMemory();
   BotDialogueTrace? lastTrace;
 
@@ -55,9 +64,14 @@ class BotDialoguePlanner {
         : null;
   }
 
+  /// [cleared] and [condemned]: seats this (good) speaker is all but sure
+  /// are good, or evil. He does not point at the first nor speak up for the
+  /// second, whatever line would otherwise fit.
   DiscussionStatement speak(
       BotObservation o, bool approve, double Function(List<int>) risk,
-      {int? chosenTarget}) {
+      {int? chosenTarget,
+      Set<int> cleared = const {},
+      Set<int> condemned = const {}}) {
     final role = BotDialogueRole.forPlayer(o.role, o.evil);
     // What others already said about this proposal: never repeat a line,
     // and prefer a different kind of remark.
@@ -113,6 +127,16 @@ class BotDialoguePlanner {
               : rule.intent == BotSpeechIntent.defendOther)) {
         continue;
       }
+      final aimed = context.target;
+      if (aimed != null &&
+          aimed != o.seat &&
+          ((cleared.contains(aimed) &&
+                  (rule.intent == BotSpeechIntent.accuse ||
+                      ['G04', 'RME02', 'RLS02', 'ROB05'].contains(rule.id))) ||
+              (condemned.contains(aimed) &&
+                  rule.intent == BotSpeechIntent.defendOther))) {
+        continue;
+      }
       // Private facts can only be expressed as claims with a matching public
       // action by THIS holder. Otherwise only public-grounded opinions render.
       if (rule.policy == BotClaimPolicy.privateTruthClaim &&
@@ -132,10 +156,11 @@ class BotDialoguePlanner {
             if (!saidLines.any((said) => said.endsWith(text))) text
       ];
       if (lines.isEmpty) continue;
+      final wordings = _wordings(rule);
       // Someone already used this rule about this proposal: four people
       // saying the same thing in other words is still the same thing.
       final echoes = [
-        for (final template in rule.templates)
+        for (final template in wordings)
           if (render(template, context.bindings) case final String text)
             if (saidLines.any((said) => said.endsWith(text))) text
       ].length;
@@ -150,7 +175,7 @@ class BotDialoguePlanner {
               ? 0
               : 20 *
                   [
-                    for (final template in rule.templates)
+                    for (final template in wordings)
                       if (render(template, context.bindings)
                           case final String text)
                         if (heard.any((said) => said.endsWith(text))) text
@@ -200,11 +225,17 @@ class BotDialoguePlanner {
           intent: 'opinion');
     }
     final (rule, context, semanticKey, _) = candidates.first;
-    final lines = [
-      for (final t in rule.templates)
-        if (render(t, context.bindings) case final String text)
-          if (!saidLines.any((said) => said.endsWith(text))) (t, text)
-    ];
+    List<(String, String)> usable(List<String> templates) => [
+          for (final t in templates)
+            if (render(t, context.bindings) case final String text)
+              if (!saidLines.any((said) => said.endsWith(text))) (t, text)
+        ];
+    // most of the time in the speaker's own words, where he has them
+    final own = persona?.rules[rule.id];
+    final mine = own == null || random.nextDouble() >= PersonaLines.share
+        ? const <(String, String)>[]
+        : usable(own);
+    final lines = mine.isNotEmpty ? mine : usable(rule.templates);
     final fresh = lines.where((line) => !memory.recentlySaid(line.$2)).toList();
     final choices = fresh.isEmpty ? lines : fresh;
     final (template, text) = choices[random.nextInt(choices.length)];

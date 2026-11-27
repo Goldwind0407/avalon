@@ -8,6 +8,7 @@ import 'bot_strategy_plan.dart';
 import 'dialogue/bot_contract.dart';
 import 'memory/match_archive.dart';
 import 'memory/social_memory.dart';
+import 'persona/persona_lines.dart';
 
 part 'bot_voice_claims.dart';
 part 'bot_voice_memory.dart';
@@ -18,10 +19,29 @@ part 'bot_voice_points.dart';
 /// what every player saw (quests, votes, statements); private knowledge only
 /// decides whom a bot would rather point at, never what it says it saw.
 class BotVoice {
-  BotVoice(this.random, this.style, this.difficulty);
+  /// Below this suspicion a good bot treats a player as cleared (and above
+  /// one minus it, as caught).
+  static const clearedBelow = .1;
+  BotVoice(this.random, this.style, this.difficulty, [this.persona]);
   final Random random;
   final BotStyle style;
   final BotDifficulty difficulty;
+
+  /// This regular's own way of saying things, if it has one.
+  final PersonaLines? persona;
+
+  /// [shared], or (most of the time) this regular's own wording of the
+  /// same thing, with `{who}` filled in.
+  List<String> _own(List<String> shared, List<String>? own,
+      [Map<String, String> fill = const {}]) {
+    if (own == null ||
+        own.isEmpty ||
+        random.nextDouble() >= PersonaLines.share) {
+      return shared;
+    }
+    return [for (final t in own) PersonaLines.fill(t, fill)];
+  }
+
   BotStrategyPlan? plan;
   final _arguments = <String>{};
   final _recentLines = <String>[];
@@ -229,7 +249,15 @@ class BotVoice {
     return null;
   }
 
-  String get _opener => switch (style) {
+  String get _opener {
+    final own = persona?.openers;
+    if (own != null && random.nextDouble() < PersonaLines.share) {
+      return _pick(own);
+    }
+    return _styleOpener;
+  }
+
+  String get _styleOpener => switch (style) {
         BotStyle.impulsive =>
           _pick(['我直說，', '說真的，', '我不繞圈子，', '講白一點，', '我就直接講了，']),
         BotStyle.aggressive =>
@@ -243,30 +271,37 @@ class BotVoice {
       };
 
   /// The short sentence that closes a remark with this bot's vote.
-  String _closing(bool approve) => approve
-      ? _pick([
-          '這隊我先贊成。',
-          '這隊我支持。',
-          '這隊我願意試。',
-          '這票我會投贊成。',
-          '這組我可以接受。',
-          '這次我投贊成。',
-          '這隊我讓它過。',
-          '我這票會是贊成。',
-        ])
-      : _pick([
-          '這隊我投反對。',
-          '這次我想換個組合。',
-          '這份名單我不支持。',
-          '這票我會反對。',
-          '這隊我先擋下來。',
-          '這次我不會投贊成。',
-          '我想再看下一個組合。',
-          '這組我過不了。',
-        ]);
+  String _closing(bool approve) => _pick(_own(
+      approve ? _approveClosings : _opposeClosings,
+      approve ? persona?.approve : persona?.oppose));
+
+  static const _approveClosings = [
+    '這隊我先贊成。',
+    '這隊我支持。',
+    '這隊我願意試。',
+    '這票我會投贊成。',
+    '這組我可以接受。',
+    '這次我投贊成。',
+    '這隊我讓它過。',
+    '我這票會是贊成。',
+  ];
+  static const _opposeClosings = [
+    '這隊我投反對。',
+    '這次我想換個組合。',
+    '這份名單我不支持。',
+    '這票我會反對。',
+    '這隊我先擋下來。',
+    '這次我不會投贊成。',
+    '我想再看下一個組合。',
+    '這組我過不了。',
+  ];
 
   /// How readily this bot speaks its mind about a person.
+  /// This game's tactic's say on how freely this bot names people.
+  double boldness = 1;
+
   double get _boldness =>
+      boldness *
       switch (style) {
         BotStyle.impulsive || BotStyle.aggressive => .8,
         BotStyle.cautious => .4,
@@ -519,21 +554,24 @@ class BotVoice {
         if (voices >= 4) break;
         return line(
             voices >= 2
-                ? _pick([
-                    '${_who(o, t)}我也不放心。',
-                    '加我一個，我也看${_who(o, t)}。',
-                    '同樣的紀錄我也看到了，${_who(o, t)}得解釋。',
-                    '我一樣卡在${_who(o, t)}。',
-                    '${_who(o, t)}這邊我也覺得不太對。',
-                    '我也把${_who(o, t)}排在前面。',
-                  ])
-                : '${_pick([
-                        '我同意$speaker，',
-                        '$speaker說的有道理，',
-                        '我也這麼覺得，',
-                        '跟$speaker想的一樣，',
-                        '$speaker提的這點我也注意到了，'
-                      ])}'
+                ? _pick(_own(
+                    [
+                      '${_who(o, t)}我也不放心。',
+                      '加我一個，我也看${_who(o, t)}。',
+                      '同樣的紀錄我也看到了，${_who(o, t)}得解釋。',
+                      '我一樣卡在${_who(o, t)}。',
+                      '${_who(o, t)}這邊我也覺得不太對。',
+                      '我也把${_who(o, t)}排在前面。',
+                    ],
+                    persona?.join,
+                    {'who': _who(o, t)}))
+                : '${_pick(_own([
+                          '我同意$speaker，',
+                          '$speaker說的有道理，',
+                          '我也這麼覺得，',
+                          '跟$speaker想的一樣，',
+                          '$speaker提的這點我也注意到了，'
+                        ], persona?.agree, {'who': speaker}))}'
                     '${_reasons(o, t)}。',
             t,
             DiscussionPosition.suspect,
@@ -603,13 +641,16 @@ class BotVoice {
     if (voices >= 4) return null;
     if (voices >= 1) {
       return line(
-          _pick([
-            '$who我也不放心。',
-            '加我一個，我也看$who。',
-            '我一樣卡在$who。',
-            '$who這邊我也覺得不太對。',
-            '我也把$who排在前面。',
-          ]),
+          _pick(_own(
+              [
+                '$who我也不放心。',
+                '加我一個，我也看$who。',
+                '我一樣卡在$who。',
+                '$who這邊我也覺得不太對。',
+                '我也把$who排在前面。',
+              ],
+              persona?.join,
+              {'who': who})),
           t,
           DiscussionPosition.suspect);
     }
@@ -669,13 +710,19 @@ class BotVoice {
       for (final s in _thisRound(o))
         if (s.speaker != o.seat) s.text
     };
-    final fresh = lines.where((l) => !said.contains(l)).toList();
+    final own = persona == null
+        ? null
+        : approve
+            ? [if (again) ...persona!.firstAgain, ...persona!.firstApprove]
+            : persona!.firstOppose;
+    final pool = _own(lines, own);
+    final fresh = pool.where((l) => !said.contains(l)).toList();
     return DiscussionStatement(
         speaker: o.seat,
         quest: o.quest,
         generation: o.generation,
         attempt: o.proposalId.attempt,
-        text: _pick(fresh.isEmpty ? lines : fresh),
+        text: _pick(fresh.isEmpty ? pool : fresh),
         team: o.team,
         supportsTeam: approve,
         switched: o.switched,

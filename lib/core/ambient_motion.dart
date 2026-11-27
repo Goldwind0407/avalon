@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:material_ui/material_ui.dart';
+import 'effects.dart';
 
 /// Controls decorative loops only. Finite gameplay animations must continue
 /// while idle so their completion callbacks can advance the presentation.
@@ -9,10 +10,11 @@ class AmbientMotionScope extends InheritedWidget {
   final bool enabled;
 
   static bool of(BuildContext context) =>
-      context
-          .dependOnInheritedWidgetOfExactType<AmbientMotionScope>()
-          ?.enabled ??
-      true;
+      !lightEffects &&
+      (context
+              .dependOnInheritedWidgetOfExactType<AmbientMotionScope>()
+              ?.enabled ??
+          true);
 
   @override
   bool updateShouldNotify(AmbientMotionScope oldWidget) =>
@@ -86,6 +88,7 @@ class _AmbientMotionState extends State<AmbientMotion>
           child: AmbientMotionScope(
             enabled: _foreground &&
                 _active &&
+                !lightEffects &&
                 !MediaQuery.disableAnimationsOf(context),
             child: widget.child,
           ),

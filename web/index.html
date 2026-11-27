@@ -17,12 +17,13 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="阿瓦隆：5～10 人的推理桌遊，可一機傳遞或多機連線遊玩。">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="阿瓦隆">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -31,6 +32,10 @@
 
   <title>Avalon · 阿瓦隆</title>
   <link rel="manifest" href="manifest.json">
+  <!-- the table of a game against the computers, drawn by the page itself
+       (lib/features/html_table/html_table_screen.dart) -->
+  <link rel="stylesheet" href="table/table.css">
+  <script src="table/table.js" defer></script>
 </head>
 <body>
   <!--
@@ -41,6 +46,12 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    // frame-time probe for measuring, only with ?perf in the address
+    if (new URLSearchParams(location.search).has('perf')) {
+      document.write('<script src="perf.js"><\/script>');
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

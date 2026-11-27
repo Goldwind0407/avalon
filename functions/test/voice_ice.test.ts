@@ -1,7 +1,40 @@
 import { strict as assert } from 'node:assert';
 import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
-import { voiceIceServers } from '../src/voice_ice';
+import { cloudflareIceServers, voiceIceServers } from '../src/voice_ice';
+
+test('Cloudflare issues short-lived credentials and blocked port 53 is omitted', async () => {
+  const servers = await cloudflareIceServers('test-key', 'test-api-token', async (url, init) => {
+    assert.equal(url, 'https://rtc.live.cloudflare.com/v1/turn/keys/test-key/credentials/generate-ice-servers');
+    assert.equal(init?.method, 'POST');
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer test-api-token');
+    assert.deepEqual(JSON.parse(String(init?.body)), { ttl: 14400 });
+    return Response.json({ iceServers: [
+      { urls: ['stun:stun.cloudflare.com:3478'] },
+      { urls: ['turn:turn.cloudflare.com:53?transport=udp', 'turns:turn.cloudflare.com:443?transport=tcp'],
+        username: 'temporary-user', credential: 'temporary-password' },
+    ] }, { status: 201 });
+  });
+  assert.deepEqual(servers, [
+    { urls: ['stun:stun.cloudflare.com:3478'] },
+    { urls: ['turns:turn.cloudflare.com:443?transport=tcp'],
+      username: 'temporary-user', credential: 'temporary-password' },
+  ]);
+});
+
+test('Cloudflare HTTP errors and responses without a usable relay are rejected', async () => {
+  await assert.rejects(
+    cloudflareIceServers('key', 'token', async () => new Response(null, { status: 401 })),
+    /request failed/,
+  );
+  await assert.rejects(
+    cloudflareIceServers('key', 'token', async () => Response.json({ iceServers: [
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'turns:turn.cloudflare.com:443' },
+    ] })),
+    /No usable TURN credentials/,
+  );
+});
 
 test('STUN-only works without any paid account or TURN secret', () => {
   assert.deepEqual(voiceIceServers('u0', {}), [{ urls: 'stun:stun.l.google.com:19302' }]);

@@ -10,8 +10,10 @@ import 'package:avalon_shadow_council/features/lobby/role_presets.dart';
 import 'package:avalon_shadow_council/features/lobby/room_model.dart';
 import 'package:avalon_shadow_council/features/solo/bot_brain.dart';
 import 'package:avalon_shadow_council/features/solo/bot_difficulty.dart';
+import 'package:avalon_shadow_council/features/solo/bot_tuning.dart';
 import 'package:avalon_shadow_council/features/solo/bot_voice.dart';
 import 'package:avalon_shadow_council/features/solo/persona/bot_persona.dart';
+import 'package:avalon_shadow_council/features/solo/review_export.dart';
 import 'package:avalon_shadow_council/features/solo/solo_session.dart';
 
 /// Win balance over many random all-computer games: 5 to 10 players and a
@@ -318,7 +320,10 @@ void play(
       time.elapse(const Duration(milliseconds: 1));
       time.flushMicrotasks();
     }
-    expect(s.phase, GamePhase.finished, reason: '${setup.label} seed $seed');
+    // (a plain check: games are also played away from a test, in isolates)
+    if (s.phase != GamePhase.finished) {
+      throw StateError('unfinished game: ${setup.label} seed $seed');
+    }
     done(s);
     s.dispose();
     time.flushMicrotasks();
@@ -330,6 +335,14 @@ void main() {
   final games = int.tryParse(Platform.environment['BALANCE_GAMES'] ?? '');
 
   test('balance', () {
+    // BALANCE_UNTUNED=1: the code's own numbers, not BotTuning.tuned
+    if ((Platform.environment['BALANCE_UNTUNED'] ?? '').isNotEmpty) {
+      BotTuning.override({
+        for (final k in BotTuning.tuned.keys)
+          k: BotTuning.names[k.split('@').first]!,
+      });
+      addTearDown(() => BotTuning.override(const {}));
+    }
     final r = Random(int.parse(Platform.environment['BALANCE_SEED'] ?? '1'));
     final out = StringBuffer();
     // BALANCE_LOG=file: one line a game, to compare two runs game by game
@@ -337,6 +350,10 @@ void main() {
     final log = logPath == null ? null : StringBuffer();
     // BALANCE_DUMP=file: every game in full (JSON lines), for analysis
     final dumpPath = Platform.environment['BALANCE_DUMP'];
+    // BALANCE_REVIEW=file: every game as its review text (JSON lines), with
+    // each computer's reasons: what tool/llm/analyze_games.py reads
+    final reviewPath = Platform.environment['BALANCE_REVIEW'];
+    final reviews = reviewPath == null ? null : StringBuffer();
     final dump = dumpPath == null ? null : StringBuffer();
     // the same setups and seeds for both runs
     final setups = [for (var g = 0; g < games!; g++) randomSetup(r)];
@@ -358,6 +375,11 @@ void main() {
     if (Platform.environment['BALANCE_HARDLINE'] == 'off') {
       BotBrain.hardlineChance = 0;
     }
+    // BALANCE_LINKED=off: team risk seat by seat, as before deals were
+    // weighed together
+    if (Platform.environment['BALANCE_LINKED'] == 'off') {
+      BotBrain.linkedRisk = false;
+    }
     // BALANCE_CLAIMS=off: nobody claims a role
     if (Platform.environment['BALANCE_CLAIMS'] == 'off') {
       BotVoice.percivalClaimChance =
@@ -375,6 +397,17 @@ void main() {
         play(setup, seeds[g], talk, (s) {
           log?.writeln(gameLine(g, setup, s));
           dump?.writeln(jsonEncode(gameDump(setup, s)));
+          final review = reviews == null ? null : s.review;
+          if (review != null) {
+            reviews!.writeln(jsonEncode({
+              'game': g,
+              'n': setup.count,
+              'exp': setup.label,
+              'talk': talk,
+              'winner': s.winner,
+              'text': reviewText(review, difficulty: s.difficulty.label),
+            }));
+          }
           all.add(s);
           byCount.putIfAbsent(setup.count, Tally.new).add(s);
           byExpansion.putIfAbsent(setup.label, Tally.new).add(s);
@@ -396,6 +429,7 @@ void main() {
     }
     if (logPath != null) File(logPath).writeAsStringSync('$log');
     if (dumpPath != null) File(dumpPath).writeAsStringSync('$dump');
+    if (reviewPath != null) File(reviewPath).writeAsStringSync('$reviews');
     final path = Platform.environment['BALANCE_OUT'];
     if (path != null) File(path).writeAsStringSync('$out');
     // ignore: avoid_print

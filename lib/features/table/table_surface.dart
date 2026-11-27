@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:material_ui/material_ui.dart';
+import '../../core/effects.dart';
 
 /// Dark walnut table top filling the whole screen.
 class WoodTable extends StatelessWidget {
@@ -26,6 +27,7 @@ class _WoodPainter extends CustomPainter {
             end: Alignment.bottomRight,
             colors: [Color(0xFF4A2E1C), Color(0xFF341F12), Color(0xFF442A19)],
           ).createShader(rect));
+    if (lightEffects) return;
     final rng = Random(11);
     const planks = 6;
     final plankH = size.height / planks;
@@ -109,12 +111,14 @@ class LeatherMat extends StatelessWidget {
   Widget build(BuildContext context) => DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(radius),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: .6),
-                blurRadius: 24,
-                offset: const Offset(0, 10)),
-          ],
+          boxShadow: lightEffects
+              ? null
+              : [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .6),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10)),
+                ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(radius),
@@ -142,6 +146,7 @@ class _MatPainter extends CustomPainter {
             colors: [Color(0xFF24493A), Color(0xFF173226), Color(0xFF0E2119)],
             stops: [0, .6, 1],
           ).createShader(rect));
+    if (lightEffects) return;
     // pebbled leather grain
     final rng = Random(5);
     final dots = Paint();

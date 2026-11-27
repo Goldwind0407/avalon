@@ -1,12 +1,14 @@
 {
     "name": "Avalon · 阿瓦隆",
     "short_name": "阿瓦隆",
-    "start_url": ".",
+    "id": "./",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
     "background_color": "#252d45",
     "theme_color": "#252d45",
     "description": "5～10 人同機傳遞的阿瓦隆推理遊戲。",
-    "orientation": "portrait-primary",
+    "orientation": "landscape",
     "prefer_related_applications": false,
     "icons": [
         {

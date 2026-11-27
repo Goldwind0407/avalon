@@ -1,0 +1,85 @@
+:root {
+  --avalon-safe-top: env(safe-area-inset-top, 0px);
+  --avalon-safe-right: env(safe-area-inset-right, 0px);
+  --avalon-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --avalon-safe-left: env(safe-area-inset-left, 0px);
+}
+
+.avalon-offline {
+  box-sizing: border-box;
+  inset: var(--avalon-safe-top) var(--avalon-safe-right)
+    var(--avalon-safe-bottom) var(--avalon-safe-left);
+  width: min(440px, calc(100vw - var(--avalon-safe-left) - var(--avalon-safe-right) - 36px));
+  max-height: calc(100dvh - var(--avalon-safe-top) - var(--avalon-safe-bottom) - 24px);
+  overflow: auto;
+  padding: 20px;
+  color: #f1e8d5;
+  background: #151b2f;
+  border: 1px solid #b59455;
+  border-radius: 16px;
+  font: 15px/1.5 system-ui, sans-serif;
+}
+
+.avalon-offline::backdrop { background: #080b14c9; }
+.avalon-offline h2 { margin: 0; color: #ebc780; font-size: 20px; }
+.avalon-offline p { margin: 9px 0; }
+.avalon-offline progress { width: 100%; accent-color: #ebc780; }
+.avalon-offline button {
+  padding: 8px 15px;
+  border: 1px solid #b59455;
+  border-radius: 8px;
+  background: #ebc780;
+  color: #171d30;
+  font: inherit;
+}
+.avalon-offline button:disabled { opacity: .55; }
+.avalon-offline form { margin-top: 12px; text-align: right; }
+
+.avalon-rotate { display: none; }
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .avalon-rotate {
+    position: fixed;
+    z-index: 10;
+    inset: auto max(12px, var(--avalon-safe-right))
+      max(12px, var(--avalon-safe-bottom)) max(12px, var(--avalon-safe-left));
+    display: block;
+    padding: 10px;
+    border-radius: 10px;
+    background: #151b2f;
+    color: #ebc780;
+    font: 15px system-ui, sans-serif;
+    text-align: center;
+    pointer-events: none;
+  }
+}
+
+.avalon-update {
+  position: fixed;
+  z-index: 11;
+  top: max(8px, var(--avalon-safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border: 1px solid #b59455;
+  border-radius: 999px;
+  background: #ebc780;
+  color: #171d30;
+  font: 600 14px system-ui, sans-serif;
+  box-shadow: 0 4px 14px #0008;
+}
+.avalon-update[hidden] { display: none; }
+.avalon-frozen { z-index: 12; }
+/* bottom middle, under everything the menus put on screen (in a phone held
+   sideways, the strip kept clear for the home bar) */
+.avalon-release {
+  position: fixed;
+  z-index: 10;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 1px;
+  color: #fff8;
+  font: 11px ui-monospace, monospace;
+  pointer-events: none;
+}
+.avalon-release[hidden] { display: none; }

@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../features/solo/voice_lines.dart';
+import 'perf_stage.dart';
+import 'web_audio.dart';
 
 /// Plays a computer player's line in their own voice, joined from the
 /// recorded pieces in `assets/voice/<persona>/` (see voice_lines.dart). A
@@ -65,6 +68,7 @@ class BotVoices extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setVolume(double value) async {
     volume = value.clamp(0, 1);
     unawaited(_player?.setVolume(volume));
+    if (kIsWeb) WebAudio.instance.setVoiceVolume(volume);
     notifyListeners();
     if (persist) {
       try {
@@ -139,11 +143,29 @@ class BotVoices extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Says [line] in [persona]'s voice, cutting off whatever was being said.
-  Future<void> speak(String? persona, String line) async {
+  /// Completes with true once it has been said to the end; false when it
+  /// was not said, or was cut off.
+  Future<bool> speak(String? persona, String line) async {
     final turn = _nextLine();
-    if (persona == null || !enabled || volume == 0 || !_foreground) return;
+    if (persona == null || !enabled || volume == 0 || !_foreground) {
+      return false;
+    }
     final assets = await recordingsFor(persona, line);
-    if (assets == null || turn != _line || _disposed) return;
+    if (assets == null || turn != _line || _disposed) return false;
+    if (kIsWeb) {
+      // On the web the line goes to an element the player's first touch
+      // has unlocked (Safari on the iPhone plays nothing otherwise; see
+      // web_audio_web.dart), joined into one sound.
+      perfNote('voice');
+      final ended = await WebAudio.instance.playVoice([
+        for (final (asset, pause) in assets) ...[
+          Uri.base.resolve('assets/$asset').toString(),
+          if (pause > 0) Uri.base.resolve('assets/${_silence(pause)}').toString(),
+        ]
+      ], volume);
+      perfNote(ended ? 'voiceEnd' : 'voiceCut');
+      return ended && turn == _line && !_disposed;
+    }
     try {
       // Never take the audio session: online, people are talking over WebRTC.
       final player =
@@ -157,25 +179,30 @@ class BotVoices extends ChangeNotifier with WidgetsBindingObserver {
           if (pause > 0) AudioSource.asset(_silence(pause)),
         ]
       ]);
-      if (turn != _line || _disposed) return;
+      if (turn != _line || _disposed) return false;
       // play() also returns when the line is cut off (paused or stopped for
       // the next one): then this line is done with the shared player, and
       // must not wait on, or stop, whatever plays next
       final cutOff = _lineChanged.future;
       await player.play();
-      if (turn != _line || _disposed) return;
+      if (turn != _line || _disposed) return false;
       await Future.any([
         player.processingStateStream
             .firstWhere((s) => s == ProcessingState.completed),
         cutOff,
       ]);
-      if (turn != _line || _disposed) return;
+      if (turn != _line || _disposed) return false;
       await player.stop();
-    } catch (_) {/* A voice that cannot play must never hold up the game. */}
+      return true;
+    } catch (_) {
+      // A voice that cannot play must never hold up the game.
+      return false;
+    }
   }
 
   Future<void> stop() async {
     _nextLine();
+    if (kIsWeb) WebAudio.instance.stopVoice();
     try {
       await _player?.stop();
     } catch (_) {}

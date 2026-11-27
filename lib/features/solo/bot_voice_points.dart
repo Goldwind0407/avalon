@@ -70,27 +70,7 @@ extension BotVoicePoints on BotVoice {
     return o.history.isEmpty ? const [] : o.history.last.team;
   }
 
-  String _stance(bool approve) => approve
-      ? _pick([
-          '這隊我先贊成。',
-          '這隊我支持。',
-          '這隊我願意試。',
-          '這票我會投贊成。',
-          '這組我可以接受。',
-          '這次我投贊成。',
-          '這隊我讓它過。',
-          '我這票會是贊成。',
-        ])
-      : _pick([
-          '這隊我投反對。',
-          '這次我想換個組合。',
-          '這份名單我不支持。',
-          '這票我會反對。',
-          '這隊我先擋下來。',
-          '這次我不會投贊成。',
-          '我想再看下一個組合。',
-          '這組我過不了。',
-        ]);
+  String _stance(bool approve) => _closing(approve);
 
   /// Why the leader picked these people.
   _Point? _leaderPoint(BotObservation o, Set<int> allies) {
@@ -160,9 +140,6 @@ extension BotVoicePoints on BotVoice {
         intent: 'explainTeam', stance: true, weight: 4, quests: cited.toList());
   }
 
-  /// Below this suspicion a good bot treats a player as cleared.
-  static const clearedBelow = .1;
-
   /// Everything this bot could say right now, best first is decided later.
   List<_Point> _points(BotObservation o, bool approve, Set<int> allies,
       [List<double>? belief]) {
@@ -172,7 +149,7 @@ extension BotVoicePoints on BotVoice {
     bool mine(int s) =>
         s == me ||
         allies.contains(s) ||
-        (!o.evil && belief != null && belief[s] < clearedBelow);
+        (!o.evil && belief != null && belief[s] < BotVoice.clearedBelow);
     final others = [
       for (final s in team)
         if (s != me) s
@@ -524,7 +501,7 @@ extension BotVoicePoints on BotVoice {
         }
       }
     }
-    points.addAll(_ladyPoints(o, approve, allies));
+    points.addAll(_ladyPoints(o, approve, allies, belief));
     points.addAll(_claimPoints(o, approve, allies, belief));
     return points;
   }
@@ -545,7 +522,11 @@ extension BotVoicePoints on BotVoice {
         return points;
       }
       final who = _n(c.speaker), key = 'claim/${c.speaker}/$m';
-      if (o.team.contains(m) && !approve) {
+      // a good player who has cleared the one named (his own Lady check,
+      // the cards) does not take up the claim against him
+      final cleared =
+          !o.evil && belief != null && belief[m] < BotVoice.clearedBelow;
+      if (o.team.contains(m) && !approve && !cleared) {
         points.add(_Point(
             key,
             _pick([
@@ -644,7 +625,8 @@ extension BotVoicePoints on BotVoice {
 
   /// What the Lady of the Lake was said to show, as announced at the table.
   /// The holder may be lying, so it is quoted as their word, not as fact.
-  List<_Point> _ladyPoints(BotObservation o, bool approve, Set<int> allies) {
+  List<_Point> _ladyPoints(BotObservation o, bool approve, Set<int> allies,
+      [List<double>? belief]) {
     final me = o.seat;
     final points = <_Point>[];
     final claims = [
@@ -676,6 +658,14 @@ extension BotVoicePoints on BotVoice {
       }
       // an evil player never repeats a check that exposes an ally
       if (allies.contains(t) && c.claimedEvil!) continue;
+      // a good player who has cleared the one named does not repeat the
+      // accusation against him (the holder is lying, or a Lancelot moved)
+      if (c.claimedEvil! &&
+          !o.evil &&
+          belief != null &&
+          belief[t] < BotVoice.clearedBelow) {
+        continue;
+      }
       final onTeam = o.team.contains(t);
       if (c.claimedEvil! && onTeam && !approve) {
         points.add(_Point(
@@ -774,11 +764,14 @@ extension BotVoicePoints on BotVoice {
     _topics.update(tally(point), (n) => n + 1, ifAbsent: () => 1);
     final agree = agreeWith == null
         ? null
-        : _pick([
-            '我跟${_n(o.statements[agreeWith].speaker)}想的一樣。',
-            '${_n(o.statements[agreeWith].speaker)}說的我同意。',
-            '${_n(o.statements[agreeWith].speaker)}講的就是我想說的。',
-          ]);
+        : _pick(_own(
+            [
+              '我跟${_n(o.statements[agreeWith].speaker)}想的一樣。',
+              '${_n(o.statements[agreeWith].speaker)}說的我同意。',
+              '${_n(o.statements[agreeWith].speaker)}講的就是我想說的。',
+            ],
+            persona?.agree,
+            {'who': _n(o.statements[agreeWith].speaker)}));
     return DiscussionStatement(
         speaker: o.seat,
         quest: o.quest,

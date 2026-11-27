@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'perf_stage.dart';
 import 'sound_output.dart';
 
 enum GameSound {
@@ -26,6 +27,10 @@ enum GameSound {
 
   bool get important =>
       [approve, reject, success, failure, goodWin, evilWin].contains(this);
+
+  /// Small cues that only mark a step; right after an important sound they
+  /// are left out rather than heard on top of it.
+  bool get minor => [tap, token, turn, tick, page].contains(this);
 }
 
 /// Short, local, non-looping effects. Secret choices always share neutral cues.
@@ -37,6 +42,10 @@ class GameSounds extends ChangeNotifier with WidgetsBindingObserver {
   double volume = .6;
   bool _ready = false, _foreground = true, _disposed = false;
   final _last = <GameSound, DateTime>{};
+  DateTime? _lastImportant;
+
+  /// How long an important sound is left to be heard on its own.
+  static const afterImportant = Duration(milliseconds: 600);
   Future<void> _writes = Future.value();
   SharedPreferencesAsync? _preferences;
 
@@ -63,10 +72,18 @@ class GameSounds extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _last[cue] = now;
+    final important = _lastImportant;
+    if (cue.minor &&
+        important != null &&
+        now.difference(important) < afterImportant) {
+      return;
+    }
+    if (cue.important) _lastImportant = now;
     unawaited(_play(cue));
   }
 
   Future<void> _play(GameSound cue) async {
+    perfNote('sfx:${cue.name}');
     try {
       await _output.play(
           cue.name, volume * (cue == GameSound.tick ? .45 : 1), cue.important);

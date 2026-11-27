@@ -18,6 +18,8 @@
     { "collectionGroup": "pastGames", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "reviews", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
     { "collectionGroup": "limits", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
-    { "collectionGroup": "voiceSignals", "fieldPath": "expireAt", "ttl": true, "indexes": [] }
+    { "collectionGroup": "voiceSignals", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "perfReports", "fieldPath": "expireAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "perfDays", "fieldPath": "expireAt", "ttl": true, "indexes": [] }
   ]
 }
